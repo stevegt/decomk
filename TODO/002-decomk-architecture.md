@@ -38,9 +38,16 @@ tree are present and up to date, establish identity (domain/host),
 ensure a stamps directory exists, then hand off to the main “apply”
 command.
 
+- XXX rc.isconf uses rsync to pull over the network to update itself,
+  bin/isconf, configs, and makefiles. For `decomk`, we should just use
+  git clone or git pull.
+
 For `decomk`, that translates to:
 1. Choose a writable persistent home (see “Persistent directories”).
 2. Identify the **workspace** (repo root) and compute `workspaceKey`.
+   - XXX workspace might actually  be the entire container -- we need
+     to be able to install/update things in $PATH.  Or maybe we
+     install things in ~/bin, ~/.local, etc?
 3. Resolve a **contextKey** (e.g., `owner/repo`, `repo`, `DEFAULT`),
    from env + flags.
 4. Load configuration (global + optional repo-local override) and write
@@ -82,6 +89,13 @@ Directory selection (in priority order):
    - config: `${XDG_CONFIG_HOME:-$HOME/.config}/decomk`
    - state (stamps/audit/locks): `${XDG_STATE_HOME:-$HOME/.local/state}/decomk`
 3. Fallback: `/var/decomk` (config + state live together)
+
+- XXX what about ~/.local/var/decomk?  
+
+- XXX but wait.  how are dotfiles managed in the
+  devcontainer/codespaces ecosystems?  how are hoe directories
+  managed?  is it ever the case that a devcontainer user would have a
+  home directory that is shared between multiple containers?
 
 Notes:
 - If (2) is used, `decomk` should keep config and state separate.
@@ -174,8 +188,8 @@ Invalidation policy (MVP):
 - To re-run everything: `decomk clean` removes the stamps directory for
   the workspace/context (or calls an equivalent `make clean`).
 
-Optional (isconf-inspired) hardening:
-- Before invoking `make`, `decomk` may `touch` all existing stamp files
+Required (isconf-inspired) hardening:
+- Before invoking `make`, `decomk` should `touch` all existing stamp files
   in the stamps directory. This makes stamps an explicit “I want to
   re-run” mechanism (delete stamp), rather than allowing incidental
   timestamp/prereq changes to trigger re-runs.
