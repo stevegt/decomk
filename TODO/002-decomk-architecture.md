@@ -56,7 +56,9 @@ model is:
   explicitly disabled), then runs the requested context.
 
 This keeps the workspace repo clean (no generated state), and keeps the
-“policy” repo (profiles/presets + make targets) centralized and updateable.
+“policy” repo (contexts.conf + make targets) centralized and updateable.
+Like lunamake, this policy repo can use a branch-per-environment workflow
+(e.g., test → prod) to roll forward tool changes safely.
 
 For `decomk`, that translates to:
 1. Choose a writable persistent home (see “Persistent directories”).
@@ -69,6 +71,8 @@ For `decomk`, that translates to:
      running binary matches HEAD
 4. Refresh the configs/makefiles repo:
    - clone if missing
+   - checkout the configured ref/branch/tag/SHA (default branch, plus
+     an optional override) before pulling
    - `git pull --ff-only` to update
 5. Identify the **workspace** (repo root) and compute `workspaceKey`.
    - “Workspace” is the repo checkout that drives context selection
@@ -163,15 +167,11 @@ The key should be filesystem-safe (hex-encoded hash is easiest).
 We want isconf-like “macros expand to tuples + targets” in a format that
 humans can edit and that a Go CLI can parse deterministically.
 
-MVP recommendation: a `profiles.conf` file with the same core semantics
+MVP recommendation: a `contexts.conf` file with the same core semantics
 as isconf `conf/hosts.conf`:
 - Lines of the form `key: token token token`
 - Continuation lines append more tokens to the previous `key:`
 - `#` starts a comment (whole-line comments only, for MVP)
-
-Naming note:
-- “profiles” is a placeholder for “the `hosts.conf` analog”; see TODO 001
-  for alternatives (`presets`, `blueprints`, tool-namespaced `decomk.conf`, etc.).
 
 Tokens are whitespace-separated shell-words with a small, explicit
 quoting rule set:
@@ -188,8 +188,8 @@ Semantics:
 
 Config precedence (highest wins):
 1. `-config <path>` (or `DECOMK_CONFIG`) if provided
-2. config repo (e.g., `<configRepoRoot>/profiles.conf` + optional `profiles.d/*.conf`)
-3. (optional) repo-local config (e.g., `<repoRoot>/profiles.conf`) for experimentation/overrides
+2. config repo (e.g., `<configRepoRoot>/contexts.conf` + optional `contexts.d/*.conf`)
+3. (optional) repo-local config (e.g., `<repoRoot>/contexts.conf`) for experimentation/overrides
 
 Merging rule (simple and auditable):
 - Configs are key→[]token maps; when the same key exists in multiple
@@ -254,7 +254,7 @@ Locking:
 Keep packages as small, root-level directories (no `internal/`, no `pkg/`):
 - `cmd/decomk/`: main + CLI parsing
 - `state/`: resolve config/state directories + workspaceKey
-- `profiles/`: load/merge profiles.conf (name TBD)
+- `contexts/`: load/merge contexts.conf
 - `expand/`: macro expansion algorithm + cycle detection
 - `audit/`: write audit records + output tee
 - `makeexec/`: subprocess wrapper around `make`
@@ -282,7 +282,7 @@ Common flags:
 ## Subtasks
 
 - [x] 002.1 Decide default persistent directory policy (`/var/decomk` by default; `DECOMK_HOME` override) and document it.
-- [ ] 002.2 Specify `profiles.conf` grammar + search/merge precedence (global vs repo-local vs explicit `-config`).
+- [ ] 002.2 Specify `contexts.conf` grammar + search/merge precedence (config repo vs repo-local vs explicit `-config`).
 - [ ] 002.3 Define workspaceKey + contextKey algorithms (env + git fallback order + filesystem-safe encoding).
 - [ ] 002.4 Specify tokenization/quoting rules (single quotes) and how they map to `exec.Command` argv (no shell).
 - [ ] 002.5 Specify macro expansion semantics (isconf-like; add cycle detection + max depth).

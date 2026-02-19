@@ -17,9 +17,9 @@ hostname-based host configuration or Perl.
       environment. Side effects are expected (and are the point) and
       OK if they are safe on re-run (stamps prevent re-runs of those
       that aren't safe).
-    - XXX Also see the wikipedia idempotent page for more nuanced
+    - Also see the wikipedia idempotent page for more nuanced
       properties (e.g., “side effects” like package installations must
-      be idempotent). also see the monoid wikipedia page.
+      be idempotent). Also see the monoid wikipedia page.
 - Auditable: resolved variables/targets are written to a file for
   review/debugging.
 - No hostname fallback: identity comes from Codespaces env (or
@@ -116,7 +116,7 @@ Candidates:
 - `macros.conf` / `macros.d/` (honest about the expansion mechanism; a bit jargon-y)
 - Tool-namespaced: `decomk.conf` / `decomk.d/` (avoids bikeshedding; contents still define “keys”)
 
-Decision: keep context definitions in `decomk.conf` (and `decomk.d/*.conf`)
+Decision: keep context definitions in `contexts.conf` (and `contexts.d/*.conf`)
 
 ## isconf mapping (what we’re borrowing)
 
@@ -146,8 +146,11 @@ So: `hosts.conf` -> (expand macros) -> (select context) -> `etc/environment` sna
 ## Devcontainer design (proposed)
 
 ### 1) A `contexts.conf` file (hosts.conf analog)
-Add a repo-local file (name chosen) with the same “macro expansion”
-semantics as isconf, but intended for devcontainers:
+Add a `contexts.conf` file with the same “macro expansion” semantics as
+isconf, but intended for devcontainers. Prefer the canonical
+`contexts.conf` to live in the decomk config repo (so it can be shared
+across workspaces), with an optional repo-local overlay for
+experimentation/overrides:
 - Decision: call it `contexts.conf` (and optionally `contexts.d/*.conf`)
   rather than `repos.conf`. The file will include `DEFAULT` and other
   non-repo keys, so “repos” is misleading.
@@ -159,16 +162,13 @@ semantics as isconf, but intended for devcontainers:
       less portable if we later want a non-Make consumer (CLI/UI).
 
 Example (conceptual):
-- `DEFAULT: PLATFORM=codespaces codespace.base codespace.common`
-- `grokker: DEFAULT codespace.go codespace.storm`
-- `mob-consensus: DEFAULT codespace.go`
+- `DEFAULT: PLATFORM=codespaces Block00_base Block10_common`
+- `grokker: DEFAULT Block20_go Block30_storm`
+- `mob-consensus: DEFAULT Block20_go`
 
-Decision: use a short `cs.` prefix for shared capability groups
-(e.g., `cs.base`, `cs.common`, `cs.go`, `cs.storm`) instead of
-`codespace.`. Rationale: it reduces collisions with common make targets
-and makes it easy to grep for decomk-owned groups.
-XXX NO, DO NOT DO THIS:  it's ugly and unnecessary, since 'make' will
-be run in a controlled environment (the stamps dir) and the targets are well-known. Just use the bar name with no prefix.
+Decision: use isconf/lunamake-style `BlockNN_*` target groups for
+phases/capabilities. Don’t introduce an additional namespace prefix
+like `codespace.` or `cs.` unless we have a concrete collision problem.
 
 The wrapper expands `DEFAULT` + `<repo>` into an argv list containing both `VAR=value` tuples and Make targets.
 
@@ -209,20 +209,20 @@ Choices:
 In isconf, “BlockXX” targets group packages into phases (bootstrap → base → tools). For Codespaces, similar grouping helps keep installs understandable and incremental.
 
 Candidates:
-- Phase-style groups: `cs00.base`, `cs10.lang`, `cs20.tools`, `cs30.editors`, `cs40.project`
-- Capability groups: `codespace.base`, `codespace.go`, `codespace.node`, `codespace.neovim`, `codespace.llm`, `codespace.storm`
-- Repo groups: `codespace.repo.grokker`, `codespace.repo.mob-consensus`, etc.
-Decision: XXX NO PREFIX -- JUST CALL THEM BlockXX
+- Phase-style groups: `Block00_base`, `Block10_lang`, `Block20_tools`, `Block30_editors`, `Block40_project`
+- Capability groups: `Block20_go`, `Block21_node`, `Block30_neovim`, `Block30_llm`, `Block30_storm`
+- Repo groups: avoid encoding the repo name into the target name; prefer
+  expressing repo-specific composition in `contexts.conf` itself.
 
 Pragmatic MVP: define a small set of **capability groups**, then compose per-repo contexts from them via `DEFAULT` + `<repo>`.
 
 ## Subtasks
 
-- [ ] 001.1 Decide naming for the `hosts.conf` analog (`profiles.conf` vs alternatives above).  XXX decomk.conf
-- [ ] 001.2 Choose config file name/location and syntax (hosts.conf analog).
+- [x] 001.1 Decide naming for the `hosts.conf` analog (`contexts.conf` + optional `contexts.d/*.conf`).
+- [x] 001.2 Choose config file name/location and syntax (use isconf-like `contexts.conf` grammar).
 - [ ] 001.3 Choose wrapper language (Go vs Bash) and document the tradeoffs/decision.
 - [ ] 001.4 Implement macro expansion (isconf `expandmacro` semantics) without Perl.
 - [ ] 001.5 Implement env snapshot generation (tuples-only) and decide where it is written.
-- [ ] 001.6 Define initial target groups (BLOCK_* analogs) and a minimal `DEFAULT` toolset.
-- [ ] 001.7 Define the update/self-update model (method B): pull tool + config repos; rebuild + re-exec on tool updates.
+- [ ] 001.6 Define initial target groups (BLOCK_XX analogs) and a minimal `DEFAULT` toolset.
+- [ ] 001.7 Define the update/self-update model (method B): pull tool + config repos; support a pinned config ref/branch (lunamake test→prod style); rebuild + re-exec on tool updates.
 - [ ] 001.8 Pilot in `mob-sandbox` via `devcontainer.json` `postCreateCommand`, then generalize.

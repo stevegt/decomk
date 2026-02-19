@@ -31,13 +31,25 @@ isconf-style “touch existing stamps before running `make`” behavior as
 the default (no disable flag planned). This matches the provisioning
 expectation: *delete a stamp to re-run*.
 
-XXX read /home/stevegt/gohack/github.com/stevegt/lunamake/HISTORY.md and revise this TODO based on what we learn from the lunamake experiment.
+Status: reviewed `/home/stevegt/gohack/github.com/stevegt/lunamake/HISTORY.md`.
+Key lessons from the lunamake experiment:
+- It iterated through `monolith` → `pre-post` → `modular` architectures.
+  The “modular numbered scripts” approach (e.g., `20-make`, `40-stow`)
+  shows a pragmatic path: keep the core small and push replaceable
+  policy into scripts/targets.
+- There was a `replace_make` spike and later a pivot toward a
+  Dockerfile-like stanza syntax, plus multiple parser/lexer experiments.
+  This is a warning: “replace make” and “design a better language” are
+  enticing, but they quickly become their own projects.
+- The repo’s docs describe a branch-per-environment workflow (test →
+  prod). This maps directly onto decomk’s “config repo” idea: keep
+  policy in a git repo and promote it via branches/refs.
 
 Open questions to settle before we write much code:
 - Do we still want to preserve any “real” make timestamp/prereq behavior,
   or are we explicitly using make as an “ordered stamp executor”?
 - If we later replace make, how much do we want to keep stable?
-  - config syntax (“profiles.conf” style) and macro expansion semantics
+  - config syntax (`contexts.conf` style) and macro expansion semantics
   - the meaning of “target tokens” (make targets vs engine-neutral “steps”)
   - the stamp state model (files vs journal/db)
 
@@ -154,6 +166,11 @@ before they can bootstrap anything.
 ## Lunamake review (what it suggests for decomk)
 
 Path examined: `/home/stevegt/gohack/github.com/stevegt/lunamake`.
+
+Per `HISTORY.md`, lunamake explored multiple decomposition strategies
+(`monolith`, `pre-post`, `modular`), spiked replacing `make`, and later
+pivoted toward a Dockerfile-like stanza syntax. That history closely
+matches decomk’s current “make vs new engine/language” decision point.
 
 What exists there (high level):
 - A Python “modular” runner that:
