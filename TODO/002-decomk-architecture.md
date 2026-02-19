@@ -126,7 +126,9 @@ Notes:
   containers that share the same home volume.
 
 Proposed layout (all under `DECOMK_HOME` or `/var/decomk`):
-- XXX the following may change depending on TODO 003 outcome
+- Note: this layout assumes the “make-as-engine” direction discussed in
+  TODO 003. If we later replace `make` as the execution/state engine,
+  the repo and state layout may change.
 - Tool repo:
   - `.../repos/decomk/` (git clone)
 - Configs/makefiles repo:

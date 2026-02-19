@@ -12,15 +12,14 @@ hostname-based host configuration or Perl.
 - Layered: `DEFAULT` (shared tools) + `<repo>` (repo-specific tools).
 - Idempotent: re-running is safe (good for `postCreateCommand` +
   `postStartCommand`).
-    - XXX see the wikipedia idempotent page for more nuanced
-      properties (e.g., “side effects” like package installations may
-      not be idempotent, but the resulting state should be).  also see
-      the monoid wikipedia page.
     - Working definition for this tool: repeated runs should converge
       on the same declared toolset without breaking a working
       environment. Side effects are expected (and are the point) and
       OK if they are safe on re-run (stamps prevent re-runs of those
       that aren't safe).
+    - XXX Also see the wikipedia idempotent page for more nuanced
+      properties (e.g., “side effects” like package installations must
+      be idempotent). also see the monoid wikipedia page.
 - Auditable: resolved variables/targets are written to a file for
   review/debugging.
 - No hostname fallback: identity comes from Codespaces env (or
@@ -86,12 +85,10 @@ Inputs (preferred order):
    owner/repo, that should take precedence over the repo name alone
    (e.g., `stevegt/grokker` should take precedence over `grokker` if
    both exist). 
-   - XXX do we handle this in e.g. repos.conf, or just in the wrapper
-     logic?
-   - Recommendation: handle precedence in the wrapper by trying a list
-     of candidate context keys in order (override var → `owner/repo` →
-     `repo` → `DEFAULT`); the config file can simply define whichever
-     keys are needed.
+    - Decision: handle precedence in the wrapper by trying a list
+      of candidate context keys in order (override var → `owner/repo` →
+      `repo` → `DEFAULT`); the config file can simply define whichever
+      keys are needed.
 2. Optional override: `DECOMK_CONTEXT` / `DECOMK_REPO` (for local dev and
 tests)
    - Update: the tool is now named `decomk` and is not Codespaces-only.
@@ -118,9 +115,8 @@ Candidates:
 - `rules.conf` / `rules.d/` (generic; doesn’t convey composition as well)
 - `macros.conf` / `macros.d/` (honest about the expansion mechanism; a bit jargon-y)
 - Tool-namespaced: `decomk.conf` / `decomk.d/` (avoids bikeshedding; contents still define “keys”)
-  - XXX let's do this and stop bikeshedding -- rename elsewhere.  are
-    we likely to need another config file for decomk, or should we put
-    everything in decomk.conf?
+
+Decision: keep context definitions in `decomk.conf` (and `decomk.d/*.conf`)
 
 ## isconf mapping (what we’re borrowing)
 
@@ -132,10 +128,9 @@ In isconf, `bin/platform` is executed early to set `PLATFORM`, `OS`, `OSVERSION`
 For Codespaces, OS is usually “Linux in a devcontainer”, but the same idea still helps:
 - `PLATFORM=codespaces` (or `codespaces-ubuntu`) can gate “container-only” steps (apt installs, devcontainer assumptions)
 - local runs can set `PLATFORM=local-darwin`/`local-linux` if we want parity
-- XXX not sure we need platform
-  - Recommendation: for an MVP that targets Codespaces only, hardcode
-    `PLATFORM=codespaces` in the wrapper and keep the variable as a
-    future extension point (no separate `platform` tool needed yet).
+  - Decision (MVP): keep `PLATFORM` as a wrapper-set variable (no
+    separate `platform` tool). Default to `PLATFORM=codespaces` when
+    running in Codespaces; otherwise `PLATFORM=devcontainer`.
 
 ### `hosts.conf` and generated `etc/environment`
 In isconf, `conf/hosts.conf` is the **source of truth** mapping a context key (e.g., `DEFAULT`, `HOSTNAME`) to:
@@ -150,15 +145,15 @@ So: `hosts.conf` -> (expand macros) -> (select context) -> `etc/environment` sna
 
 ## Devcontainer design (proposed)
 
-### 1) A `profiles.conf` file (hosts.conf analog)
-Add a repo-local file (name TBD) with the same “macro expansion” semantics as isconf, but intended for devcontainers:
-- XXX call this repos.conf?  pros and cons.
-  - Recommendation: prefer `profiles.conf` (or `decomk.conf`) over
-    `repos.conf`. The file will include `DEFAULT` and other non-repo
-    keys, so “repos” is a little misleading.
+### 1) A `contexts.conf` file (hosts.conf analog)
+Add a repo-local file (name chosen) with the same “macro expansion”
+semantics as isconf, but intended for devcontainers:
+- Decision: call it `contexts.conf` (and optionally `contexts.d/*.conf`)
+  rather than `repos.conf`. The file will include `DEFAULT` and other
+  non-repo keys, so “repos” is misleading.
   - Simplification option: skip a separate config file and encode
     per-repo defaults directly in the Makefile (e.g., by including
-    `mk/profiles.mk`).
+    `mk/contexts.mk`).
     - Pros: fewer moving parts; “just Make”.
     - Cons: harder to parse/expand safely; mixes policy with recipes;
       less portable if we later want a non-Make consumer (CLI/UI).
@@ -167,11 +162,13 @@ Example (conceptual):
 - `DEFAULT: PLATFORM=codespaces codespace.base codespace.common`
 - `grokker: DEFAULT codespace.go codespace.storm`
 - `mob-consensus: DEFAULT codespace.go`
-- XXX codespace. in front of everything is ugly
-  - Recommendation: use a shorter prefix like `cs.` (e.g., `cs.base`,
-    `cs.common`, `cs.go`, `cs.storm`) or `space.` if we want to avoid
-    ambiguity. Keep names noun-like so they compose cleanly.
-    - XXX why have the prefix at all?
+
+Decision: use a short `cs.` prefix for shared capability groups
+(e.g., `cs.base`, `cs.common`, `cs.go`, `cs.storm`) instead of
+`codespace.`. Rationale: it reduces collisions with common make targets
+and makes it easy to grep for decomk-owned groups.
+XXX NO, DO NOT DO THIS:  it's ugly and unnecessary, since 'make' will
+be run in a controlled environment (the stamps dir) and the targets are well-known. Just use the bar name with no prefix.
 
 The wrapper expands `DEFAULT` + `<repo>` into an argv list containing both `VAR=value` tuples and Make targets.
 
@@ -189,14 +186,14 @@ Two implementation options:
   easier tests; clearer error messages; safer parsing.
 - Cons: requires Go toolchain in the container (or shipping a prebuilt
   binary); adds build/distribution decisions.
-- XXX we can ship a prebuilt binary by using curl in the Dockerfile,
-  or we can add a `go install` step to the `postCreateCommand` (which
-  is more self-contained but less efficient for rebuilds).  
-  - Recommendation: don’t commit binaries. For MVP, prefer `go run
+  - Decision: don’t commit binaries. For MVP, prefer `go run
     ./cmd/decomk ...` (no install step) or `go install ./cmd/decomk`
     during `postCreateCommand`. A “curl a release binary” approach can
     come later once the tool stabilizes.
-    - XXX what is postCreateCommand?
+
+`postCreateCommand` note: in `devcontainer.json`, `postCreateCommand`
+runs after the container is created and the workspace is available.
+It’s a natural place to run bootstraps like `decomk`.
 
 Recommendation: start with **Go** if “correct expansion + testability” matters more than “no toolchain assumptions”. If Codespaces images differ per repo, a tiny **Bash** wrapper may be easier to guarantee runs everywhere.
 
@@ -215,17 +212,13 @@ Candidates:
 - Phase-style groups: `cs00.base`, `cs10.lang`, `cs20.tools`, `cs30.editors`, `cs40.project`
 - Capability groups: `codespace.base`, `codespace.go`, `codespace.node`, `codespace.neovim`, `codespace.llm`, `codespace.storm`
 - Repo groups: `codespace.repo.grokker`, `codespace.repo.mob-consensus`, etc.
-- XXX the “codespace.” prefix is a bit too verbose
-  - Recommendation: if we keep a prefix at all, shorten to `cs.` and
-    reserve `cs.repo.*` only for rare repo-specific phases (most repos
-    should compose capability groups instead).
-    - XXX why do we need a prefix?
+Decision: XXX NO PREFIX -- JUST CALL THEM BlockXX
 
 Pragmatic MVP: define a small set of **capability groups**, then compose per-repo contexts from them via `DEFAULT` + `<repo>`.
 
 ## Subtasks
 
-- [ ] 001.1 Decide naming for the `hosts.conf` analog (`profiles.conf` vs alternatives above).
+- [ ] 001.1 Decide naming for the `hosts.conf` analog (`profiles.conf` vs alternatives above).  XXX decomk.conf
 - [ ] 001.2 Choose config file name/location and syntax (hosts.conf analog).
 - [ ] 001.3 Choose wrapper language (Go vs Bash) and document the tradeoffs/decision.
 - [ ] 001.4 Implement macro expansion (isconf `expandmacro` semantics) without Perl.

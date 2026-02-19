@@ -31,7 +31,7 @@ isconf-style “touch existing stamps before running `make`” behavior as
 the default (no disable flag planned). This matches the provisioning
 expectation: *delete a stamp to re-run*.
 
-XXX this is not yet settled -- review lunamake repo, including HISTORY.md 
+XXX read /home/stevegt/gohack/github.com/stevegt/lunamake/HISTORY.md and revise this TODO based on what we learn from the lunamake experiment.
 
 Open questions to settle before we write much code:
 - Do we still want to preserve any “real” make timestamp/prereq behavior,
