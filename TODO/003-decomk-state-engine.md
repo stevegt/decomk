@@ -156,21 +156,50 @@ What exists there (high level):
   - context expansion → env snapshot → numbered hooks → make-in-stampdir
 - The Dockerfile-like stanza idea is a promising **better language**
   than Makefile recipes for multi-line commands and explicit ordering.
-  - XXX but the advantage of make is the re-use and partial ordering of targets
-  - XXX make is actually a functional language, I think
+  The main tradeoff is that a pure “ordered stanza list” gives up one of
+  make’s biggest strengths: **DAG reuse and partial ordering**. Make can
+  share intermediate targets across multiple higher-level targets, and
+  it can skip work when only part of the graph is already satisfied.
+  Any non-make engine that wants similar efficiency needs an explicit
+  dependency model (graph) and a state model.
+
+  Also: make includes a surprisingly powerful macro/function layer
+  (string expansion + built-in functions). It can feel “functional-ish”
+  in the sense of “pure text transforms” (until you mix in `$(shell ...)`
+  and environment), but that power tends to produce hard-to-maintain
+  build logic when used heavily.
+
+  XXX no, i mean the make language itself is actually a functional
+  language with intentional side effects (file creation, builds,
+  arbitrary shell execution). 
 
 ### Cons / risks
 
 - The Go rewrite appears incomplete/inconsistent; finishing it likely
   means a significant redesign effort.
-  - XXX but codex can help with this
+  LLM assistance can accelerate refactors, parser work, and tests, but
+  it does not eliminate the underlying design risk: we still need a
+  crisp model for syntax, expansion, state/journal semantics, and
+  failure behavior.
 - Lunamake’s scope trends toward full host provisioning (and even
   gdo-backed state ideas), which is larger than decomk’s devcontainer
   bootstrap goal.
-  - XXX gdo is now called promisegrid; some principles carry over
+  The old “gdo” framing in lunamake is now more aligned with
+  PromiseGrid. Some principles (content-addressed state, append-only
+  journals, remote cache/verification) may carry over, but they are
+  likely out of scope for decomk’s near-term “devcontainer bootstrap”
+  goal.
 - Mixing “journaled stanzas” with a DAG engine is non-trivial:
   journaling is naturally linear; make is naturally a graph.
-  - XXX show examples from lunamake to clarify this tension
+  Example of the “graph” worldview in lunamake:
+  - `.local/simple.lm` contains make-style targets like `Block00:
+    Block00_install images` and `Block12: Block10 ...`, which encode a
+    dependency DAG and enable reuse of intermediate stamps.
+
+  Example of the “linear journal” worldview in lunamake:
+  - `testdata/simple.lm` is Dockerfile-like (`FROM`, `RUN`, `COPY`) and
+    is intended to run as an ordered sequence of stanzas whose history
+    is recorded by hashing/journaling.
 
 ### What we can steal for decomk (low risk, high value)
 
@@ -178,7 +207,10 @@ What exists there (high level):
 - Offer an optional “touch all stamps first” mode (explicit invalidation).
 - Keep config syntax close to isconf/hosts.conf (continuations +
   shlex-like quoting) and generate an env snapshot for audit.
-  - XXX stamps, or a journal?
+  For decomk, treat **stamps** as the primary execution state (because
+  they interoperate with make) and treat the **audit log** as a journal
+  for debugging and change review (plan, resolved tuples/targets,
+  make output, exit status). Don’t conflate the two in MVP.
 
 ### A possible “better language” path for decomk
 
@@ -187,13 +219,27 @@ format inspired by lunamake’s Dockerfile-like stanzas:
 - Each stanza is one op (RUN/COPY/ENV/…)
 - Multi-line bodies are natural (indentation)
 - State can be journaled by stanza hash (no `touch $@`)
-  - XXX does lunamake support make-like stanzas with deps? if so, show
-    an example.
+  Lunamake contains both ideas, but not as a single finished system:
+  - The Dockerfile-like `.lm` examples (`testdata/simple.lm`) are linear
+    and do not express make-like dependencies.
+  - There are make-like stanzas with prerequisites in other files (for
+    example, `.local/main.lm` starts with `target_func: prereq1 prereq2
+    ...` and `.local/simple.lm` contains `BlockXX:` dependency chains),
+    but that’s essentially “keep make’s graph semantics”, not the
+    Dockerfile-style journal engine.
+
+  If decomk adopts a stanza/journal language later, we should assume we
+  will need to add an explicit dependency/triggers model (or accept
+  “linear migrations” semantics and give up DAG reuse).
 
 This could start as a **separate mode**:
 - `decomk run` (make engine)
 - `decomk apply` (lm/journal engine)
-- XXX no
+
+Recommendation for decomk MVP: do **not** ship two engines. Keep `make`
+as the state engine, and prototype any `.lm`/journal engine as a
+separate experiment (e.g., under `x/` or a separate repo) until it
+proves it can replace make cleanly.
 
 Keeping both might be worthwhile if they serve different audiences:
 - Make engine: people already living in Makefiles
