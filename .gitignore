@@ -1,0 +1,8 @@
+# Local state / editor files
+.grok
+.grok.lock
+nv.shada
+*.shada
+
+# Crash dumps
+core.*
