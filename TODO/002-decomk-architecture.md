@@ -24,6 +24,15 @@ Non-goals (for MVP):
 - Managing system package installs directly (that stays in `make`).
 - A daemon/service. `decomk` is a CLI invoked by lifecycle hooks.
 
+## Current decisions (tentative)
+
+- State engine: GNU `make` + stamps.
+- Stamp behavior: `decomk` pre-touches existing stamps by default (no flag planned).
+- Update model: method (B) + self-update is required:
+  - `decomk` and its config live under a persistent root (default `/var/decomk`) as git clones.
+  - Each run does `git pull --ff-only` and re-execs into the updated tool binary when needed.
+- Pilot repo: `mob-sandbox` (devcontainer + `postCreateCommand`).
+
 ## High-level overview
 
 `decomk` is a small CLI wrapper around `make`, modeled after isconf’s
@@ -47,7 +56,7 @@ model is:
   explicitly disabled), then runs the requested context.
 
 This keeps the workspace repo clean (no generated state), and keeps the
-“policy” repo (contexts + make targets) centralized and updateable.
+“policy” repo (profiles/presets + make targets) centralized and updateable.
 
 For `decomk`, that translates to:
 1. Choose a writable persistent home (see “Persistent directories”).
@@ -152,11 +161,15 @@ The key should be filesystem-safe (hex-encoded hash is easiest).
 We want isconf-like “macros expand to tuples + targets” in a format that
 humans can edit and that a Go CLI can parse deterministically.
 
-MVP recommendation: a `contexts.conf` file with the same core semantics
+MVP recommendation: a `profiles.conf` file with the same core semantics
 as isconf `conf/hosts.conf`:
 - Lines of the form `key: token token token`
 - Continuation lines append more tokens to the previous `key:`
 - `#` starts a comment (whole-line comments only, for MVP)
+
+Naming note:
+- “profiles” is a placeholder for “the `hosts.conf` analog”; see TODO 001
+  for alternatives (`presets`, `blueprints`, tool-namespaced `decomk.conf`, etc.).
 
 Tokens are whitespace-separated shell-words with a small, explicit
 quoting rule set:
@@ -173,8 +186,8 @@ Semantics:
 
 Config precedence (highest wins):
 1. `-config <path>` (or `DECOMK_CONFIG`) if provided
-2. config repo (e.g., `<configRepoRoot>/contexts.conf` + optional `contexts.d/*.conf`)
-3. (optional) repo-local config (e.g., `<repoRoot>/contexts.conf`) for experimentation/overrides
+2. config repo (e.g., `<configRepoRoot>/profiles.conf` + optional `profiles.d/*.conf`)
+3. (optional) repo-local config (e.g., `<repoRoot>/profiles.conf`) for experimentation/overrides
 
 Merging rule (simple and auditable):
 - Configs are key→[]token maps; when the same key exists in multiple
@@ -239,7 +252,7 @@ Locking:
 Keep packages as small, root-level directories (no `internal/`, no `pkg/`):
 - `cmd/decomk/`: main + CLI parsing
 - `state/`: resolve config/state directories + workspaceKey
-- `contexts/`: load/merge contexts.conf
+- `profiles/`: load/merge profiles.conf (name TBD)
 - `expand/`: macro expansion algorithm + cycle detection
 - `audit/`: write audit records + output tee
 - `makeexec/`: subprocess wrapper around `make`
@@ -260,14 +273,14 @@ Common flags:
 - `-context <key>` (force context; bypass auto-detect)
 - `-config <path>` (explicit config file path)
 - `-makefile <path>` (override default `Makefile`)
-- `-touch-stamps` (enable/disable pre-touching existing stamp files)
+- (no flag) always pre-touch existing stamp files before running `make`
 - `-force` (force rebuild; e.g., `make -B` or run in a fresh stamp dir)
 - `-v` (verbose)
 
 ## Subtasks
 
 - [x] 002.1 Decide default persistent directory policy (`/var/decomk` by default; `DECOMK_HOME` override) and document it.
-- [ ] 002.2 Specify `contexts.conf` grammar + search/merge precedence (global vs repo-local vs explicit `-config`).
+- [ ] 002.2 Specify `profiles.conf` grammar + search/merge precedence (global vs repo-local vs explicit `-config`).
 - [ ] 002.3 Define workspaceKey + contextKey algorithms (env + git fallback order + filesystem-safe encoding).
 - [ ] 002.4 Specify tokenization/quoting rules (single quotes) and how they map to `exec.Command` argv (no shell).
 - [ ] 002.5 Specify macro expansion semantics (isconf-like; add cycle detection + max depth).

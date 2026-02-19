@@ -1,9 +1,10 @@
 # TODO 001 - decomk: isconf-like devcontainer tool bootstrap
 
 Goal: create an isconf-inspired “context -> target groups + vars”
-bootstrap so a GitHub Codespace can automatically install **shared**
-dev tools plus **repo-specific** tools using a Makefile, without
-needing hostname-based host configuration or Perl.
+bootstrap so a devcontainer-based workspace (Codespaces now; other
+hosts later) can automatically install **shared** dev tools plus
+**repo-specific** tools using a Makefile, without needing
+hostname-based host configuration or Perl.
 
 ## Desired properties
 
@@ -67,16 +68,16 @@ Multi-repo workspaces:
   still best expressed as “bootstrap clones N repos” so it works in
   non-Codespaces hosts (DevPod, self-host, Promisegrid).
 
-Implication for `spaceconf` (this TODO’s tool):
+Implication for `decomk` (this TODO’s tool):
 - We should treat **Dev Container** as the portable hook point
-  (`postCreateCommand` runs `spaceconf make ...`), and treat Codespaces
+  (`postCreateCommand` runs `decomk make ...`), and treat Codespaces
   as *one* platform that provides useful default identity (`owner/repo`,
   codespace name, etc.).
 - For non-Codespaces runs (local devcontainers, DevPod, GCP self-host),
-  require an explicit override env var (`SPACECONF_CONTEXT`, etc.) so we
+  require an explicit override env var (`DECOMK_CONTEXT`, etc.) so we
   don’t bake GitHub-specific assumptions into the core algorithm.
 
-## Context identity (Codespaces)
+## Context identity (devcontainers)
 
 Inputs (preferred order):
 1. `GITHUB_REPOSITORY` (required in Codespaces; `owner/repo`)  --
@@ -91,21 +92,35 @@ Inputs (preferred order):
      of candidate context keys in order (override var → `owner/repo` →
      `repo` → `DEFAULT`); the config file can simply define whichever
      keys are needed.
-2. Optional override: `CSWG_CONTEXT` / `CSWG_REPO` (for local dev and
+2. Optional override: `DECOMK_CONTEXT` / `DECOMK_REPO` (for local dev and
 tests)
-   - XXX we need a name for this tool, not "CSWG". something like:
-    - spacemaker: it "makes" the "space" (Codespace) ready to work
-    - spacemakr: more unique
-    - spaceconf: like isconf but for Codespaces
-    - spaceconfig: more unique but less catchy
-   - Recommendation: use `spaceconf` as a working name (binary name,
-     config naming, env var prefix: `SPACECONF_*`). If we want to
-     avoid churn, support `CSWG_*` as deprecated aliases during
-     transition.
+   - Update: the tool is now named `decomk` and is not Codespaces-only.
+     Prefer `DECOMK_CONTEXT` / `DECOMK_REPO` and the `DECOMK_*` prefix.
+   - Historical naming brainstorm (from when this was Codespaces-centric):
+     - spacemaker: it "makes" the "space" (Codespace) ready to work
+     - spacemakr: more unique
+     - spaceconf: like isconf but for Codespaces
+     - spaceconfig: more unique but less catchy
 
 Derived:
 - `REPO_NAME=${GITHUB_REPOSITORY##*/}`
 - `CODESPACE_NAME=$CODESPACE_NAME` (optional; useful for labeling/logging)
+
+## Naming: alternatives to `contexts.*`
+
+The term “context” is core to the algorithm, but “contexts” is awkward
+in filenames and hard to say. Alternatives for the `hosts.conf` analog:
+
+Candidates:
+- `profiles.conf` / `profiles.d/` (intuitive: “DEFAULT profile + repo profile”)
+- `presets.conf` / `presets.d/` (also intuitive; implies “known-good defaults”)
+- `blueprints.conf` / `blueprints.d/` (evokes “workspace blueprint”, but longer)
+- `rules.conf` / `rules.d/` (generic; doesn’t convey composition as well)
+- `macros.conf` / `macros.d/` (honest about the expansion mechanism; a bit jargon-y)
+- Tool-namespaced: `decomk.conf` / `decomk.d/` (avoids bikeshedding; contents still define “keys”)
+  - XXX let's do this and stop bikeshedding -- rename elsewhere.  are
+    we likely to need another config file for decomk, or should we put
+    everything in decomk.conf?
 
 ## isconf mapping (what we’re borrowing)
 
@@ -133,18 +148,17 @@ Note: despite the name, this is *not* the host OS `/etc/environment`; it’s a g
 
 So: `hosts.conf` -> (expand macros) -> (select context) -> `etc/environment` snapshot. They are directly related.
 
-## Codespaces design (proposed)
+## Devcontainer design (proposed)
 
-### 1) A `contexts.conf` file (hosts.conf analog)
-Add a repo-local file (name TBD) with the same “macro expansion” semantics as isconf, but intended for Codespaces:
+### 1) A `profiles.conf` file (hosts.conf analog)
+Add a repo-local file (name TBD) with the same “macro expansion” semantics as isconf, but intended for devcontainers:
 - XXX call this repos.conf?  pros and cons.
-  - Recommendation: prefer `contexts.conf` (or `spaceconf.conf`) over
+  - Recommendation: prefer `profiles.conf` (or `decomk.conf`) over
     `repos.conf`. The file will include `DEFAULT` and other non-repo
-    contexts, so “repos” is a little misleading. If we later want
-    owner/repo vs repo-only keys, “context” still fits.
+    keys, so “repos” is a little misleading.
   - Simplification option: skip a separate config file and encode
     per-repo defaults directly in the Makefile (e.g., by including
-    `mk/contexts.mk`).
+    `mk/profiles.mk`).
     - Pros: fewer moving parts; “just Make”.
     - Cons: harder to parse/expand safely; mixes policy with recipes;
       less portable if we later want a non-Make consumer (CLI/UI).
@@ -179,7 +193,7 @@ Two implementation options:
   or we can add a `go install` step to the `postCreateCommand` (which
   is more self-contained but less efficient for rebuilds).  
   - Recommendation: don’t commit binaries. For MVP, prefer `go run
-    ./cmd/spaceconf ...` (no install step) or `go install ./cmd/spaceconf`
+    ./cmd/decomk ...` (no install step) or `go install ./cmd/decomk`
     during `postCreateCommand`. A “curl a release binary” approach can
     come later once the tool stabilizes.
     - XXX what is postCreateCommand?
@@ -190,8 +204,8 @@ Recommendation: start with **Go** if “correct expansion + testability” matte
 Write a generated file containing the resolved tuples for the chosen context, for later sourcing by shell scripts or nested make invocations.
 
 Choices:
-- Repo-local (isconf-like): `etc/environment` or `etc/codespace.env`
-- User-local: `~/.config/cswg/environment` (persists across rebuilds but less auditable per repo)
+- Repo-local (isconf-like): `etc/environment` or `etc/decomk.env`
+- User-local: `~/.config/decomk/environment` (persists across rebuilds but less auditable per repo)
 
 ## Target groups (BLOCK_* analogs)
 
@@ -211,10 +225,11 @@ Pragmatic MVP: define a small set of **capability groups**, then compose per-rep
 
 ## Subtasks
 
-- [ ] 013.1 Decide where the tool lives (per-repo vs shared repo imported into each devcontainer).
-- [ ] 013.2 Choose config file name/location and syntax (`contexts.conf` analog of `hosts.conf`).
-- [ ] 013.3 Choose wrapper language (Go vs Bash) and document the tradeoffs/decision.
-- [ ] 013.4 Implement macro expansion (isconf `expandmacro` semantics) without Perl.
-- [ ] 013.5 Implement env snapshot generation (tuples-only) and decide where it is written.
-- [ ] 013.6 Define initial Codespaces target groups (BLOCK_* analogs) and a minimal `DEFAULT` toolset.
-- [ ] 013.7 Pilot in one repo (e.g., `grokker`) via `devcontainer.json` `postCreateCommand`, then generalize.
+- [ ] 001.1 Decide naming for the `hosts.conf` analog (`profiles.conf` vs alternatives above).
+- [ ] 001.2 Choose config file name/location and syntax (hosts.conf analog).
+- [ ] 001.3 Choose wrapper language (Go vs Bash) and document the tradeoffs/decision.
+- [ ] 001.4 Implement macro expansion (isconf `expandmacro` semantics) without Perl.
+- [ ] 001.5 Implement env snapshot generation (tuples-only) and decide where it is written.
+- [ ] 001.6 Define initial target groups (BLOCK_* analogs) and a minimal `DEFAULT` toolset.
+- [ ] 001.7 Define the update/self-update model (method B): pull tool + config repos; rebuild + re-exec on tool updates.
+- [ ] 001.8 Pilot in `mob-sandbox` via `devcontainer.json` `postCreateCommand`, then generalize.

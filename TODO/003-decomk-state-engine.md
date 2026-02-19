@@ -24,6 +24,23 @@ The main contenders:
   journal with hashes.
 - **Custom DAG engine**: explicit tasks + deps + state DB/hashes.
 
+## Current stance + open questions
+
+Tentative direction (for MVP): keep **make-as-engine** and adopt the
+isconf-style “touch existing stamps before running `make`” behavior as
+the default (no disable flag planned). This matches the provisioning
+expectation: *delete a stamp to re-run*.
+
+XXX this is not yet settled -- review lunamake repo, including HISTORY.md 
+
+Open questions to settle before we write much code:
+- Do we still want to preserve any “real” make timestamp/prereq behavior,
+  or are we explicitly using make as an “ordered stamp executor”?
+- If we later replace make, how much do we want to keep stable?
+  - config syntax (“profiles.conf” style) and macro expansion semantics
+  - the meaning of “target tokens” (make targets vs engine-neutral “steps”)
+  - the stamp state model (files vs journal/db)
+
 ## Option A: Use `make` as the state engine (current MVP direction)
 
 ### Pros
@@ -91,8 +108,9 @@ Cons:
 - It can hide genuine dependency drift (a prereq changed, but the
   stamped target doesn’t re-run).
 
-If we adopt this in `decomk`, it should be an explicit mode/flag (and
-documented as “make is used primarily as an ordered stamp executor”).
+Current leaning: adopt this as the default behavior in `decomk` (no
+flag), and document it as: “make is used primarily as an ordered stamp
+executor; delete stamps to re-run”.
 
 ## Option B: Write our own engine (Go)
 
@@ -206,7 +224,7 @@ What exists there (high level):
 ### What we can steal for decomk (low risk, high value)
 
 - Use a persistent stamp dir outside the repo and run `make -C <stampdir> -f <makefile>`.
-- Offer an optional “touch all stamps first” mode (explicit invalidation).
+- Use “touch all stamps first” as the default behavior (explicit invalidation via deleting stamps).
 - Keep config syntax close to isconf/hosts.conf (continuations +
   shlex-like quoting) and generate an env snapshot for audit.
   For decomk, treat **stamps** as the primary execution state (because
@@ -250,7 +268,7 @@ Keeping both might be worthwhile if they serve different audiences:
 ## Subtasks
 
 - [ ] 003.1 Clarify the domain: do we want DAG semantics or “ordered run-once” semantics?
-- [ ] 003.2 Decide whether `decomk` should default to “touch all stamps first”.
+- [ ] 003.2 Confirm whether `decomk` should default to “touch all stamps first” (current leaning: yes).
 - [ ] 003.3 Document a recommended Makefile style for decomk (scripts for complex steps; stamp helpers).
 - [ ] 003.4 Prototype a minimal journal/stanza runner (no deps) to validate the `.lm` idea.
 - [ ] 003.5 Decide whether lunamake is a predecessor we port from, or a separate project we leave alone.
