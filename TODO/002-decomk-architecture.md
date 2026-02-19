@@ -26,25 +26,49 @@ Non-goals (for MVP):
 
 ## High-level overview
 
-`decomk` is a small CLI wrapper around `make`:
-- XXX first, run an algorithm that is is equivalent of ~/lab/isconf2/isconf2i-git/etc/rc.isconf
-  - XXX describe what this does
-- XXX next, run an algorithm that is the equivalent of ~/lab/isconf2/isconf2i-git/bin/isconf
-  - XXX describe what this does
+`decomk` is a small CLI wrapper around `make`, modeled after isconf’s
+split between:
+- `etc/rc.isconf` (bootstrap/refresh) and
+- `bin/isconf` (resolve context → write env snapshot → run make)
 
-XXX rework everything below here based on the above XXX findings
+### Phase A: Bootstrap (rc.isconf analog)
 
-1. Identify **workspace** (repo root) and **context** (e.g., `DEFAULT`,
-   `owner/repo`, `repo`) from env + git metadata.
-2. Load context→expansions configuration (plus optional repo-local
-   overrides).
-3. Expand context macros into a flat list of `VAR=value` tuples and
-   make targets (the “plan”).
-4. Write an **audit snapshot** of the resolved plan.
-6. Run `make` with the resolved tuples + targets.
-   - run 'make' in the stamps directory -- see 
-   - make Decides which targets need to not be rerun (via stamps).
-7. On success, write stamps.
+What rc.isconf does (conceptually) is: ensure the tool + its config
+tree are present and up to date, establish identity (domain/host),
+ensure a stamps directory exists, then hand off to the main “apply”
+command.
+
+For `decomk`, that translates to:
+1. Choose a writable persistent home (see “Persistent directories”).
+2. Identify the **workspace** (repo root) and compute `workspaceKey`.
+3. Resolve a **contextKey** (e.g., `owner/repo`, `repo`, `DEFAULT`),
+   from env + flags.
+4. Load configuration (global + optional repo-local override) and write
+   an “effective config” snapshot into state for audit/debugging.
+5. Create required state subdirs (stamps/audit/env/locks) and acquire a
+   per-workspace lock to prevent concurrent runs.
+
+### Phase B: Plan + apply (isconf analog)
+
+What `bin/isconf` does (conceptually) is: take a context key, expand it
+via `expandmacro`, write `etc/environment` via `mk_env`, then run `make`
+in the stamps directory.
+
+For `decomk`, that translates to:
+1. Seed expansion with `DEFAULT` + `contextKey` (and optionally
+   `owner/repo` → `repo` fallback if the more specific key is missing).
+2. Expand macros recursively into a flat token list (isconf
+   `expandmacro` semantics, but with cycle detection and max depth).
+3. Partition the expanded tokens into:
+   - `NAME=value` tuples (to pass to `make` on argv), and
+   - make targets (everything else).
+4. Write an env snapshot file (mk_env analog) from the tuples.
+5. Run GNU `make` as a subprocess with:
+   - working directory = the stamps directory (so stamps live outside
+     the repo), and
+   - `-f <workspaceRoot>/<makefile>` (explicit path),
+   - argv = tuples + targets.
+6. Exit with `make`’s status code, keeping audit logs for post-mortem.
 
 ## Persistent directories (config + stamps)
 
@@ -68,11 +92,13 @@ Notes:
 
 Proposed layout (when config/state are split):
 - Config:
-  - `.../decomk/config.json` (or `contexts.conf` style; see below)
-  - `.../decomk/config.d/*.json` (optional drop-ins)
+  - `.../decomk/contexts.conf` (global defaults; optional)
+  - `.../decomk/contexts.d/*.conf` (optional drop-ins)
 - State:
-  - `.../decomk/audit/<workspaceKey>/<runID>.json`
-  - `.../decomk/stamps/<workspaceKey>/<contextKey>/<stampKey>.json`
+  - `.../decomk/audit/<workspaceKey>/<runID>/plan.json`
+  - `.../decomk/audit/<workspaceKey>/<runID>/make.log`
+  - `.../decomk/env/<workspaceKey>/<contextKey>.sh`
+  - `.../decomk/stamps/<workspaceKey>/<contextKey>/` (make working dir)
   - `.../decomk/locks/<workspaceKey>.lock`
 
 When using `/var/decomk`, use the same internal tree under it.
@@ -90,67 +116,82 @@ The key should be filesystem-safe (hex-encoded hash is easiest).
 
 ## Configuration model
 
-We need a simple, auditable configuration format that maps:
-- context → expansions
-- macro → macro (recursion)
-- output tokens → (`VAR=value` or `makeTarget`)
+We want isconf-like “macros expand to tuples + targets” in a format that
+humans can edit and that a Go CLI can parse deterministically.
 
-MVP recommendation: a small JSON config, because Go can parse it with
-the standard library and it’s easy to diff/review.
+MVP recommendation: a `contexts.conf` file with the same core semantics
+as isconf `conf/hosts.conf`:
+- Lines of the form `key: token token token`
+- Continuation lines append more tokens to the previous `key:`
+- `#` starts a comment (whole-line comments only, for MVP)
 
-Example structure (sketch):
-- `macros`: map[string][]string
-- `contexts`: map[string][]string
+Tokens are whitespace-separated shell-words with a small, explicit
+quoting rule set:
+- single quotes may be used to include spaces in a token (e.g.,
+  `FOO='bar baz'`)
+- `decomk` must remove quotes while parsing because it will exec `make`
+  directly (no shell `eval` step)
 
-Where token strings are either:
-- `NAME=value` (treated as a `make` command-line variable assignment)
-- `target` (treated as a make target)
-- `${MACRO}` (macro expansion token)
+Semantics:
+- Any `key` can be referenced as a macro token.
+- Expansion output tokens are either:
+  - `NAME=value` tuples (passed to `make` as command-line variable assignments), or
+  - make targets (anything else).
+
+Config precedence (highest wins):
+1. `-config <path>` (or `DECOMK_CONFIG`) if provided
+2. repo-local config (e.g., `<repoRoot>/contexts.conf`)
+3. global config under the persistent config dir (optional)
+
+Merging rule (simple and auditable):
+- Configs are key→[]token maps; when the same key exists in multiple
+  sources, the highest-precedence definition replaces lower ones.
 
 Key rules:
 - Expansion is deterministic and bounded (cycle detection + max depth).
-- Unknown macros are errors (with a helpful “did you mean” list).
+- Unknown macros are treated as literals (isconf behavior) unless we
+  enable a strict mode.
 - Context resolution order is explicit (e.g., `owner/repo` → `repo` → `DEFAULT`).
-
-Repo-local override (optional but useful for portability):
-- If `<repoRoot>/.decomk/config.json` exists, merge it over the global config.
-  (Merging rules must be simple: replace arrays by key; no deep magic.)
 
 ## Stamp model
 
-A stamp records that a resolved action ran successfully under a specific
-input configuration. Stamps must be safe: if inputs change, stamps
-should be invalidated automatically.
+`decomk` relies on `make` for stamps, the same way isconf does.
 
-Define a stamp key as a hash of:
-- contextKey
-- resolved tuples (sorted)
-- resolved target
-- decomk version
-- config digest (hash of effective config file(s))
+The “stamps directory” is simply the working directory where `make`
+creates stamp files. Stamps are the make targets themselves (file
+targets), and make decides what needs to run based on whether the
+target file exists and is up to date.
 
-Stamp file contents (JSON):
-- `stampKey`
-- `contextKey`, `workspaceKey`
-- `target`
-- `tuples` (sorted list)
-- `configDigest`
-- `startedAt`, `finishedAt`, `duration`
-- `makeExitCode`
-- optional: `stdoutPath`/`stderrPath` for captured logs
+Conventions (to keep this predictable):
+- Targets invoked by `decomk` should be **file targets** whose recipes
+  create/update `$@` on success (often via `touch $@`).
+- `decomk` runs `make` with `Cmd.Dir = <stampDir>`, so `$@` lands in the
+  persistent stamps directory (not in the repo).
+- Re-running is fast because already-present stamp files are up to date.
 
-Policy:
-- Only write a success stamp on exit code 0.
-- On failure, keep the previous stamp (if any) and write an audit record.
+Invalidation policy (MVP):
+- To re-run one target: delete its stamp file from the stamps directory.
+- To re-run everything: `decomk clean` removes the stamps directory for
+  the workspace/context (or calls an equivalent `make clean`).
+
+Optional (isconf-inspired) hardening:
+- Before invoking `make`, `decomk` may `touch` all existing stamp files
+  in the stamps directory. This makes stamps an explicit “I want to
+  re-run” mechanism (delete stamp), rather than allowing incidental
+  timestamp/prereq changes to trigger re-runs.
 
 ## Make execution
 
 Run `make` with:
-- `Cmd.Dir = workspaceRoot`
+- `Cmd.Dir = stampDir` (the persistent stamps directory)
 - `Cmd.Env = os.Environ()` plus any required overrides (minimal)
 - Arguments:
   - variable tuples as `NAME=value` argv entries
   - then targets
+
+Pass-through variables (recommended as both env vars and make tuples):
+- `DECOMK_WORKSPACE_ROOT=<workspaceRoot>`
+- `DECOMK_STAMPDIR=<stampDir>`
 
 Output handling:
 - Stream output to terminal by default (good for lifecycle hooks).
@@ -164,11 +205,10 @@ Locking:
 
 Keep packages as small, root-level directories (no `internal/`, no `pkg/`):
 - `cmd/decomk/`: main + CLI parsing
-- `paths/`: resolve config/state directories + workspaceKey
-- `config/`: load/merge config + compute configDigest
+- `state/`: resolve config/state directories + workspaceKey
+- `contexts/`: load/merge contexts.conf
 - `expand/`: macro expansion algorithm + cycle detection
 - `audit/`: write audit records + output tee
-- `stamp/`: stamp read/write + stampKey computation
 - `makeexec/`: subprocess wrapper around `make`
 
 Prefer the standard library for CLI (`flag`) unless/until subcommands
@@ -186,15 +226,19 @@ Common flags:
 - `-C <dir>` (workspace root override; like `make -C`)
 - `-context <key>` (force context; bypass auto-detect)
 - `-config <path>` (explicit config file path)
-- `-no-stamp` (always run targets)
+- `-makefile <path>` (override default `Makefile`)
+- `-touch-stamps` (enable/disable pre-touching existing stamp files)
+- `-force` (force rebuild; e.g., `make -B` or run in a fresh stamp dir)
 - `-v` (verbose)
 
 ## Subtasks
 
 - [ ] 002.1 Decide default persistent directory policy (XDG-first vs `/var/decomk`-first) and document it.
-- [ ] 002.2 Pick config format/name and write a minimal schema (JSON vs `contexts.conf`-style).
-- [ ] 002.3 Define workspaceKey + contextKey algorithms (env + git fallback order).
-- [ ] 002.4 Specify macro expansion semantics (cycle detection, max depth, error messages).
-- [ ] 002.5 Specify stampKey inputs and stamp invalidation rules.
-- [ ] 002.6 Specify audit record format and where it is written.
-- [ ] 002.7 Confirm package layout fits repo conventions (no `internal/`/`pkg/`; minimal deps).
+- [ ] 002.2 Specify `contexts.conf` grammar + search/merge precedence (global vs repo-local vs explicit `-config`).
+- [ ] 002.3 Define workspaceKey + contextKey algorithms (env + git fallback order + filesystem-safe encoding).
+- [ ] 002.4 Specify tokenization/quoting rules (single quotes) and how they map to `exec.Command` argv (no shell).
+- [ ] 002.5 Specify macro expansion semantics (isconf-like; add cycle detection + max depth).
+- [ ] 002.6 Specify stamp directory conventions (file targets, optional pre-touch, and clean/force behaviors).
+- [ ] 002.7 Specify env snapshot format + stable path (`.../env/<workspaceKey>/<contextKey>.sh`).
+- [ ] 002.8 Specify audit record format + file set written per run.
+- [ ] 002.9 Confirm package layout fits repo conventions (no `internal/`/`pkg/`; minimal deps).
