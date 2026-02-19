@@ -103,7 +103,7 @@ Derived:
 - `REPO_NAME=${GITHUB_REPOSITORY##*/}`
 - `CODESPACE_NAME=$CODESPACE_NAME` (optional; useful for labeling/logging)
 
-## Naming: alternatives to `contexts.*`
+## Naming: alternatives to `decomk.*`
 
 The term “context” is core to the algorithm, but “contexts” is awkward
 in filenames and hard to say. Alternatives for the `hosts.conf` analog:
@@ -116,7 +116,7 @@ Candidates:
 - `macros.conf` / `macros.d/` (honest about the expansion mechanism; a bit jargon-y)
 - Tool-namespaced: `decomk.conf` / `decomk.d/` (avoids bikeshedding; contents still define “keys”)
 
-Decision: keep context definitions in `contexts.conf` (and `contexts.d/*.conf`)
+Decision: keep context definitions in `decomk.conf` (and `decomk.d/*.conf`)
 
 ## isconf mapping (what we’re borrowing)
 
@@ -145,13 +145,13 @@ So: `hosts.conf` -> (expand macros) -> (select context) -> `etc/environment` sna
 
 ## Devcontainer design (proposed)
 
-### 1) A `contexts.conf` file (hosts.conf analog)
-Add a `contexts.conf` file with the same “macro expansion” semantics as
+### 1) A `decomk.conf` file (hosts.conf analog)
+Add a `decomk.conf` file with the same “macro expansion” semantics as
 isconf, but intended for devcontainers. Prefer the canonical
-`contexts.conf` to live in the decomk config repo (so it can be shared
+`decomk.conf` to live in the decomk config repo (so it can be shared
 across workspaces), with an optional repo-local overlay for
 experimentation/overrides:
-- Decision: call it `contexts.conf` (and optionally `contexts.d/*.conf`)
+- Decision: call it `decomk.conf` (and optionally `decomk.d/*.conf`)
   rather than `repos.conf`. The file will include `DEFAULT` and other
   non-repo keys, so “repos” is misleading.
   - Simplification option: skip a separate config file and encode
@@ -212,14 +212,14 @@ Candidates:
 - Phase-style groups: `Block00_base`, `Block10_lang`, `Block20_tools`, `Block30_editors`, `Block40_project`
 - Capability groups: `Block20_go`, `Block21_node`, `Block30_neovim`, `Block30_llm`, `Block30_storm`
 - Repo groups: avoid encoding the repo name into the target name; prefer
-  expressing repo-specific composition in `contexts.conf` itself.
+  expressing repo-specific composition in `decomk.conf` itself.
 
 Pragmatic MVP: define a small set of **capability groups**, then compose per-repo contexts from them via `DEFAULT` + `<repo>`.
 
 ## Subtasks
 
-- [x] 001.1 Decide naming for the `hosts.conf` analog (`contexts.conf` + optional `contexts.d/*.conf`).
-- [x] 001.2 Choose config file name/location and syntax (use isconf-like `contexts.conf` grammar).
+- [x] 001.1 Decide naming for the `hosts.conf` analog (`decomk.conf` + optional `decomk.d/*.conf`).
+- [x] 001.2 Choose config file name/location and syntax (use isconf-like `decomk.conf` grammar).
 - [ ] 001.3 Choose wrapper language (Go vs Bash) and document the tradeoffs/decision.
 - [ ] 001.4 Implement macro expansion (isconf `expandmacro` semantics) without Perl.
 - [ ] 001.5 Implement env snapshot generation (tuples-only) and decide where it is written.

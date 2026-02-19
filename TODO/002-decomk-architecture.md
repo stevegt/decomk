@@ -56,7 +56,7 @@ model is:
   explicitly disabled), then runs the requested context.
 
 This keeps the workspace repo clean (no generated state), and keeps the
-“policy” repo (contexts.conf + make targets) centralized and updateable.
+“policy” repo (decomk.conf + make targets) centralized and updateable.
 Like lunamake, this policy repo can use a branch-per-environment workflow
 (e.g., test → prod) to roll forward tool changes safely.
 
@@ -167,7 +167,7 @@ The key should be filesystem-safe (hex-encoded hash is easiest).
 We want isconf-like “macros expand to tuples + targets” in a format that
 humans can edit and that a Go CLI can parse deterministically.
 
-MVP recommendation: a `contexts.conf` file with the same core semantics
+MVP recommendation: a `decomk.conf` file with the same core semantics
 as isconf `conf/hosts.conf`:
 - Lines of the form `key: token token token`
 - Continuation lines append more tokens to the previous `key:`
@@ -188,8 +188,8 @@ Semantics:
 
 Config precedence (highest wins):
 1. `-config <path>` (or `DECOMK_CONFIG`) if provided
-2. config repo (e.g., `<configRepoRoot>/contexts.conf` + optional `contexts.d/*.conf`)
-3. (optional) repo-local config (e.g., `<repoRoot>/contexts.conf`) for experimentation/overrides
+2. config repo (e.g., `<configRepoRoot>/decomk.conf` + optional `decomk.d/*.conf`)
+3. (optional) repo-local config (e.g., `<repoRoot>/decomk.conf`) for experimentation/overrides
 
 Merging rule (simple and auditable):
 - Configs are key→[]token maps; when the same key exists in multiple
@@ -254,7 +254,7 @@ Locking:
 Keep packages as small, root-level directories (no `internal/`, no `pkg/`):
 - `cmd/decomk/`: main + CLI parsing
 - `state/`: resolve config/state directories + workspaceKey
-- `contexts/`: load/merge contexts.conf
+- `contexts/`: load/merge decomk.conf
 - `expand/`: macro expansion algorithm + cycle detection
 - `audit/`: write audit records + output tee
 - `makeexec/`: subprocess wrapper around `make`
@@ -282,7 +282,7 @@ Common flags:
 ## Subtasks
 
 - [x] 002.1 Decide default persistent directory policy (`/var/decomk` by default; `DECOMK_HOME` override) and document it.
-- [ ] 002.2 Specify `contexts.conf` grammar + search/merge precedence (config repo vs repo-local vs explicit `-config`).
+- [ ] 002.2 Specify `decomk.conf` grammar + search/merge precedence (config repo vs repo-local vs explicit `-config`).
 - [ ] 002.3 Define workspaceKey + contextKey algorithms (env + git fallback order + filesystem-safe encoding).
 - [ ] 002.4 Specify tokenization/quoting rules (single quotes) and how they map to `exec.Command` argv (no shell).
 - [ ] 002.5 Specify macro expansion semantics (isconf-like; add cycle detection + max depth).

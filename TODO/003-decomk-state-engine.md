@@ -49,7 +49,7 @@ Open questions to settle before we write much code:
 - Do we still want to preserve any “real” make timestamp/prereq behavior,
   or are we explicitly using make as an “ordered stamp executor”?
 - If we later replace make, how much do we want to keep stable?
-  - config syntax (`contexts.conf` style) and macro expansion semantics
+  - config syntax (`decomk.conf` style) and macro expansion semantics
   - the meaning of “target tokens” (make targets vs engine-neutral “steps”)
   - the stamp state model (files vs journal/db)
 
