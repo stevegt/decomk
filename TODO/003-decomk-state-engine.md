@@ -168,10 +168,12 @@ What exists there (high level):
   in the sense of “pure text transforms” (until you mix in `$(shell ...)`
   and environment), but that power tends to produce hard-to-maintain
   build logic when used heavily.
-
-  XXX no, i mean the make language itself is actually a functional
-  language with intentional side effects (file creation, builds,
-  arbitrary shell execution). 
+  Another useful mental model: make is a declarative rule engine where
+  each target is (ideally) a function of its prerequisites. If recipes
+  were pure and all effects were captured as file artifacts, the build
+  graph would behave *like* a functional program. In practice, recipes
+  often have side effects and depend on timestamps/environment, so the
+  “functional” analogy is only a guide, not a guarantee.
 
 ### Cons / risks
 
