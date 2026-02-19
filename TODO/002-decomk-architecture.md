@@ -38,16 +38,21 @@ tree are present and up to date, establish identity (domain/host),
 ensure a stamps directory exists, then hand off to the main “apply”
 command.
 
-- XXX rc.isconf uses rsync to pull over the network to update itself,
-  bin/isconf, configs, and makefiles. For `decomk`, we should just use
-  git clone or git pull.
+Unlike `rc.isconf`, `decomk` should **not** self-update over the
+network.  XXX this is wrong -- decomk *must* first update itself over
+the network by doing a git pull of its own repo, and then update the
+local configs/makefiles by pulling another repo that contains them.
+
+XXX revise everything below here according to the above correction.
 
 For `decomk`, that translates to:
 1. Choose a writable persistent home (see “Persistent directories”).
 2. Identify the **workspace** (repo root) and compute `workspaceKey`.
-   - XXX workspace might actually  be the entire container -- we need
-     to be able to install/update things in $PATH.  Or maybe we
-     install things in ~/bin, ~/.local, etc?
+   - “Workspace” is the repo checkout that owns the config/makefile.
+   - Installed tools are usually *container/user-scoped* (e.g.
+     `$HOME/.local/bin`, `$HOME/.cache`, `/usr/local`) and are managed
+     by make recipes. `decomk` can pass hints like `DECOMK_PREFIX` but
+     should not try to own tool installation policy itself.
 3. Resolve a **contextKey** (e.g., `owner/repo`, `repo`, `DEFAULT`),
    from env + flags.
 4. Load configuration (global + optional repo-local override) and write
@@ -90,12 +95,17 @@ Directory selection (in priority order):
    - state (stamps/audit/locks): `${XDG_STATE_HOME:-$HOME/.local/state}/decomk`
 3. Fallback: `/var/decomk` (config + state live together)
 
-- XXX what about ~/.local/var/decomk?  
-
-- XXX but wait.  how are dotfiles managed in the
-  devcontainer/codespaces ecosystems?  how are hoe directories
-  managed?  is it ever the case that a devcontainer user would have a
-  home directory that is shared between multiple containers?
+Notes on `$HOME` in devcontainers:
+- `~/.local/var` is not an XDG standard location; prefer
+  `${XDG_STATE_HOME:-$HOME/.local/state}`. If you want a different
+  tree, set `DECOMK_HOME` (or `XDG_*_HOME`) explicitly.
+- In Codespaces, `$HOME` typically persists for the lifetime of the
+  codespace VM and often survives container rebuilds; in other
+  devcontainer hosts, `$HOME` may be a bind mount shared across
+  multiple containers. To avoid collisions, always namespace state by
+  `workspaceKey` (as proposed in the directory layout).
+  XXX okay, so we should *not* use .local, or anywhere else in $HOME,
+  to store state that is specific to the container.
 
 Notes:
 - If (2) is used, `decomk` should keep config and state separate.
