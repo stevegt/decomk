@@ -5,12 +5,21 @@
 // and VAR=value tuples.
 //
 // The grammar is intentionally small and deterministic so it can be parsed
-// safely without eval-like behavior:
+// safely without eval-like behavior. Specifically, parsing does *not* expand
+// environment variables, run shells, or interpret Makefile syntax.
+//
+// Supported syntax:
 //   - Whole-line comments start with '#'.
 //   - Key lines are of the form:   key: token token token
 //   - Continuation lines append more tokens to the most recent key.
 //   - Tokens are whitespace-separated shell-words; single quotes may be used
 //     to include spaces inside a token (quotes are removed while parsing).
+//   - Backslash escapes the next rune when not in single quotes.
+//
+// Deliberate non-features (MVP):
+//   - No inline comments (only whole-line comments).
+//   - No double-quote syntax; only single quotes.
+//   - No include directives; use decomk.d/*.conf layering instead.
 package contexts
 
 import (
@@ -30,7 +39,10 @@ type Defs map[string][]string
 // LoadTree loads a base config file and any sibling *.conf files in a matching
 // "<basename>.d" directory (e.g., decomk.conf + decomk.d/*.conf).
 //
-// Later files override earlier ones by key (last definition wins).
+// Layering/precedence:
+//   - The base file is loaded first.
+//   - Then sibling *.conf files are loaded in lexical order by filename.
+//   - Later definitions override earlier ones by key (last definition wins).
 func LoadTree(path string) (Defs, error) {
 	base, err := LoadFile(path)
 	if err != nil {
@@ -109,6 +121,8 @@ func Parse(r io.Reader) (Defs, error) {
 	for lineNum := 1; scanner.Scan(); lineNum++ {
 		raw := strings.TrimRight(scanner.Text(), "\r")
 
+		// Leading whitespace is ignored. Any non-empty, non-comment line that is
+		// not a key line is treated as a continuation of the previous key.
 		trimLeft := strings.TrimLeftFunc(raw, unicode.IsSpace)
 		if trimLeft == "" {
 			continue
@@ -145,6 +159,9 @@ func Parse(r io.Reader) (Defs, error) {
 }
 
 // Merge returns a new Defs where overlay keys replace base keys.
+//
+// The returned map owns its slices (callers can mutate it without affecting the
+// inputs).
 func Merge(base, overlay Defs) Defs {
 	out := make(Defs, len(base)+len(overlay))
 	for k, v := range base {
@@ -156,6 +173,11 @@ func Merge(base, overlay Defs) Defs {
 	return out
 }
 
+// splitKeyLine parses a key definition line of the form "key: tokens...".
+//
+// It returns ok=false if the line should be treated as a continuation line.
+// The most common reason for returning false is to avoid interpreting URL-like
+// tokens (e.g., "http://...") as "key:" definitions.
 func splitKeyLine(line string) (key, rest string, ok bool) {
 	colon := strings.IndexByte(line, ':')
 	if colon < 0 {
@@ -177,6 +199,8 @@ func splitKeyLine(line string) (key, rest string, ok bool) {
 	return key, rest, true
 }
 
+// isSpace reports whether r is one of the ASCII whitespace characters we treat
+// as token separators.
 func isSpace(r rune) bool {
 	return r == ' ' || r == '\t' || r == '\n' || r == '\r'
 }
@@ -185,6 +209,9 @@ func isSpace(r rune) bool {
 // single quotes keep everything literal (including spaces), and are removed.
 //
 // Backslash escapes the next rune when not in single quotes.
+//
+// This is intentionally simpler than a full POSIX shell parser because the
+// output tokens are passed directly to exec.Command (no shell evaluation).
 func splitTokens(s string) ([]string, error) {
 	var tokens []string
 	var b strings.Builder

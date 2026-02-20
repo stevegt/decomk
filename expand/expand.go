@@ -8,6 +8,11 @@
 // The implementation adds guardrails that are easy to unit test:
 //   - cycle detection
 //   - maximum expansion depth
+//
+// Expansion is intentionally not "Makefile evaluation":
+//   - no variable interpolation
+//   - no $(shell ...) or command execution
+//   - no quoting rules beyond what the config parser already produced
 package expand
 
 import (
@@ -36,6 +41,9 @@ func ExpandTokens(defs Defs, tokens []string, opts Options) ([]string, error) {
 	visiting := make(map[string]bool, len(defs))
 	var stack []string
 
+	// expandKey expands one macro name into a flat token list.
+	// It carries an explicit recursion depth counter so callers can enforce a
+	// hard limit on expansion complexity.
 	var expandKey func(key string, depth int) ([]string, error)
 	expandKey = func(key string, depth int) ([]string, error) {
 		if depth > maxDepth {

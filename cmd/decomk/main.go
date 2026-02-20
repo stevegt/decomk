@@ -8,12 +8,14 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -28,6 +30,8 @@ func main() {
 	os.Exit(run(os.Args, os.Stdout, os.Stderr))
 }
 
+// run is the CLI entrypoint. It returns an exit code (like main) rather than
+// calling os.Exit directly, which makes it easy to test in the future.
 func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) < 2 {
 		fmt.Fprintln(stderr, usage())
@@ -59,6 +63,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 }
 
+// usage returns the top-level help text.
 func usage() string {
 	return `decomk - devcontainer bootstrap wrapper around make
 
@@ -71,6 +76,7 @@ Commands (MVP):
 `
 }
 
+// commonFlags are the shared flags for subcommands that resolve a context.
 type commonFlags struct {
 	home        string
 	workspace   string
@@ -81,40 +87,56 @@ type commonFlags struct {
 	maxExpDepth int
 }
 
+// addCommonFlags defines flags shared by plan/run.
 func addCommonFlags(fs *flag.FlagSet, f *commonFlags) {
 	fs.StringVar(&f.home, "home", "", "decomk home directory (overrides DECOMK_HOME)")
 	fs.StringVar(&f.workspace, "C", ".", "workspace directory (like make -C)")
 	fs.StringVar(&f.context, "context", "", "context key override (also DECOMK_CONTEXT)")
 	fs.StringVar(&f.config, "config", "", "config file path override (also DECOMK_CONFIG)")
 	fs.StringVar(&f.makefile, "makefile", "", "makefile path override")
+	// Note: -v is reserved for future improvements (more logging and plan details).
 	fs.BoolVar(&f.verbose, "v", false, "verbose output")
 	fs.IntVar(&f.maxExpDepth, "max-expand-depth", 0, "macro expansion depth limit (default 64)")
 }
 
 type resolvedPlan struct {
+	// Home is the decomk state root (DECOMK_HOME, or /var/decomk by default).
 	Home          string
 	WorkspaceRoot string
 	WorkspaceKey  string
 	ContextKey    string
 
+	// ConfigPaths are the config sources that were loaded (in precedence order).
 	ConfigPaths   []string
 	PrimaryConfig string
 
+	// StampDir is the per-workspace/per-context make working directory.
 	StampDir string
+	// EnvFile is the resolved env snapshot written for auditing/debugging.
 	EnvFile  string
 	Makefile string
 
+	// Expanded is the flattened macro expansion result before partitioning.
 	Expanded []string
-	Tuples   []string
-	Targets  []string
+	// Tuples are the NAME=value entries passed on make's argv.
+	Tuples []string
+	// Targets are the make targets passed on make's argv.
+	Targets []string
 }
 
+// cmdPlan resolves the context and writes an env snapshot, but does not invoke make.
+//
+// This is intended to be safe to run in lifecycle hooks where you want to see
+// what decomk *would* do, without making changes.
 func cmdPlan(args []string, stdout, stderr io.Writer) (int, error) {
 	fs := flag.NewFlagSet("decomk plan", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var f commonFlags
 	addCommonFlags(fs, &f)
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0, nil
+		}
 		return 2, err
 	}
 
@@ -150,12 +172,20 @@ func cmdPlan(args []string, stdout, stderr io.Writer) (int, error) {
 	return 0, nil
 }
 
+// cmdRun resolves the context, writes an env snapshot, and invokes make in a
+// persistent stamp directory.
+//
+// The stamp directory is outside the workspace repo so that re-running decomk
+// doesn't dirty the repo with generated state.
 func cmdRun(args []string, stdout, stderr io.Writer) (int, error) {
 	fs := flag.NewFlagSet("decomk run", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var f commonFlags
 	addCommonFlags(fs, &f)
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0, nil
+		}
 		return 2, err
 	}
 
@@ -186,13 +216,15 @@ func cmdRun(args []string, stdout, stderr io.Writer) (int, error) {
 		return 1, fmt.Errorf("touch stamps: %w", err)
 	}
 
-	runID := time.Now().UTC().Format("20060102T150405Z")
-	auditDir := state.AuditDir(plan.Home, plan.WorkspaceKey, runID)
-	if err := state.EnsureDir(auditDir); err != nil {
+	// Include sub-second resolution and pid to avoid collisions when two runs start
+	// close together (otherwise one run can clobber the other's audit log).
+	runID := time.Now().UTC().Format("20060102T150405.000000000Z") + "-" + strconv.Itoa(os.Getpid())
+	auditDir, err := createAuditDir(plan.Home, plan.WorkspaceKey, runID)
+	if err != nil {
 		return 1, err
 	}
 	logPath := filepath.Join(auditDir, "make.log")
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o600)
 	if err != nil {
 		return 1, err
 	}
@@ -221,6 +253,31 @@ func cmdRun(args []string, stdout, stderr io.Writer) (int, error) {
 	return 0, nil
 }
 
+// createAuditDir creates a per-run audit directory and returns its path.
+//
+// The directory must be unique for each invocation so audit logs never
+// overwrite each other.
+func createAuditDir(home, workspaceKey, runID string) (string, error) {
+	base := state.AuditDir(home, workspaceKey, runID)
+	if err := state.EnsureDir(filepath.Dir(base)); err != nil {
+		return "", err
+	}
+
+	dir := base
+	for i := 0; ; i++ {
+		if err := os.Mkdir(dir, 0o755); err != nil {
+			if os.IsExist(err) {
+				dir = base + "-" + strconv.Itoa(i+1)
+				continue
+			}
+			return "", err
+		}
+		return dir, nil
+	}
+}
+
+// resolvePlanFromFlags builds a fully-resolved plan from the user-facing flags:
+// it locates config, resolves context, expands macros, and computes state paths.
 func resolvePlanFromFlags(f commonFlags) (*resolvedPlan, error) {
 	home, err := state.Home(f.home)
 	if err != nil {
@@ -283,6 +340,18 @@ func resolvePlanFromFlags(f commonFlags) (*resolvedPlan, error) {
 	}, nil
 }
 
+// loadDefs loads decomk.conf trees from multiple sources and merges them.
+//
+// Precedence is "last wins" (higher precedence overrides lower):
+//
+// XXX precedence should be global, per-repo, per-owner, per-container, with more specific configs overriding more general ones.
+//
+//  1. repo-local decomk.conf (lowest; optional)
+//  2. config repo decomk.conf (optional)
+//  3. explicit -config / DECOMK_CONFIG (highest; optional)
+//
+// Each source is loaded via contexts.LoadTree so it can also include a sibling
+// decomk.d/*.conf directory.
 func loadDefs(home, workspaceRoot, explicitConfig string) (defs contexts.Defs, paths []string, primary string, err error) {
 	// Precedence: repo-local (lowest) -> config repo -> explicit override (highest).
 	var sources []string
@@ -328,6 +397,13 @@ func loadDefs(home, workspaceRoot, explicitConfig string) (defs contexts.Defs, p
 	return defs, paths, primary, nil
 }
 
+// selectContextKey chooses which context key to apply.
+//
+// Selection order (first match wins):
+//  1. -context
+//  2. DECOMK_CONTEXT
+//  3. GITHUB_REPOSITORY ("owner/repo"), then just "repo"
+//  4. DEFAULT
 func selectContextKey(defs contexts.Defs, flagContext string) (string, error) {
 	if flagContext != "" {
 		if _, ok := defs[flagContext]; !ok {
@@ -359,6 +435,11 @@ func selectContextKey(defs contexts.Defs, flagContext string) (string, error) {
 	return "", fmt.Errorf("no matching context found; tried %v", candidates)
 }
 
+// seedTokens returns the initial macro tokens to expand for a context.
+//
+// The common idiom is "DEFAULT + <context>" composition. To reduce surprising
+// duplicates, if a context explicitly includes DEFAULT in its own token list we
+// do not add it implicitly here.
 func seedTokens(defs contexts.Defs, contextKey string) []string {
 	var seed []string
 	if contextKey != "DEFAULT" {
@@ -374,6 +455,7 @@ func seedTokens(defs contexts.Defs, contextKey string) []string {
 	return seed
 }
 
+// containsToken reports whether tokens contains want.
 func containsToken(tokens []string, want string) bool {
 	for _, t := range tokens {
 		if t == want {
@@ -383,6 +465,7 @@ func containsToken(tokens []string, want string) bool {
 	return false
 }
 
+// fileExists reports whether path exists and is a regular file.
 func fileExists(path string) bool {
 	info, err := os.Stat(path)
 	if err != nil {
@@ -391,6 +474,8 @@ func fileExists(path string) bool {
 	return info.Mode().IsRegular()
 }
 
+// appendIfMissingTuple appends a NAME=value tuple unless a tuple with NAME is
+// already present (in which case the existing value wins).
 func appendIfMissingTuple(tuples []string, name, value string) []string {
 	for _, t := range tuples {
 		k, _, ok := resolve.SplitTuple(t)
@@ -401,6 +486,10 @@ func appendIfMissingTuple(tuples []string, name, value string) []string {
 	return append(tuples, name+"="+value)
 }
 
+// withEnv returns base plus additional KEY=VALUE assignments.
+//
+// Any keys present in set replace existing entries in base (by filtering them
+// out first). New entries are appended in sorted-key order for stable logs.
 func withEnv(base []string, set map[string]string) []string {
 	// Preserve ordering for readability/debugging, but ensure the last assignment
 	// wins by filtering existing keys.
@@ -427,6 +516,11 @@ func withEnv(base []string, set map[string]string) []string {
 	return keep
 }
 
+// writeEnvSnapshot writes a shell-friendly env file that captures the resolved
+// tuples for the run.
+//
+// This file is intentionally simple: it is designed to be sourced by scripts
+// and nested make invocations without requiring eval.
 func writeEnvSnapshot(path string, plan *resolvedPlan) error {
 	if err := state.EnsureParentDir(path); err != nil {
 		return err
@@ -467,6 +561,7 @@ func writeEnvSnapshot(path string, plan *resolvedPlan) error {
 	return os.Rename(tmp, path)
 }
 
+// writeExport emits one export line using conservative shell quoting.
 func writeExport(w io.Writer, name, value string) {
 	fmt.Fprintf(w, "export %s=%s\n", name, shellQuote(value))
 }

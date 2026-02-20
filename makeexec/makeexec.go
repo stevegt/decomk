@@ -1,4 +1,7 @@
 // Package makeexec runs GNU make as a subprocess.
+//
+// decomk intentionally execs make directly (no shell) so quoting and argument
+// boundaries are deterministic and unit-testable.
 package makeexec
 
 import (
@@ -7,6 +10,10 @@ import (
 )
 
 // Run executes "make" in dir using the given makefile, variable tuples, and targets.
+//
+// Ordering matters:
+//   - variable tuples must appear before targets on argv
+//   - targets are passed exactly as provided
 //
 // It returns make's exit code. If make could not be started, exitCode will be 1
 // and err will describe the failure.

@@ -8,6 +8,8 @@ import (
 func TestSplitTuple(t *testing.T) {
 	t.Parallel()
 
+	// SplitTuple only treats NAME=value as a tuple if NAME is identifier-like.
+	// This prevents accidentally interpreting target names with punctuation.
 	cases := []struct {
 		in      string
 		wantOK  bool
@@ -42,6 +44,8 @@ func TestSplitTuple(t *testing.T) {
 func TestPartition(t *testing.T) {
 	t.Parallel()
 
+	// Partition preserves relative order within each class (tuples/targets) and
+	// is used to build make's argv.
 	tuples, targets := Partition([]string{"Block00", "FOO=bar", "X=1", "Block10"})
 	if want := []string{"FOO=bar", "X=1"}; !reflect.DeepEqual(tuples, want) {
 		t.Fatalf("tuples: got %#v want %#v", tuples, want)

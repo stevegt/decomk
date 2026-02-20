@@ -8,6 +8,8 @@ import (
 func TestExpandTokens_Recursive(t *testing.T) {
 	t.Parallel()
 
+	// Macros can reference other macros by name; expansion should inline token
+	// lists recursively while preserving order.
 	defs := Defs{
 		"DEFAULT": {"A", "B"},
 		"grokker": {"DEFAULT", "C"},
@@ -25,6 +27,7 @@ func TestExpandTokens_Recursive(t *testing.T) {
 func TestExpandTokens_UnknownTokensRemainLiteral(t *testing.T) {
 	t.Parallel()
 
+	// Unknown tokens are treated as literals (isconf behavior).
 	defs := Defs{
 		"DEFAULT": {"A"},
 	}
@@ -41,6 +44,7 @@ func TestExpandTokens_UnknownTokensRemainLiteral(t *testing.T) {
 func TestExpandTokens_Cycle(t *testing.T) {
 	t.Parallel()
 
+	// Cycles should be detected and reported rather than recursing forever.
 	defs := Defs{
 		"A": {"B"},
 		"B": {"A"},
@@ -55,6 +59,8 @@ func TestExpandTokens_Cycle(t *testing.T) {
 func TestExpandTokens_MaxDepth(t *testing.T) {
 	t.Parallel()
 
+	// Even without explicit cycles, pathological chains should be bounded by a
+	// maximum expansion depth.
 	defs := Defs{
 		"A": {"B"},
 		"B": {"C"},

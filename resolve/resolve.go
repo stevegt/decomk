@@ -7,7 +7,9 @@ import "unicode"
 // Partition splits tokens into make variable tuples (NAME=value) and make
 // targets (everything else).
 //
-// Variable tuples must come before targets on make's argv.
+// Variable tuples must come before targets on make's argv. This matters because
+// make treats NAME=value entries as variable assignments, and they affect
+// evaluation of subsequent targets.
 func Partition(tokens []string) (tuples, targets []string) {
 	for _, tok := range tokens {
 		if _, _, ok := SplitTuple(tok); ok {
@@ -20,6 +22,12 @@ func Partition(tokens []string) (tuples, targets []string) {
 }
 
 // SplitTuple splits a token of the form NAME=value.
+//
+// Only a small subset of make's variable assignment syntax is supported here:
+// we intentionally do not treat "NAME+=value" or "NAME:=value" as tuples for
+// MVP. This avoids surprising interpretation of ordinary target names that may
+// contain punctuation.
+//
 // It returns ok=false if the token is not a tuple.
 func SplitTuple(token string) (name, value string, ok bool) {
 	eq := -1
@@ -40,10 +48,14 @@ func SplitTuple(token string) (name, value string, ok bool) {
 	return name, value, true
 }
 
+// isIdent reports whether s is a conservative "identifier-like" name suitable
+// for NAME=value tuples.
 func isIdent(s string) bool {
 	if s == "" {
 		return false
 	}
+	// The identifier rule matches the common shell/Makefile convention:
+	// [A-Za-z_][A-Za-z0-9_]*.
 	for i, r := range s {
 		if i == 0 {
 			if r != '_' && !unicode.IsLetter(r) {
