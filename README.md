@@ -1,6 +1,8 @@
 # decomk
 
 decomk is an isconf-inspired bootstrap for development containers.
+For more background on isconf, see the [infrastructures.org](https://infrastructures.org/).
+
 
 It resolves a **context** (e.g., `owner/repo`, `repo`, `DEFAULT`) into:
 - Make target groups to run (shared + repo-specific), and
