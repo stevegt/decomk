@@ -107,8 +107,7 @@ type resolvedPlan struct {
 	ContextKey    string
 
 	// ConfigPaths are the config sources that were loaded (in precedence order).
-	ConfigPaths   []string
-	PrimaryConfig string
+	ConfigPaths []string
 
 	// StampDir is the per-workspace/per-context make working directory.
 	StampDir string
@@ -295,7 +294,12 @@ func resolvePlanFromFlags(f commonFlags) (*resolvedPlan, error) {
 		return nil, err
 	}
 
-	defs, configPaths, primaryConfig, err := loadDefs(home, workspaceRoot, f.config)
+	explicitConfig := f.config
+	if explicitConfig == "" {
+		explicitConfig = os.Getenv("DECOMK_CONFIG")
+	}
+
+	defs, configPaths, err := loadDefs(home, workspaceRoot, explicitConfig)
 	if err != nil {
 		return nil, err
 	}
@@ -317,11 +321,11 @@ func resolvePlanFromFlags(f commonFlags) (*resolvedPlan, error) {
 	envFile := state.EnvFile(home, workspaceKey, contextPathKey)
 
 	makefile := f.makefile
-	if makefile == "" && primaryConfig != "" {
-		candidate := filepath.Join(filepath.Dir(primaryConfig), "Makefile")
-		if fileExists(candidate) {
-			makefile = candidate
-		}
+	if makefile == "" {
+		makefile = findDefaultMakefile(home, workspaceRoot, explicitConfig)
+	}
+	if makefile != "" && !fileExists(makefile) {
+		return nil, fmt.Errorf("makefile not found: %s", makefile)
 	}
 
 	return &resolvedPlan{
@@ -330,7 +334,6 @@ func resolvePlanFromFlags(f commonFlags) (*resolvedPlan, error) {
 		WorkspaceKey:  workspaceKey,
 		ContextKey:    contextKey,
 		ConfigPaths:   configPaths,
-		PrimaryConfig: primaryConfig,
 		StampDir:      stampDir,
 		EnvFile:       envFile,
 		Makefile:      makefile,
@@ -344,40 +347,37 @@ func resolvePlanFromFlags(f commonFlags) (*resolvedPlan, error) {
 //
 // Precedence is "last wins" (higher precedence overrides lower):
 //
-// XXX precedence should be global, per-repo, per-owner, per-container, with more specific configs overriding more general ones.
+// Future: extend precedence beyond these three sources (e.g., per-owner/per-org
+// defaults, container-image defaults, etc.) while keeping the model auditable.
 //
-//  1. repo-local decomk.conf (lowest; optional)
-//  2. config repo decomk.conf (optional)
+//  1. config repo decomk.conf (lowest; optional)
+//  2. repo-local decomk.conf (optional)
 //  3. explicit -config / DECOMK_CONFIG (highest; optional)
 //
 // Each source is loaded via contexts.LoadTree so it can also include a sibling
 // decomk.d/*.conf directory.
-func loadDefs(home, workspaceRoot, explicitConfig string) (defs contexts.Defs, paths []string, primary string, err error) {
-	// Precedence: repo-local (lowest) -> config repo -> explicit override (highest).
+func loadDefs(home, workspaceRoot, explicitConfig string) (defs contexts.Defs, paths []string, err error) {
+	// Precedence: config repo (lowest) -> repo-local -> explicit override (highest).
 	var sources []string
-
-	repoLocal := filepath.Join(workspaceRoot, "decomk.conf")
-	if fileExists(repoLocal) {
-		sources = append(sources, repoLocal)
-	}
 
 	configRepo := filepath.Join(home, "repos", "decomk-config", "decomk.conf")
 	if fileExists(configRepo) {
 		sources = append(sources, configRepo)
 	}
 
-	if explicitConfig == "" {
-		explicitConfig = os.Getenv("DECOMK_CONFIG")
+	repoLocal := filepath.Join(workspaceRoot, "decomk.conf")
+	if fileExists(repoLocal) {
+		sources = append(sources, repoLocal)
 	}
 	if explicitConfig != "" {
 		if !fileExists(explicitConfig) {
-			return nil, nil, "", fmt.Errorf("config file not found: %s", explicitConfig)
+			return nil, nil, fmt.Errorf("config file not found: %s", explicitConfig)
 		}
 		sources = append(sources, explicitConfig)
 	}
 
 	if len(sources) == 0 {
-		return nil, nil, "", fmt.Errorf("no config found; set -config or create %s", repoLocal)
+		return nil, nil, fmt.Errorf("no config found; tried %s and %s; set -config or DECOMK_CONFIG", configRepo, repoLocal)
 	}
 
 	// Load lowest-precedence first.
@@ -385,16 +385,13 @@ func loadDefs(home, workspaceRoot, explicitConfig string) (defs contexts.Defs, p
 	for _, p := range sources {
 		tree, e := contexts.LoadTree(p)
 		if e != nil {
-			return nil, nil, "", e
+			return nil, nil, e
 		}
 		defs = contexts.Merge(defs, tree)
 	}
 
 	paths = append([]string(nil), sources...)
-
-	// Pick a "primary" config file to anchor default paths (like Makefile).
-	primary = sources[len(sources)-1]
-	return defs, paths, primary, nil
+	return defs, paths, nil
 }
 
 // selectContextKey chooses which context key to apply.
@@ -514,6 +511,34 @@ func withEnv(base []string, set map[string]string) []string {
 		keep = append(keep, k+"="+set[k])
 	}
 	return keep
+}
+
+// findDefaultMakefile picks a default Makefile path when -makefile is not set.
+//
+// decomk's long-term model is that the Makefile is part of the shared "config
+// repo" (under DECOMK_HOME). Repo-local decomk.conf is intended as an overlay,
+// not as the canonical source of make recipes.
+//
+// Selection order (first match wins):
+//  1. <DECOMK_HOME>/repos/decomk-config/Makefile
+//  2. sibling of explicitConfig (if non-empty)
+//  3. workspaceRoot/Makefile
+func findDefaultMakefile(home, workspaceRoot, explicitConfig string) string {
+	configRepoMakefile := filepath.Join(home, "repos", "decomk-config", "Makefile")
+	if fileExists(configRepoMakefile) {
+		return configRepoMakefile
+	}
+	if explicitConfig != "" {
+		candidate := filepath.Join(filepath.Dir(explicitConfig), "Makefile")
+		if fileExists(candidate) {
+			return candidate
+		}
+	}
+	repoLocalMakefile := filepath.Join(workspaceRoot, "Makefile")
+	if fileExists(repoLocalMakefile) {
+		return repoLocalMakefile
+	}
+	return ""
 }
 
 // writeEnvSnapshot writes a shell-friendly env file that captures the resolved

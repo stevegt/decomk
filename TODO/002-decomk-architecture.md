@@ -188,8 +188,8 @@ Semantics:
 
 Config precedence (highest wins):
 1. `-config <path>` (or `DECOMK_CONFIG`) if provided
-2. config repo (e.g., `<configRepoRoot>/decomk.conf` + optional `decomk.d/*.conf`)
-3. (optional) repo-local config (e.g., `<repoRoot>/decomk.conf`) for experimentation/overrides
+2. (optional) repo-local config (e.g., `<repoRoot>/decomk.conf`) for experimentation/overrides
+3. config repo (e.g., `<configRepoRoot>/decomk.conf` + optional `decomk.d/*.conf`)
 
 Merging rule (simple and auditable):
 - Configs are key→[]token maps; when the same key exists in multiple
