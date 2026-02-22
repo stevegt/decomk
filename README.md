@@ -73,21 +73,32 @@ To install a binary instead of using `go run`:
 go install ./cmd/decomk
 ```
 
-## Worked example: shared config repo
+## Worked example: 
 
-The intended model is to keep shared policy (config + Makefile) under
-`$DECOMK_HOME/repos/decomk-config/`, and keep workspace repos free of generated
-state.
+Example container filesystem tree:  The container's workspace is
+`/workspaces/repo1`, the config repo is cloned to
+`/var/decomk/repos/decomk-config/`, and the decomk repo (this repo) is
+cloned to /workspaces/decomk.
 
-Example config repo tree:
 ```text
-/var/decomk/
-  repos/
-    decomk-config/
-      decomk.conf
-      decomk.d/
-        10-site.conf
-      Makefile
+/
+├── var
+│   └── decomk
+│       └── stamps
+│           ├── install-codex
+│           ├── install-mob-consensus
+│           └── install-neovim
+└── workspaces
+    ├── decoconf
+    │   └── etc
+    │       ├── decomk.conf
+    │       └── Makefile
+    ├── decomk
+    │   └── cmd
+    │       └── decomk
+    │           └── main.go
+    └── repo1
+
 ```
 
 Example `/var/decomk/repos/decomk-config/decomk.conf`:

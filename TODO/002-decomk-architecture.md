@@ -10,6 +10,34 @@ Goal: document a concrete, Go-first architecture for `decomk` that:
 This TODO is a design doc. It should stay aligned with `TODO/001-...`
 but be specific enough to implement directly.
 
+## Structure
+
+container/
+└── workspaces/
+      ├── repo1/  (clone of repo under managment)
+      ├── decoconf/  (clone of config repo)
+
+
+
+
+8 directories, 38 files
+      
+
+      ├──   
+      └── 
+
+decomk/  (tool repo; git clone)
+
+
+
+- decomk is this repo, and is common across all installations
+- decoconf is this 
+
+
+
+
+
+
 ## Constraints and non-goals
 
 Constraints:
