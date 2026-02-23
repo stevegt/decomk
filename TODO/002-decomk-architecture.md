@@ -12,26 +12,30 @@ but be specific enough to implement directly.
 
 ## Structure
 
-container/
+The intended container layout is:
+
+```text
+/
+├── var
+│   └── decomk
+│       ├── conf/                 (git clone of shared config repo)
+│       │   └── etc/
+│       │       ├── decomk.conf
+│       │       ├── decomk.d/*.conf   (optional)
+│       │       └── Makefile
+│       ├── stamps/               (global stamp dir; make working directory)
+│       ├── env/                  (resolved env snapshots; per context)
+│       ├── log/                  (audit logs; per make invocation)
+│       └── conf.lock             (advisory lock used during git pull/clone)
 └── workspaces/
-      ├── repo1/  (clone of repo under managment)
-      ├── decoconf/  (clone of config repo)
+    ├── repo1/                    (WIP repo clone)
+    ├── repo2/                    (WIP repo clone)
+    ├── decoconf/                 (optional WIP clone of the config repo)
+    └── decomk/                   (this repo; tool source)
+```
 
-
-
-
-8 directories, 38 files
-      
-
-      ├──   
-      └── 
-
-decomk/  (tool repo; git clone)
-
-
-
-- decomk is this repo, and is common across all installations
-- decoconf is this 
+Key idea: decomk configures the *container* based on the set of WIP repos present
+under `/workspaces`, but it does not keep state inside those repos.
 
 
 
@@ -56,9 +60,10 @@ Non-goals (for MVP):
 
 - State engine: GNU `make` + stamps.
 - Stamp behavior: `decomk` pre-touches existing stamps by default (no flag planned).
-- Update model: method (B) + self-update is required:
-  - `decomk` and its config live under a persistent root (default `/var/decomk`) as git clones.
-  - Each run does `git pull --ff-only` and re-execs into the updated tool binary when needed.
+- Config repo model:
+  - a shared config repo is cloned/pulled into `<DECOMK_HOME>/conf` (default `/var/decomk/conf`)
+  - the repo URL is provided via the CLI (`-conf-repo`) or env (`DECOMK_CONF_REPO`)
+  - decomk does **not** self-update its own source/binary; it only updates the config repo
 - Pilot repo: `mob-sandbox` (devcontainer + `postCreateCommand`).
 
 ## High-level overview
@@ -75,46 +80,26 @@ tree are present and up to date, establish identity (domain/host),
 ensure a stamps directory exists, then hand off to the main “apply”
 command.
 
-Like `rc.isconf`, `decomk` needs a bootstrap/update step. The intended
-model is:
-- `decomk` source is a git clone under the persistent decomk root.
-- `decomk` configuration + makefiles are a separate git clone under the
-  same root.
-- Each invocation refreshes both clones with `git pull` (unless
-  explicitly disabled), then runs the requested context.
-
-This keeps the workspace repo clean (no generated state), and keeps the
-“policy” repo (decomk.conf + make targets) centralized and updateable.
-Like lunamake, this policy repo can use a branch-per-environment workflow
-(e.g., test → prod) to roll forward tool changes safely.
+Like `rc.isconf`, decomk needs a bootstrap/update step, but the current scope is
+intentionally small and focused on container-local state:
+- ensure `<DECOMK_HOME>` exists (default `/var/decomk`) and required subdirs
+  exist (`conf/`, `stamps/`, `env/`, `log/`)
+- optionally clone/pull the shared config repo into `<DECOMK_HOME>/conf` when
+  `-conf-repo` / `DECOMK_CONF_REPO` is set
+- discover workspace repos (git checkouts) under the workspace parent directory
+  (often `/workspaces/*`) so the container can be configured based on multiple
+  WIP repos present
 
 For `decomk`, that translates to:
 1. Choose a writable persistent home (see “Persistent directories”).
-2. Acquire a lock for updates and state writes (to prevent concurrent
-   `git pull` and stamp mutation).
-3. Refresh the `decomk` tool repo:
-   - clone if missing
-   - `git pull --ff-only` to update
-   - if the tool repo changed, rebuild `decomk` and re-exec so the
-     running binary matches HEAD
-4. Refresh the configs/makefiles repo:
-   - clone if missing
-   - checkout the configured ref/branch/tag/SHA (default branch, plus
-     an optional override) before pulling
-   - `git pull --ff-only` to update
-5. Identify the **workspace** (repo root) and compute `workspaceKey`.
-   - “Workspace” is the repo checkout that drives context selection
-     (usually the devcontainer workspace folder). The Makefile and
-     context definitions live in the config repo.
-   - Installed tools are usually *container/user-scoped* (e.g.
-     `$HOME/.local/bin`, `$HOME/.cache`, `/usr/local`) and are managed
-     by make recipes. `decomk` can pass hints like `DECOMK_PREFIX` but
-     should not try to own tool installation policy itself.
-6. Resolve a **contextKey** (e.g., `owner/repo`, `repo`, `DEFAULT`),
-   from env + flags.
-7. Load configuration and write
-   an “effective config” snapshot into state for audit/debugging.
-8. Create required state subdirs (stamps/audit/env/locks).
+2. Acquire locks for:
+   - config repo updates (`<DECOMK_HOME>/conf.lock`)
+   - global stamp mutation (`<DECOMK_HOME>/stamps/.lock`)
+3. Refresh the configs/makefiles repo (when configured):
+   - clone into `<DECOMK_HOME>/conf` if missing
+   - `git pull --ff-only` to update (best-effort if offline)
+4. Discover workspace repos and resolve a context key for each.
+5. Create required state subdirs (stamps/env/log) as needed.
 
 ### Phase B: Plan + apply (isconf analog)
 
@@ -134,7 +119,7 @@ For `decomk`, that translates to:
 5. Run GNU `make` as a subprocess with:
    - working directory = the stamps directory (so stamps live outside
      the repo), and
-   - `-f <configRepoRoot>/<makefile>` (explicit path),
+   - `-f <Makefile>` (explicit path, typically from `<DECOMK_HOME>/conf/etc/Makefile`),
    - argv = tuples + targets.
 6. Exit with `make`’s status code, keeping audit logs for post-mortem.
 
@@ -161,27 +146,26 @@ Proposed layout (all under `DECOMK_HOME` or `/var/decomk`):
 - Note: this layout assumes the “make-as-engine” direction discussed in
   TODO 003. If we later replace `make` as the execution/state engine,
   the repo and state layout may change.
-- Tool repo:
-  - `.../repos/decomk/` (git clone)
-- Configs/makefiles repo:
-  - `.../repos/decomk-config/` (git clone)
-- State:
-  - `.../state/audit/<workspaceKey>/<runID>/plan.json`
-  - `.../state/audit/<workspaceKey>/<runID>/make.log`
-  - `.../state/env/<workspaceKey>/<contextKey>.sh`
-  - `.../state/stamps/<workspaceKey>/<contextKey>/` (make working dir)
-  - `.../state/locks/<workspaceKey>.lock`
-  - `.../state/locks/update.lock`
+- Configs/makefiles repo clone (policy):
+  - `.../conf/` (git clone)
+    - `.../conf/etc/decomk.conf`
+    - `.../conf/etc/decomk.d/*.conf` (optional)
+    - `.../conf/etc/Makefile`
+- Execution state:
+  - `.../stamps/` (global stamp dir; make working directory)
+  - `.../env/<contextKey>.sh` (resolved env snapshots; per context)
+  - `.../log/<runID>/make.log` (audit logs; per make invocation)
+  - `.../conf.lock` and `.../stamps/.lock` (advisory locks)
 
 When using `/var/decomk`, use the same internal tree under it.
 
-Definitions:
-- `toolRepoRoot = <decomkRoot>/repos/decomk`
-- `configRepoRoot = <decomkRoot>/repos/decomk-config`
-
 ### Workspace key
 
-Stamps should be per-workspace (per repo checkout) to avoid collisions.
+Stamps are global (container-scoped), so `workspaceKey` is not used to namespace
+stamp paths. It remains useful for:
+- stable-ish identifiers in logs/debug output
+- future enhancements where some state may need per-workspace namespacing
+
 Define:
 - `workspaceRoot`: `git rev-parse --show-toplevel` (fallback: `PWD`)
 - `workspaceKey`: stable-ish identifier:
@@ -217,7 +201,7 @@ Semantics:
 Config precedence (highest wins):
 1. `-config <path>` (or `DECOMK_CONFIG`) if provided
 2. (optional) repo-local config (e.g., `<repoRoot>/decomk.conf`) for experimentation/overrides
-3. config repo (e.g., `<configRepoRoot>/decomk.conf` + optional `decomk.d/*.conf`)
+3. config repo clone (e.g., `<DECOMK_HOME>/conf/etc/decomk.conf` + optional `decomk.d/*.conf`)
 
 Merging rule (simple and auditable):
 - Configs are key→[]token maps; when the same key exists in multiple
@@ -233,10 +217,11 @@ Key rules:
 
 `decomk` relies on `make` for stamps, the same way isconf does.
 
-The “stamps directory” is simply the working directory where `make`
-creates stamp files. Stamps are the make targets themselves (file
-targets), and make decides what needs to run based on whether the
-target file exists and is up to date.
+The “stamps directory” is the working directory where `make` creates stamp files.
+For decomk it is global within the container: `<DECOMK_HOME>/stamps`.
+
+Stamps are the make targets themselves (file targets). Make decides what needs
+to run based on whether the target file exists and is up to date.
 
 Conventions (to keep this predictable):
 - Targets invoked by `decomk` should be **file targets** whose recipes
@@ -247,14 +232,18 @@ Conventions (to keep this predictable):
 
 Invalidation policy (MVP):
 - To re-run one target: delete its stamp file from the stamps directory.
-- To re-run everything: `decomk clean` removes the stamps directory for
-  the workspace/context (or calls an equivalent `make clean`).
+- To re-run everything: delete the entire stamps directory (future:
+  `decomk clean`).
 
 Required (isconf-inspired) hardening:
-- Before invoking `make`, `decomk` should `touch` all existing stamp files
-  in the stamps directory. This makes stamps an explicit “I want to
-  re-run” mechanism (delete stamp), rather than allowing incidental
-  timestamp/prereq changes to trigger re-runs.
+- Before invoking `make`, decomk should `touch` all existing stamp files in the
+  stamps directory. This makes stamps an explicit “I want to re-run”
+  mechanism (delete stamp), rather than allowing incidental timestamp/prereq
+  changes to trigger re-runs.
+
+Global-stamp implication:
+- Target/stamp names should be **container-scoped** (e.g., `install-neovim`), not
+  repo-scoped, unless you intentionally bake repo identity into the target name.
 
 ## Make execution
 
@@ -274,7 +263,7 @@ Output handling:
 - Also tee to an audit log file for post-mortem debugging.
 
 Locking:
-- Use a per-workspace lock file to prevent concurrent runs from
+- Use a global stamps lock file to prevent concurrent runs from
   overlapping stamp updates (`flock`-style; implement in Go).
 
 ## Go package layout (MVP)
@@ -284,7 +273,6 @@ Keep packages as small, root-level directories (no `internal/`, no `pkg/`):
 - `state/`: resolve config/state directories + workspaceKey
 - `contexts/`: load/merge decomk.conf
 - `expand/`: macro expansion algorithm + cycle detection
-- `audit/`: write audit records + output tee
 - `makeexec/`: subprocess wrapper around `make`
 
 Prefer the standard library for CLI (`flag`) unless/until subcommands
@@ -295,8 +283,8 @@ become painful.
 Proposed commands:
 - `decomk plan` (print resolved tuples/targets; no `make`)
 - `decomk run` (default; resolves + stamps + runs `make`)
-- `decomk status` (show stamps for current workspace/context)
-- `decomk clean` (remove stamps for current workspace/context)
+- `decomk status` (show existing stamp files)
+- `decomk clean` (remove stamp files; all or selected)
 
 Common flags:
 - `-C <dir>` (workspace root override; like `make -C`)
@@ -315,7 +303,7 @@ Common flags:
 - [ ] 002.4 Specify tokenization/quoting rules (single quotes) and how they map to `exec.Command` argv (no shell).
 - [ ] 002.5 Specify macro expansion semantics (isconf-like; add cycle detection + max depth).
 - [ ] 002.6 Specify stamp directory conventions (file targets, optional pre-touch, and clean/force behaviors).
-- [ ] 002.7 Specify env snapshot format + stable path (`.../env/<workspaceKey>/<contextKey>.sh`).
+- [ ] 002.7 Specify env snapshot format + stable path (`.../env/<contextKey>.sh`).
 - [ ] 002.8 Specify audit record format + file set written per run.
 - [ ] 002.9 Confirm package layout fits repo conventions (no `internal/`/`pkg/`; minimal deps).
-- [ ] 002.10 Specify update behavior (clone/pull, rebuild+re-exec, offline mode, and failure policy).
+- [ ] 002.10 Specify config repo update behavior (clone/pull, offline mode, and failure policy).

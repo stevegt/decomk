@@ -12,7 +12,9 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -82,6 +84,7 @@ type commonFlags struct {
 	workspace   string
 	context     string
 	config      string
+	confRepo    string
 	makefile    string
 	verbose     bool
 	maxExpDepth int
@@ -93,6 +96,7 @@ func addCommonFlags(fs *flag.FlagSet, f *commonFlags) {
 	fs.StringVar(&f.workspace, "C", ".", "workspace directory (like make -C)")
 	fs.StringVar(&f.context, "context", "", "context key override (also DECOMK_CONTEXT)")
 	fs.StringVar(&f.config, "config", "", "config file path override (also DECOMK_CONFIG)")
+	fs.StringVar(&f.confRepo, "conf-repo", "", "config repo URL to clone/pull into <home>/conf (also DECOMK_CONF_REPO)")
 	fs.StringVar(&f.makefile, "makefile", "", "makefile path override")
 	// Note: -v is reserved for future improvements (more logging and plan details).
 	fs.BoolVar(&f.verbose, "v", false, "verbose output")
@@ -109,7 +113,11 @@ type resolvedPlan struct {
 	// ConfigPaths are the config sources that were loaded (in precedence order).
 	ConfigPaths []string
 
-	// StampDir is the per-workspace/per-context make working directory.
+	// StampDir is decomk's global make working directory (the stamps directory).
+	//
+	// decomk uses a single stamp directory for the whole container because it is
+	// intended to configure the container (tools, caches, etc.), not to manage
+	// per-repo build artifacts.
 	StampDir string
 	// EnvFile is the resolved env snapshot written for auditing/debugging.
 	EnvFile  string
@@ -139,34 +147,39 @@ func cmdPlan(args []string, stdout, stderr io.Writer) (int, error) {
 		return 2, err
 	}
 
-	plan, err := resolvePlanFromFlags(f)
+	plans, err := resolvePlansFromFlags(f, stderr)
 	if err != nil {
 		return 1, err
 	}
 
-	if err := writeEnvSnapshot(plan.EnvFile, plan); err != nil {
-		return 1, err
-	}
+	for i, plan := range plans {
+		if err := writeEnvSnapshot(plan.EnvFile, plan); err != nil {
+			return 1, err
+		}
 
-	fmt.Fprintf(stdout, "home: %s\n", plan.Home)
-	fmt.Fprintf(stdout, "workspaceRoot: %s\n", plan.WorkspaceRoot)
-	fmt.Fprintf(stdout, "workspaceKey: %s\n", plan.WorkspaceKey)
-	fmt.Fprintf(stdout, "contextKey: %s\n", plan.ContextKey)
-	fmt.Fprintf(stdout, "config: %s\n", strings.Join(plan.ConfigPaths, ", "))
-	fmt.Fprintf(stdout, "env: %s\n", plan.EnvFile)
-	fmt.Fprintf(stdout, "stampDir: %s\n", plan.StampDir)
-	if plan.Makefile != "" {
-		fmt.Fprintf(stdout, "makefile: %s\n", plan.Makefile)
-	}
-	fmt.Fprintln(stdout)
+		if i > 0 {
+			fmt.Fprintln(stdout)
+		}
+		fmt.Fprintf(stdout, "home: %s\n", plan.Home)
+		fmt.Fprintf(stdout, "workspaceRoot: %s\n", plan.WorkspaceRoot)
+		fmt.Fprintf(stdout, "workspaceKey: %s\n", plan.WorkspaceKey)
+		fmt.Fprintf(stdout, "contextKey: %s\n", plan.ContextKey)
+		fmt.Fprintf(stdout, "config: %s\n", strings.Join(plan.ConfigPaths, ", "))
+		fmt.Fprintf(stdout, "env: %s\n", plan.EnvFile)
+		fmt.Fprintf(stdout, "stampDir: %s\n", plan.StampDir)
+		if plan.Makefile != "" {
+			fmt.Fprintf(stdout, "makefile: %s\n", plan.Makefile)
+		}
+		fmt.Fprintln(stdout)
 
-	fmt.Fprintln(stdout, "tuples:")
-	for _, t := range plan.Tuples {
-		fmt.Fprintf(stdout, "  %s\n", t)
-	}
-	fmt.Fprintln(stdout, "targets:")
-	for _, t := range plan.Targets {
-		fmt.Fprintf(stdout, "  %s\n", t)
+		fmt.Fprintln(stdout, "tuples:")
+		for _, t := range plan.Tuples {
+			fmt.Fprintf(stdout, "  %s\n", t)
+		}
+		fmt.Fprintln(stdout, "targets:")
+		for _, t := range plan.Targets {
+			fmt.Fprintf(stdout, "  %s\n", t)
+		}
 	}
 	return 0, nil
 }
@@ -188,66 +201,75 @@ func cmdRun(args []string, stdout, stderr io.Writer) (int, error) {
 		return 2, err
 	}
 
-	plan, err := resolvePlanFromFlags(f)
+	plans, err := resolvePlansFromFlags(f, stderr)
 	if err != nil {
 		return 1, err
 	}
 
-	if plan.Makefile == "" {
-		return 1, fmt.Errorf("no Makefile found; use -makefile to set an explicit path")
+	if len(plans) == 0 {
+		return 1, fmt.Errorf("no workspaces found to apply")
+	}
+	for _, plan := range plans {
+		if plan.Makefile == "" {
+			return 1, fmt.Errorf("no Makefile found for workspace %s; use -makefile to set an explicit path", plan.WorkspaceRoot)
+		}
 	}
 
-	if err := writeEnvSnapshot(plan.EnvFile, plan); err != nil {
-		return 1, err
-	}
-
-	// Prevent concurrent stamp mutation for this workspace.
-	lock, err := state.LockFile(state.WorkspaceLockPath(plan.Home, plan.WorkspaceKey))
+	// Prevent concurrent stamp mutation for the container.
+	lock, err := state.LockFile(state.StampsLockPath(plans[0].Home))
 	if err != nil {
-		return 1, fmt.Errorf("lock workspace: %w", err)
+		return 1, fmt.Errorf("lock stamps: %w", err)
 	}
 	defer lock.Close()
 
-	if err := state.EnsureDir(plan.StampDir); err != nil {
+	// Ensure the global stamp directory exists and normalize mtime semantics once
+	// per invocation (not per workspace).
+	if err := state.EnsureDir(plans[0].StampDir); err != nil {
 		return 1, err
 	}
-	if err := state.TouchExistingStamps(plan.StampDir, time.Now()); err != nil {
+	if err := state.TouchExistingStamps(plans[0].StampDir, time.Now()); err != nil {
 		return 1, fmt.Errorf("touch stamps: %w", err)
 	}
 
-	// Include sub-second resolution and pid to avoid collisions when two runs start
-	// close together (otherwise one run can clobber the other's audit log).
-	runID := time.Now().UTC().Format("20060102T150405.000000000Z") + "-" + strconv.Itoa(os.Getpid())
-	auditDir, err := createAuditDir(plan.Home, plan.WorkspaceKey, runID)
-	if err != nil {
-		return 1, err
-	}
-	logPath := filepath.Join(auditDir, "make.log")
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o600)
-	if err != nil {
-		return 1, err
-	}
-	defer logFile.Close()
+	for i, plan := range plans {
+		if err := writeEnvSnapshot(plan.EnvFile, plan); err != nil {
+			return 1, err
+		}
 
-	teeOut := io.MultiWriter(stdout, logFile)
-	teeErr := io.MultiWriter(stderr, logFile)
+		// Include sub-second resolution and pid to avoid collisions when two runs start
+		// close together (otherwise one run can clobber the other's audit log).
+		runID := time.Now().UTC().Format("20060102T150405.000000000Z") + "-" + strconv.Itoa(os.Getpid()) + "-" + strconv.Itoa(i)
+		auditDir, err := createAuditDir(plan.Home, runID)
+		if err != nil {
+			return 1, err
+		}
+		logPath := filepath.Join(auditDir, "make.log")
+		logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o600)
+		if err != nil {
+			return 1, err
+		}
 
-	tuples := append([]string(nil), plan.Tuples...)
-	tuples = appendIfMissingTuple(tuples, "DECOMK_WORKSPACE_ROOT", plan.WorkspaceRoot)
-	tuples = appendIfMissingTuple(tuples, "DECOMK_STAMPDIR", plan.StampDir)
-	tuples = appendIfMissingTuple(tuples, "DECOMK_CONTEXT", plan.ContextKey)
+		teeOut := io.MultiWriter(stdout, logFile)
+		teeErr := io.MultiWriter(stderr, logFile)
 
-	env := withEnv(os.Environ(), map[string]string{
-		"DECOMK_HOME":           plan.Home,
-		"DECOMK_WORKSPACE_ROOT": plan.WorkspaceRoot,
-		"DECOMK_STAMPDIR":       plan.StampDir,
-		"DECOMK_CONTEXT":        plan.ContextKey,
-	})
+		tuples := append([]string(nil), plan.Tuples...)
+		tuples = appendIfMissingTuple(tuples, "DECOMK_WORKSPACE_ROOT", plan.WorkspaceRoot)
+		tuples = appendIfMissingTuple(tuples, "DECOMK_STAMPDIR", plan.StampDir)
+		tuples = appendIfMissingTuple(tuples, "DECOMK_CONTEXT", plan.ContextKey)
 
-	exitCode, runErr := makeexec.Run(plan.StampDir, plan.Makefile, tuples, plan.Targets, env, teeOut, teeErr)
-	if runErr != nil {
-		// Preserve make's exit status.
-		return exitCode, fmt.Errorf("make failed (exit %d); log: %s: %w", exitCode, logPath, runErr)
+		env := withEnv(os.Environ(), map[string]string{
+			"DECOMK_HOME":           plan.Home,
+			"DECOMK_WORKSPACE_ROOT": plan.WorkspaceRoot,
+			"DECOMK_STAMPDIR":       plan.StampDir,
+			"DECOMK_CONTEXT":        plan.ContextKey,
+		})
+
+		exitCode, runErr := makeexec.Run(plan.StampDir, plan.Makefile, tuples, plan.Targets, env, teeOut, teeErr)
+		_ = logFile.Close()
+		if runErr != nil {
+			// Preserve make's exit status.
+			return exitCode, fmt.Errorf("make failed for workspace %s context %s (exit %d); log: %s: %w", plan.WorkspaceRoot, plan.ContextKey, exitCode, logPath, runErr)
+		}
 	}
 	return 0, nil
 }
@@ -256,8 +278,8 @@ func cmdRun(args []string, stdout, stderr io.Writer) (int, error) {
 //
 // The directory must be unique for each invocation so audit logs never
 // overwrite each other.
-func createAuditDir(home, workspaceKey, runID string) (string, error) {
-	base := state.AuditDir(home, workspaceKey, runID)
+func createAuditDir(home, runID string) (string, error) {
+	base := state.AuditDir(home, runID)
 	if err := state.EnsureDir(filepath.Dir(base)); err != nil {
 		return "", err
 	}
@@ -275,22 +297,25 @@ func createAuditDir(home, workspaceKey, runID string) (string, error) {
 	}
 }
 
-// resolvePlanFromFlags builds a fully-resolved plan from the user-facing flags:
-// it locates config, resolves context, expands macros, and computes state paths.
-func resolvePlanFromFlags(f commonFlags) (*resolvedPlan, error) {
+// resolvePlansFromFlags builds one or more fully-resolved plans from the user-
+// facing flags.
+//
+// In the common devcontainer case, there may be multiple git repos under the
+// workspace parent directory (often /workspaces). decomk scans sibling repos and
+// resolves a context for each so the container can be configured based on all
+// WIP repos present.
+//
+// If the user explicitly sets a context (via -context or DECOMK_CONTEXT), decomk
+// resolves a single plan for the primary workspace only. This makes debugging
+// and experimentation predictable.
+func resolvePlansFromFlags(f commonFlags, stderr io.Writer) ([]*resolvedPlan, error) {
 	home, err := state.Home(f.home)
 	if err != nil {
 		return nil, err
 	}
 
-	workspaceRoot, err := state.WorkspaceRoot(f.workspace)
-	if err != nil {
-		return nil, err
-	}
-
-	githubRepo := os.Getenv("GITHUB_REPOSITORY")
-	workspaceKey, err := state.WorkspaceKey(workspaceRoot, githubRepo)
-	if err != nil {
+	// Optionally clone/pull the shared config repo into <home>/conf.
+	if err := ensureConfRepo(home, f.confRepo, f.verbose, stderr); err != nil {
 		return nil, err
 	}
 
@@ -299,12 +324,196 @@ func resolvePlanFromFlags(f commonFlags) (*resolvedPlan, error) {
 		explicitConfig = os.Getenv("DECOMK_CONFIG")
 	}
 
+	primaryWorkspaceRoot, err := state.WorkspaceRoot(f.workspace)
+	if err != nil {
+		return nil, err
+	}
+
+	// If the user explicitly sets a context, do not scan sibling workspaces.
+	explicitContext := f.context
+	if explicitContext == "" {
+		explicitContext = os.Getenv("DECOMK_CONTEXT")
+	}
+	if explicitContext != "" {
+		repo := inspectWorkspaceRepo(primaryWorkspaceRoot)
+		plan, err := resolvePlanForRepo(home, repo, explicitConfig, explicitContext, f)
+		if err != nil {
+			return nil, err
+		}
+		return []*resolvedPlan{plan}, nil
+	}
+
+	// Otherwise scan sibling repos under the workspace parent directory.
+	repos, err := discoverWorkspaceRepos(primaryWorkspaceRoot)
+	if err != nil {
+		return nil, err
+	}
+	if len(repos) == 0 {
+		repos = []workspaceRepo{inspectWorkspaceRepo(primaryWorkspaceRoot)}
+	}
+
+	plans := make([]*resolvedPlan, 0, len(repos))
+	for _, repo := range repos {
+		plan, err := resolvePlanForRepo(home, repo, explicitConfig, "", f)
+		if err != nil {
+			return nil, err
+		}
+		plans = append(plans, plan)
+	}
+	return plans, nil
+}
+
+// workspaceRepo describes a workspace repo directory that may drive context
+// selection.
+type workspaceRepo struct {
+	Root      string // absolute path to the repo root (workspace root)
+	Name      string // basename of Root
+	OriginURL string // git remote.origin.url, if available
+	OwnerRepo string // parsed "owner/repo" when possible (may be empty)
+	RepoName  string // parsed repo name when possible (falls back to Name)
+}
+
+// discoverWorkspaceRepos finds git repos under the parent directory of the
+// provided workspace root.
+//
+// This intentionally does not recurse: the expected layout is one git checkout
+// per child directory under a common parent (e.g., /workspaces/<repo>).
+func discoverWorkspaceRepos(primaryWorkspaceRoot string) ([]workspaceRepo, error) {
+	// If the primary workspace is not a git repo, we don't have a safe way to
+	// infer a sibling root. Fall back to a single-workspace plan.
+	if !isGitRepoRoot(primaryWorkspaceRoot) {
+		return nil, nil
+	}
+
+	parent := filepath.Dir(primaryWorkspaceRoot)
+	entries, err := os.ReadDir(parent)
+	if err != nil {
+		// If we can't scan siblings, fall back to applying only the current repo.
+		return nil, nil
+	}
+
+	var repos []workspaceRepo
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if strings.HasPrefix(name, ".") {
+			continue
+		}
+		root := filepath.Join(parent, name)
+		if !isGitRepoRoot(root) {
+			continue
+		}
+		repos = append(repos, inspectWorkspaceRepo(root))
+	}
+	sort.Slice(repos, func(i, j int) bool { return repos[i].Root < repos[j].Root })
+	return repos, nil
+}
+
+// isGitRepoRoot reports whether dir looks like a git repo root.
+//
+// For decomk, a "workspace repo" is expected to be a normal checkout where
+// ".git" exists (as a directory or file).
+func isGitRepoRoot(dir string) bool {
+	_, err := os.Stat(filepath.Join(dir, ".git"))
+	return err == nil
+}
+
+// inspectWorkspaceRepo derives identity hints from a workspace repo root.
+//
+// If git metadata is unavailable (e.g., no origin remote), fields fall back to
+// stable filesystem-derived values.
+func inspectWorkspaceRepo(root string) workspaceRepo {
+	abs, err := filepath.Abs(root)
+	if err == nil {
+		root = abs
+	}
+
+	repo := workspaceRepo{
+		Root: root,
+		Name: filepath.Base(root),
+	}
+
+	origin, err := gitOutput(root, "config", "--get", "remote.origin.url")
+	if err == nil {
+		repo.OriginURL = origin
+	}
+
+	ownerRepo, repoName := parseOwnerRepo(repo.OriginURL)
+	repo.OwnerRepo = ownerRepo
+	if repoName != "" {
+		repo.RepoName = repoName
+	} else {
+		repo.RepoName = repo.Name
+	}
+	return repo
+}
+
+// parseOwnerRepo attempts to derive an "owner/repo" identifier from a git
+// origin URL.
+//
+// Supported input shapes include (non-exhaustive):
+//   - https://host/owner/repo(.git)
+//   - ssh://git@host/owner/repo(.git)
+//   - git@host:owner/repo(.git)
+//   - owner/repo(.git)
+//   - /some/path/to/repo(.git) (best-effort; last two path segments)
+func parseOwnerRepo(originURL string) (ownerRepo, repoName string) {
+	s := strings.TrimSpace(originURL)
+	if s == "" {
+		return "", ""
+	}
+	s = strings.TrimSuffix(s, ".git")
+
+	// Handle scp-like syntax: git@host:owner/repo
+	if !strings.Contains(s, "://") {
+		if i := strings.LastIndex(s, ":"); i != -1 && i+1 < len(s) {
+			after := s[i+1:]
+			if strings.Contains(after, "/") {
+				s = after
+			}
+		}
+	} else {
+		// For standard URLs, use the path portion.
+		if u, err := url.Parse(s); err == nil && u.Path != "" {
+			s = strings.TrimPrefix(u.Path, "/")
+		}
+	}
+
+	parts := strings.FieldsFunc(s, func(r rune) bool { return r == '/' })
+	if len(parts) == 0 {
+		return "", ""
+	}
+	repoName = parts[len(parts)-1]
+	if len(parts) >= 2 {
+		owner := parts[len(parts)-2]
+		ownerRepo = owner + "/" + repoName
+	}
+	return ownerRepo, repoName
+}
+
+// resolvePlanForRepo resolves decomk config + context into a concrete plan for
+// a single workspace repo.
+func resolvePlanForRepo(home string, repo workspaceRepo, explicitConfig, explicitContext string, f commonFlags) (*resolvedPlan, error) {
+	workspaceRoot := repo.Root
+
+	workspaceKey, err := state.WorkspaceKey(workspaceRoot, repo.OwnerRepo)
+	if err != nil {
+		return nil, err
+	}
+
 	defs, configPaths, err := loadDefs(home, workspaceRoot, explicitConfig)
 	if err != nil {
 		return nil, err
 	}
 
-	contextKey, err := selectContextKey(defs, f.context)
+	var contextKey string
+	if explicitContext != "" {
+		contextKey, err = selectContextKey(defs, explicitContext)
+	} else {
+		contextKey, err = selectContextKeyForRepo(defs, repo)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -316,9 +525,8 @@ func resolvePlanFromFlags(f commonFlags) (*resolvedPlan, error) {
 	}
 	tuples, targets := resolve.Partition(expanded)
 
-	contextPathKey := state.SafeComponent(contextKey)
-	stampDir := state.StampDir(home, workspaceKey, contextPathKey)
-	envFile := state.EnvFile(home, workspaceKey, contextPathKey)
+	stampDir := state.StampDir(home)
+	envFile := state.EnvFile(home, contextKey)
 
 	makefile := f.makefile
 	if makefile == "" {
@@ -343,6 +551,127 @@ func resolvePlanFromFlags(f commonFlags) (*resolvedPlan, error) {
 	}, nil
 }
 
+// ensureConfRepo ensures the shared config repo clone exists under <home>/conf.
+//
+// If repoURL is empty (and DECOMK_CONF_REPO is unset), this function does
+// nothing.
+//
+// Behavior:
+//   - If <home>/conf does not exist: git clone repoURL into it.
+//   - If <home>/conf exists and is a git repo: git pull --ff-only.
+//
+// Update failures are treated as best-effort when a usable config file is
+// already present: decomk warns (in verbose mode) and proceeds using the on-disk
+// config. If no usable config exists, update failures are fatal.
+func ensureConfRepo(home, repoURL string, verbose bool, stderr io.Writer) error {
+	if repoURL == "" {
+		repoURL = os.Getenv("DECOMK_CONF_REPO")
+	}
+	if repoURL == "" {
+		return nil
+	}
+
+	// Serialize clone/pull operations so concurrent decomk invocations can't
+	// corrupt the working tree.
+	lock, err := state.LockFile(state.ConfLockPath(home))
+	if err != nil {
+		return fmt.Errorf("lock config repo: %w", err)
+	}
+	defer lock.Close()
+
+	confDir := state.ConfDir(home)
+
+	stat, err := os.Stat(confDir)
+	switch {
+	case err == nil:
+		if !stat.IsDir() {
+			return fmt.Errorf("config repo path exists but is not a directory: %s", confDir)
+		}
+		ok, err := isGitWorkTree(confDir)
+		if err != nil {
+			return fmt.Errorf("check config repo git state: %w", err)
+		}
+		if !ok {
+			return fmt.Errorf("config repo directory exists but is not a git work tree: %s", confDir)
+		}
+
+		origin, _ := gitOutput(confDir, "config", "--get", "remote.origin.url")
+		if origin != "" && origin != repoURL {
+			return fmt.Errorf("config repo origin URL mismatch: want %q, got %q (dir %s)", repoURL, origin, confDir)
+		}
+
+		if verbose {
+			fmt.Fprintf(stderr, "decomk: updating config repo in %s\n", confDir)
+		}
+		if err := runGit(stderr, confDir, "pull", "--ff-only"); err != nil {
+			// Allow offline reuse if the config files already exist.
+			if hasUsableConfig(home) {
+				if verbose {
+					fmt.Fprintf(stderr, "decomk: warning: config repo update failed; proceeding with existing config: %v\n", err)
+				}
+				return nil
+			}
+			return fmt.Errorf("update config repo: %w", err)
+		}
+		return nil
+
+	case os.IsNotExist(err):
+		if err := state.EnsureDir(home); err != nil {
+			return err
+		}
+		if verbose {
+			fmt.Fprintf(stderr, "decomk: cloning config repo into %s\n", confDir)
+		}
+		cmd := exec.Command("git", "clone", repoURL, confDir)
+		cmd.Stdout = stderr
+		cmd.Stderr = stderr
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("git clone config repo: %w", err)
+		}
+		return nil
+
+	default:
+		return fmt.Errorf("stat config repo dir %q: %w", confDir, err)
+	}
+}
+
+// hasUsableConfig reports whether a readable decomk.conf exists in the expected
+// config repo clone location under <home>/conf.
+func hasUsableConfig(home string) bool {
+	_, ok := configRepoConfigPath(home)
+	return ok
+}
+
+// isGitWorkTree reports whether dir is inside a git working tree.
+func isGitWorkTree(dir string) (bool, error) {
+	out, err := gitOutput(dir, "rev-parse", "--is-inside-work-tree")
+	if err != nil {
+		// git returns a non-zero exit status if dir is not a repo.
+		return false, nil
+	}
+	return strings.TrimSpace(out) == "true", nil
+}
+
+// gitOutput runs "git -C dir args..." and returns stdout as a trimmed string.
+func gitOutput(dir string, args ...string) (string, error) {
+	a := append([]string{"-C", dir}, args...)
+	cmd := exec.Command("git", a...)
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(string(out)), nil
+}
+
+// runGit runs "git -C dir args..." and streams stdout/stderr to w.
+func runGit(w io.Writer, dir string, args ...string) error {
+	a := append([]string{"-C", dir}, args...)
+	cmd := exec.Command("git", a...)
+	cmd.Stdout = w
+	cmd.Stderr = w
+	return cmd.Run()
+}
+
 // loadDefs loads decomk.conf trees from multiple sources and merges them.
 //
 // Precedence is "last wins" (higher precedence overrides lower):
@@ -360,8 +689,7 @@ func loadDefs(home, workspaceRoot, explicitConfig string) (defs contexts.Defs, p
 	// Precedence: config repo (lowest) -> repo-local -> explicit override (highest).
 	var sources []string
 
-	configRepo := filepath.Join(home, "repos", "decomk-config", "decomk.conf")
-	if fileExists(configRepo) {
+	if configRepo, ok := configRepoConfigPath(home); ok {
 		sources = append(sources, configRepo)
 	}
 
@@ -377,7 +705,9 @@ func loadDefs(home, workspaceRoot, explicitConfig string) (defs contexts.Defs, p
 	}
 
 	if len(sources) == 0 {
-		return nil, nil, fmt.Errorf("no config found; tried %s and %s; set -config or DECOMK_CONFIG", configRepo, repoLocal)
+		tried := append([]string(nil), configRepoConfigCandidates(home)...)
+		tried = append(tried, repoLocal)
+		return nil, nil, fmt.Errorf("no config found; tried %s; set -config/DECOMK_CONFIG or -conf-repo/DECOMK_CONF_REPO", strings.Join(tried, ", "))
 	}
 
 	// Load lowest-precedence first.
@@ -392,6 +722,25 @@ func loadDefs(home, workspaceRoot, explicitConfig string) (defs contexts.Defs, p
 
 	paths = append([]string(nil), sources...)
 	return defs, paths, nil
+}
+
+// configRepoConfigCandidates returns candidate decomk.conf paths inside the
+// config repo clone.
+func configRepoConfigCandidates(home string) []string {
+	return []string{
+		filepath.Join(state.ConfDir(home), "etc", "decomk.conf"),
+		filepath.Join(state.ConfDir(home), "decomk.conf"),
+	}
+}
+
+// configRepoConfigPath returns the first existing config repo decomk.conf path.
+func configRepoConfigPath(home string) (string, bool) {
+	for _, p := range configRepoConfigCandidates(home) {
+		if fileExists(p) {
+			return p, true
+		}
+	}
+	return "", false
 }
 
 // selectContextKey chooses which context key to apply.
@@ -430,6 +779,43 @@ func selectContextKey(defs contexts.Defs, flagContext string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("no matching context found; tried %v", candidates)
+}
+
+// selectContextKeyForRepo chooses a context key for a specific workspace repo.
+//
+// Candidate order is "most specific to least specific":
+//  1. owner/repo (derived from remote origin URL when available)
+//  2. repo name (derived from origin URL or directory basename)
+//  3. workspace directory basename
+//  4. DEFAULT
+//
+// The first candidate that exists as a key in defs wins.
+func selectContextKeyForRepo(defs contexts.Defs, repo workspaceRepo) (string, error) {
+	seen := make(map[string]bool, 4)
+	var candidates []string
+
+	add := func(s string) {
+		if s == "" {
+			return
+		}
+		if seen[s] {
+			return
+		}
+		seen[s] = true
+		candidates = append(candidates, s)
+	}
+
+	add(repo.OwnerRepo)
+	add(repo.RepoName)
+	add(repo.Name)
+	add("DEFAULT")
+
+	for _, c := range candidates {
+		if _, ok := defs[c]; ok {
+			return c, nil
+		}
+	}
+	return "", fmt.Errorf("no matching context found for workspace %s; tried %v", repo.Root, candidates)
 }
 
 // seedTokens returns the initial macro tokens to expand for a context.
@@ -516,20 +902,24 @@ func withEnv(base []string, set map[string]string) []string {
 // findDefaultMakefile picks a default Makefile path when -makefile is not set.
 //
 // decomk's long-term model is that the Makefile is part of the shared "config
-// repo" (under DECOMK_HOME). Repo-local decomk.conf is intended as an overlay,
-// not as the canonical source of make recipes.
+// repo" (under <DECOMK_HOME>/conf). Repo-local decomk.conf is intended as an
+// overlay, not as the canonical source of make recipes.
 //
 // Selection order (first match wins):
-//  1. <DECOMK_HOME>/repos/decomk-config/Makefile
-//  2. sibling of explicitConfig (if non-empty)
-//  3. workspaceRoot/Makefile
+//  1. sibling of explicitConfig (if non-empty)
+//  2. <DECOMK_HOME>/conf/etc/Makefile (or <DECOMK_HOME>/conf/Makefile)
+//  3. workspaceRoot/Makefile (workspace-local fallback)
 func findDefaultMakefile(home, workspaceRoot, explicitConfig string) string {
-	configRepoMakefile := filepath.Join(home, "repos", "decomk-config", "Makefile")
-	if fileExists(configRepoMakefile) {
-		return configRepoMakefile
-	}
 	if explicitConfig != "" {
 		candidate := filepath.Join(filepath.Dir(explicitConfig), "Makefile")
+		if fileExists(candidate) {
+			return candidate
+		}
+	}
+	for _, candidate := range []string{
+		filepath.Join(state.ConfDir(home), "etc", "Makefile"),
+		filepath.Join(state.ConfDir(home), "Makefile"),
+	} {
 		if fileExists(candidate) {
 			return candidate
 		}

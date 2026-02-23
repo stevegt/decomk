@@ -17,7 +17,7 @@ func TestLoadDefs_Precedence_ConfigRepoThenRepoLocalThenExplicit(t *testing.T) {
 	home := t.TempDir()
 	workspace := t.TempDir()
 
-	configRepoConfig := filepath.Join(home, "repos", "decomk-config", "decomk.conf")
+	configRepoConfig := filepath.Join(home, "conf", "etc", "decomk.conf")
 	if err := os.MkdirAll(filepath.Dir(configRepoConfig), 0o755); err != nil {
 		t.Fatalf("MkdirAll(config repo): %v", err)
 	}

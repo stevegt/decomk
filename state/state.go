@@ -1,10 +1,13 @@
 // Package state computes decomk's on-disk layout and provides helpers for
 // managing persistent state (locks, stamps, env snapshots).
 //
-// decomk is designed to keep its state outside the workspace repo, typically
+// decomk is designed to keep its state outside any workspace repo, typically
 // under a container-local directory like /var/decomk. This avoids dirtying repos
-// with stamp files and makes it clearer what is "policy" (config/makefiles) vs
-// "state" (stamps, logs, generated env snapshots).
+// with stamp files and makes it clearer what is "policy" vs "state":
+//   - /var/decomk/conf   : a local clone of the shared config repo (decomk.conf + Makefile)
+//   - /var/decomk/stamps : global stamp directory used as make's working directory
+//   - /var/decomk/env    : resolved env snapshots (shell-friendly)
+//   - /var/decomk/log    : per-run audit logs (make output)
 package state
 
 import (
@@ -25,6 +28,38 @@ const (
 	// DECOMK_HOME is not set.
 	DefaultHome = "/var/decomk"
 )
+
+// ConfDir returns the directory where decomk expects the config repo clone.
+//
+// This is a git working tree that contains (typically) an etc/ directory with
+// decomk.conf and a Makefile.
+func ConfDir(home string) string { return filepath.Join(home, "conf") }
+
+// ConfLockPath returns the lock file used to prevent concurrent updates to the
+// config repo clone.
+//
+// Important: this lock file must *not* live inside ConfDir, because ConfDir is
+// a git working tree. Creating lock artifacts inside it would:
+//   - interfere with "git clone <url> <ConfDir>" when ConfDir does not yet exist,
+//   - and/or dirty the working tree.
+//
+// Instead we keep the lock as a sibling of ConfDir under the decomk home root.
+func ConfLockPath(home string) string { return filepath.Join(home, "conf.lock") }
+
+// StampsDir returns the global stamp directory where decomk runs make.
+func StampsDir(home string) string { return filepath.Join(home, "stamps") }
+
+// StampsLockPath returns the lock file used to prevent concurrent stamp
+// mutation.
+//
+// Stamps are global (container-wide), so the lock is also global.
+func StampsLockPath(home string) string { return filepath.Join(StampsDir(home), ".lock") }
+
+// EnvDir returns the directory where decomk writes env snapshot files.
+func EnvDir(home string) string { return filepath.Join(home, "env") }
+
+// LogDir returns the directory where decomk writes per-run audit logs.
+func LogDir(home string) string { return filepath.Join(home, "log") }
 
 // Home resolves the decomk home directory.
 //
@@ -140,37 +175,28 @@ func SafeComponent(s string) string {
 	return prefix + "-" + suffix
 }
 
-// StampDir returns the stamp directory for the given workspace/context.
+// StampDir returns decomk's stamp directory.
 //
-// This directory is used as make's working directory so that file targets ("stamp
-// files") are created outside the workspace repo.
-func StampDir(home, workspaceKey, contextKey string) string {
-	return filepath.Join(home, "state", "stamps", workspaceKey, contextKey)
-}
+// Stamps are global (container-scoped) because decomk is intended to configure
+// the container based on what's in /workspaces, not to configure the repos
+// themselves.
+func StampDir(home string) string { return StampsDir(home) }
 
-// EnvFile returns the env snapshot file path for the given workspace/context.
+// EnvFile returns the env snapshot file path for a context key.
 //
-// This is a shell-friendly file containing "export NAME='value'" lines.
-func EnvFile(home, workspaceKey, contextKey string) string {
-	return filepath.Join(home, "state", "env", workspaceKey, contextKey+".sh")
+// Env snapshots are container-scoped but named by context so users can inspect
+// the resolved environment for a given context.
+func EnvFile(home, contextKey string) string {
+	return filepath.Join(EnvDir(home), SafeComponent(contextKey)+".sh")
 }
 
-// AuditDir returns the directory where logs for a single run should be written.
+// AuditDir returns the directory where logs for a single decomk invocation are
+// written.
 //
-// Callers should ensure runID is unique per invocation to avoid overwriting logs.
-func AuditDir(home, workspaceKey, runID string) string {
-	return filepath.Join(home, "state", "audit", workspaceKey, runID)
-}
-
-// WorkspaceLockPath returns the lock file path for a workspace.
-func WorkspaceLockPath(home, workspaceKey string) string {
-	return filepath.Join(home, "state", "locks", workspaceKey+".lock")
-}
-
-// UpdateLockPath returns the lock file path for decomk repo/config updates.
-func UpdateLockPath(home string) string {
-	return filepath.Join(home, "state", "locks", "update.lock")
-}
+// Callers should ensure runID is unique per invocation to avoid overwriting
+// logs. Individual make invocations within the run may create subdirectories
+// under this path.
+func AuditDir(home, runID string) string { return filepath.Join(LogDir(home), runID) }
 
 // EnsureDir ensures a directory exists with safe permissions.
 func EnsureDir(path string) error {
