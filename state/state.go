@@ -14,13 +14,13 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
-	"unicode"
 )
 
 const (
@@ -28,6 +28,25 @@ const (
 	// DECOMK_HOME is not set.
 	DefaultHome = "/var/decomk"
 )
+
+// ToolDir returns the directory where decomk keeps a clone of its own tool repo.
+//
+// This supports an isconf-like "self-update" model: decomk can `git pull` its
+// own repo and rebuild itself before doing any other work.
+func ToolDir(home string) string { return filepath.Join(home, "decomk") }
+
+// ToolBinPath returns the path where decomk expects to build the tool binary
+// from ToolDir.
+//
+// Keeping the binary inside ToolDir keeps the installation self-contained, but
+// still outside any WIP workspace repo.
+func ToolBinPath(home string) string { return filepath.Join(ToolDir(home), "bin", "decomk") }
+
+// ToolLockPath returns the lock file used to serialize tool repo updates.
+//
+// The lock path is outside ToolDir so we don't create update artifacts inside a
+// git working tree.
+func ToolLockPath(home string) string { return filepath.Join(home, "decomk.lock") }
 
 // ConfDir returns the directory where decomk expects the config repo clone.
 //
@@ -130,49 +149,21 @@ func WorkspaceKey(workspaceRoot, githubRepo string) (string, error) {
 // security hazard:
 //   - path separators could create nested paths
 //   - "." / ".." could escape the intended directory
-//   - different raw keys can sanitize to the same component and collide
 //
-// This function produces a *single path component* that is:
-//   - ASCII-ish (letters/digits/._- with '_' substitutions)
-//   - never "." or ".."
-//   - collision-resistant (adds a short hash suffix of the original string)
-//
-// The mapping is stable but not reversible; callers should keep the original
-// string separately for display/logging.
+// This function produces a *single path component* by percent-encoding the
+// input (URL path escaping). This keeps the mapping stable and unambiguous, and
+// avoids collisions that can occur with simple "replace non-alnum with '_'"
+// sanitizers.
 func SafeComponent(s string) string {
 	if s == "" {
 		s = "_"
 	}
 
-	var b strings.Builder
-	b.Grow(len(s))
-
-	lastUnderscore := false
-	for _, r := range s {
-		keep := unicode.IsLetter(r) || unicode.IsDigit(r) || r == '_' || r == '-' || r == '.'
-		if keep {
-			b.WriteRune(r)
-			lastUnderscore = false
-			continue
-		}
-		if !lastUnderscore {
-			b.WriteByte('_')
-			lastUnderscore = true
-		}
+	escaped := url.PathEscape(s)
+	if escaped == "" || escaped == "." || escaped == ".." {
+		escaped = "_" + escaped
 	}
-
-	prefix := strings.Trim(b.String(), "_-")
-	if prefix == "" || prefix == "." || prefix == ".." {
-		prefix = "_"
-	}
-	const maxPrefixLen = 48
-	if len(prefix) > maxPrefixLen {
-		prefix = prefix[:maxPrefixLen]
-	}
-
-	sum := sha256.Sum256([]byte(s))
-	suffix := hex.EncodeToString(sum[:4]) // 8 hex chars is enough to avoid accidental collisions.
-	return prefix + "-" + suffix
+	return escaped
 }
 
 // StampDir returns decomk's stamp directory.

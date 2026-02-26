@@ -24,19 +24,19 @@ Planned work lives under `TODO/`.
 
 1) Create `decomk.conf` and a `Makefile`.
 
-For experimentation, you can put both in your workspace repo root. For
-the common devcontainer setup, you will typically keep a shared config
-repo cloned under `/var/decomk/conf` (see “Worked example”):
-- XXX no, it is decomk's job to clone this repo on first run and pull
-  to update it on each subsequent run; the conf repo URL is passed as
-  an argument/env var to decomk.  Before it does that, it is also
-  decomk's job to pull its own repo to update itself, this is the
-  equivalent of the "automatic self-update" feature in isconf.  
-- XXX decomk's local clone should be in /var/decomk/decomk, alongside
-  the conf clone, not in /workspaces/decomk, and it should pull itself
-  on each run to update itself.  This is the equivalent of the
-  "automatic self-update" feature in isconf.  Revise this document and
-  all other docs and code to reflect this.
+For experimentation, you can put both in your workspace repo root.
+
+For a typical devcontainer setup, you point decomk at a shared config repo via
+`-conf-repo` (or `DECOMK_CONF_REPO`). decomk clones it into
+`<DECOMK_HOME>/conf` on first run and runs `git pull --ff-only` on each run to
+keep it updated.
+
+DECOMK_HOME defaults to /var/decomk, so the config repo clone lives under `/var/decomk/conf`. 
+
+Before using the config repo, decomk also self-updates (isconf-style): it keeps
+a canonical clone of its own repo under `<DECOMK_HOME>/decomk`, runs
+`git pull --ff-only`, rebuilds, and re-execs into the updated binary. You can
+override the tool repo source with `-tool-repo` (or `DECOMK_TOOL_REPO`).
 
 `decomk.conf`:
 ```conf
@@ -98,26 +98,29 @@ Example container filesystem tree:
 /
 ├── var
 │   └── decomk
-│       ├── conf
-│       │   ├── decomk.conf
+│       ├── decomk                 (tool repo clone; self-updated)
+│       │   └── bin
+│       │       └── decomk         (built binary)
+│       ├── conf                   (config repo clone; self-updated)
+│       │   ├── decomk.conf        (configuration file for all managed
+repos)
 │       │   ├── decomk.d
 │       │   │   └── *.conf
-│       │   └── Makefile
+│       │   └── Makefile           (Makefile for all managed repos)
 │       ├── env
-│       │   └── env.sh
+│       │   └── <context>.sh
 │       ├── log
 │       │   └── <runID>
 │       │       └── make.log
-        ├── decomk
-        │   └── cmd
-        │       └── decomk
-        │           └── main.go
-│       └── stamps
-│           ├── install-codex
-│           ├── install-mob-consensus
-│           └── install-neovim
+│       ├── stamps
+│       │   ├── install-codex      (example)
+│       │   ├── install-mob-consensus (example)
+│       │   └── install-neovim     (example)
+│       ├── conf.lock              (lock while pulling config repo)
+│       └── decomk.lock            (lock while self-updating tool repo)
 └── workspaces
-    └── repo1
+    ├── repo1  (example)
+    └── repo2  (example)
 
 ```
 
@@ -213,17 +216,34 @@ the step has succeeded.
    - if `<dir>` is in a git repo: `git rev-parse --show-toplevel`
    - otherwise: `abs(<dir>)`
 
-3) Determine which workspaces to apply
+3) Self-update decomk itself (tool repo)
+   - clone/pull the tool repo into `<DECOMK_HOME>/decomk`
+   - `git pull --ff-only` (failure is fatal)
+   - `go build -o <DECOMK_HOME>/decomk/bin/decomk ./cmd/decomk`
+   - re-exec into the updated binary
+   - tool repo URL selection (first match wins):
+     - `-tool-repo <url>` / `DECOMK_TOOL_REPO`
+     - `dirname(primaryWorkspaceRoot)/decomk` (if it exists as a git repo; use its origin URL)
+     - default upstream (`https://github.com/stevegt/decomk`)
+
+4) Clone/pull the shared config repo
+   - `-conf-repo <url>` / `DECOMK_CONF_REPO`
+   - clone/pull into `<DECOMK_HOME>/conf`
+   - `git pull --ff-only` (failure is fatal)
+
+5) Determine which workspaces to apply
    - if `-context` (or `DECOMK_CONTEXT`) is set: apply **only** the primary workspace
    - otherwise: scan sibling directories under `dirname(primaryWorkspaceRoot)` and
      treat each child directory with a `.git` as a workspace repo
 
-4) For each workspace repo, compute `workspaceKey`
-   - a SHA-256 hash of `(ownerRepo + "\n" + abs(workspaceRoot))`
-   - used for stable identification in logs/debug output
+6) For each workspace repo, compute `workspaceKey`
+   - first match wins:
+     - `owner/repo` (derived from that workspace repo’s `remote.origin.url`)
+     - `repo` (derived from origin URL or directory basename)
 
-5) For each workspace repo, load config definitions (`decomk.conf`)
-   - **config repo** (optional): `<DECOMK_HOME>/conf/decomk.conf` (or `<DECOMK_HOME>/conf/decomk.conf`)
+7) For each workspace repo, load config definitions (`decomk.conf`)
+   - **config repo** (optional): first existing of:
+     - `<DECOMK_HOME>/conf/decomk.conf`
      - clone/pull it with `-conf-repo <url>` (or `DECOMK_CONF_REPO`)
    - **repo-local overlay** (optional): `<workspaceRoot>/decomk.conf`
    - **explicit override** (optional): `-config <path>` or `DECOMK_CONFIG`
@@ -238,19 +258,19 @@ the step has succeeded.
    - plus optional `decomk.d/*.conf` in lexical order
      - later files override earlier ones by key
 
-6) Choose `contextKey` (per workspace repo)
+8) Choose `contextKey` (per workspace repo)
    - `-context <key>` / `DECOMK_CONTEXT` (must exist in config) forces a single context
    - otherwise, first match wins:
      - `owner/repo` (derived from that workspace repo’s `remote.origin.url`)
      - `repo` (derived from origin URL or directory basename)
      - `DEFAULT`
 
-7) Seed tokens
+9) Seed tokens
    - common composition is `DEFAULT + contextKey`
    - if a context explicitly includes `DEFAULT` in its own token list, decomk
      does not add `DEFAULT` implicitly (avoids duplicates)
 
-8) Expand macros (recursive)
+10) Expand macros (recursive)
    - if a token exactly matches a key in the config map, it is replaced by that
      key’s token list, recursively
    - unknown tokens remain literal
@@ -258,29 +278,28 @@ the step has succeeded.
      - cycle detection
      - maximum depth (default 64; override with `-max-expand-depth`)
 
-9) Partition expanded tokens
+11) Partition expanded tokens
    - tuples: `NAME=value` where `NAME` matches `[A-Za-z_][A-Za-z0-9_]*`
    - targets: all other tokens
 
-10) Compute state paths
+12) Compute state paths
    - stamp dir (global):
      - `<DECOMK_HOME>/stamps/`
    - env snapshot (per context; filename includes a safe hash suffix):
      - `<DECOMK_HOME>/env/<context>.sh`
 
-11) Write the env snapshot (`plan` and `run`)
+13) Write the env snapshot (`plan` and `run`)
     - a shell-friendly file with `export NAME='value'` lines
     - includes:
       - computed `DECOMK_*` exports
       - config-provided tuples
 
-12) Execute make (`run` only)
+14) Execute make (`run` only)
     - determine `Makefile` path:
       - `-makefile <path>` if set
       - otherwise, first existing of:
         - `dirname(-config)/Makefile` (if `-config`/`DECOMK_CONFIG` is set)
-        - `<DECOMK_HOME>/conf/Makefile` (or `<DECOMK_HOME>/conf/Makefile`)
-        - `<workspaceRoot>/Makefile`
+        - `<DECOMK_HOME>/conf/Makefile`
     - acquire an exclusive global stamps lock:
       - `<DECOMK_HOME>/stamps/.lock`
     - ensure stamp dir exists, then **touch existing stamps** once (see below)
@@ -376,10 +395,11 @@ Flags:
   -C <dir>                  Workspace directory (like make -C)
   -context <key>            Override context selection
   -config <path>            Explicit config file (overrides defaults)
+  -tool-repo <url>          Clone/pull tool repo into <home>/decomk
   -conf-repo <url>          Clone/pull config repo into <home>/conf
   -makefile <path>          Explicit Makefile path
   -max-expand-depth <n>     Macro expansion depth limit (default 64)
-  -v                        Reserved for future verbose output
+  -v                        Verbose output
 ```
 
 ## Devcontainer notes
@@ -393,6 +413,6 @@ Flags:
 
 ## Limitations (current MVP)
 
-  - XXX if `git pull` fails, decomck needs to fail
 - No `status` / `clean` commands yet.
 - Config parser is intentionally minimal (single quotes only; whole-line comments only).
+- Requires `git` and `go` in the container for self-update.

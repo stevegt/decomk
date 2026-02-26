@@ -60,10 +60,15 @@ Non-goals (for MVP):
 
 - State engine: GNU `make` + stamps.
 - Stamp behavior: `decomk` pre-touches existing stamps by default (no flag planned).
+- Self-update model (isconf-style):
+  - decomk keeps a canonical clone of its own repo under `<DECOMK_HOME>/decomk`
+  - each invocation runs `git pull --ff-only`, rebuilds, and re-execs into the
+    updated binary
+  - tool repo URL is provided via the CLI (`-tool-repo`) or env (`DECOMK_TOOL_REPO`)
+    (with a devcontainer-friendly local inference fallback)
 - Config repo model:
   - a shared config repo is cloned/pulled into `<DECOMK_HOME>/conf` (default `/var/decomk/conf`)
   - the repo URL is provided via the CLI (`-conf-repo`) or env (`DECOMK_CONF_REPO`)
-  - decomk does **not** self-update its own source/binary; it only updates the config repo
 - Pilot repo: `mob-sandbox` (devcontainer + `postCreateCommand`).
 
 ## High-level overview
@@ -84,6 +89,8 @@ Like `rc.isconf`, decomk needs a bootstrap/update step, but the current scope is
 intentionally small and focused on container-local state:
 - ensure `<DECOMK_HOME>` exists (default `/var/decomk`) and required subdirs
   exist (`conf/`, `stamps/`, `env/`, `log/`)
+- clone/pull the decomk tool repo into `<DECOMK_HOME>/decomk`, rebuild, and
+  re-exec into the updated binary (self-update)
 - optionally clone/pull the shared config repo into `<DECOMK_HOME>/conf` when
   `-conf-repo` / `DECOMK_CONF_REPO` is set
 - discover workspace repos (git checkouts) under the workspace parent directory
@@ -146,6 +153,9 @@ Proposed layout (all under `DECOMK_HOME` or `/var/decomk`):
 - Note: this layout assumes the “make-as-engine” direction discussed in
   TODO 003. If we later replace `make` as the execution/state engine,
   the repo and state layout may change.
+- Tool repo clone (self-update):
+  - `.../decomk/` (git clone)
+    - `.../decomk/bin/decomk` (built binary)
 - Configs/makefiles repo clone (policy):
   - `.../conf/` (git clone)
     - `.../conf/etc/decomk.conf`
@@ -155,7 +165,7 @@ Proposed layout (all under `DECOMK_HOME` or `/var/decomk`):
   - `.../stamps/` (global stamp dir; make working directory)
   - `.../env/<contextKey>.sh` (resolved env snapshots; per context)
   - `.../log/<runID>/make.log` (audit logs; per make invocation)
-  - `.../conf.lock` and `.../stamps/.lock` (advisory locks)
+  - `.../decomk.lock`, `.../conf.lock`, and `.../stamps/.lock` (advisory locks)
 
 When using `/var/decomk`, use the same internal tree under it.
 
@@ -168,9 +178,9 @@ stamp paths. It remains useful for:
 
 Define:
 - `workspaceRoot`: `git rev-parse --show-toplevel` (fallback: `PWD`)
-- `workspaceKey`: stable-ish identifier:
-  - preferred: `GITHUB_REPOSITORY` (if present) + `workspaceRoot` basename
-  - fallback: hash of `workspaceRoot` absolute path
+- `workspaceKey`: a filesystem-safe identifier computed as a SHA-256 hash of:
+  - `ownerRepo + "\n" + abs(workspaceRoot)`
+  - where `ownerRepo` is derived from the repo’s `remote.origin.url` when possible
 
 The key should be filesystem-safe (hex-encoded hash is easiest).
 

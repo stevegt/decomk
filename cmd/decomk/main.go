@@ -19,6 +19,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/stevegt/decomk/contexts"
@@ -84,6 +85,7 @@ type commonFlags struct {
 	workspace   string
 	context     string
 	config      string
+	toolRepo    string
 	confRepo    string
 	makefile    string
 	verbose     bool
@@ -96,6 +98,7 @@ func addCommonFlags(fs *flag.FlagSet, f *commonFlags) {
 	fs.StringVar(&f.workspace, "C", ".", "workspace directory (like make -C)")
 	fs.StringVar(&f.context, "context", "", "context key override (also DECOMK_CONTEXT)")
 	fs.StringVar(&f.config, "config", "", "config file path override (also DECOMK_CONFIG)")
+	fs.StringVar(&f.toolRepo, "tool-repo", "", "decomk tool repo URL to clone/pull into <home>/decomk (also DECOMK_TOOL_REPO)")
 	fs.StringVar(&f.confRepo, "conf-repo", "", "config repo URL to clone/pull into <home>/conf (also DECOMK_CONF_REPO)")
 	fs.StringVar(&f.makefile, "makefile", "", "makefile path override")
 	// Note: -v is reserved for future improvements (more logging and plan details).
@@ -314,7 +317,18 @@ func resolvePlansFromFlags(f commonFlags, stderr io.Writer) ([]*resolvedPlan, er
 		return nil, err
 	}
 
-	// Optionally clone/pull the shared config repo into <home>/conf.
+	primaryWorkspaceRoot, err := state.WorkspaceRoot(f.workspace)
+	if err != nil {
+		return nil, err
+	}
+
+	// Before doing any other work, update decomk itself (isconf-style). This
+	// may rebuild and re-exec into the updated binary under <home>/decomk.
+	if err := selfUpdateTool(home, primaryWorkspaceRoot, f.toolRepo, f.verbose, stderr); err != nil {
+		return nil, err
+	}
+
+	// Clone/pull the shared config repo into <home>/conf.
 	if err := ensureConfRepo(home, f.confRepo, f.verbose, stderr); err != nil {
 		return nil, err
 	}
@@ -322,11 +336,6 @@ func resolvePlansFromFlags(f commonFlags, stderr io.Writer) ([]*resolvedPlan, er
 	explicitConfig := f.config
 	if explicitConfig == "" {
 		explicitConfig = os.Getenv("DECOMK_CONFIG")
-	}
-
-	primaryWorkspaceRoot, err := state.WorkspaceRoot(f.workspace)
-	if err != nil {
-		return nil, err
 	}
 
 	// If the user explicitly sets a context, do not scan sibling workspaces.
@@ -551,6 +560,194 @@ func resolvePlanForRepo(home string, repo workspaceRepo, explicitConfig, explici
 	}, nil
 }
 
+// defaultToolRepoURL is the upstream repo URL used when decomk can't infer a
+// better source for its own tool repo clone.
+//
+// This is only used for the initial clone. Once the clone exists, subsequent
+// updates use the clone's configured remote.
+const defaultToolRepoURL = "https://github.com/stevegt/decomk"
+
+// selfUpdateTool performs an isconf-style self-update:
+//   - ensure a decomk tool repo clone exists at <home>/decomk
+//   - git pull --ff-only to update it
+//   - go build an updated decomk binary from that clone
+//   - re-exec into the updated binary when appropriate
+//
+// This keeps the workspace repos clean and ensures that decomk's behavior tracks
+// the latest pulled source.
+//
+// If updates require network access and the pull fails, this returns an error.
+func selfUpdateTool(home, primaryWorkspaceRoot, repoURL string, verbose bool, stderr io.Writer) error {
+	if repoURL == "" {
+		repoURL = os.Getenv("DECOMK_TOOL_REPO")
+	}
+
+	// Serialize clone/pull/build operations so concurrent decomk invocations can't
+	// corrupt the tool working tree or clobber the built binary.
+	lock, err := state.LockFile(state.ToolLockPath(home))
+	if err != nil {
+		return fmt.Errorf("lock tool repo: %w", err)
+	}
+
+	changed, err := ensureToolRepo(home, primaryWorkspaceRoot, repoURL, verbose, stderr)
+	if err != nil {
+		_ = lock.Close()
+		return err
+	}
+
+	binPath := state.ToolBinPath(home)
+	if changed || !fileExists(binPath) {
+		if err := buildToolBinary(home, verbose, stderr); err != nil {
+			_ = lock.Close()
+			return err
+		}
+	}
+
+	// Decide whether to re-exec into the tool binary we just built. We do this
+	// when:
+	//   - we're not currently executing that binary (common for "go run" or
+	//     a system-installed decomk), or
+	//   - we pulled new source and rebuilt a new binary at the same path.
+	exe, err := os.Executable()
+	if err != nil {
+		_ = lock.Close()
+		return fmt.Errorf("find current executable: %w", err)
+	}
+
+	needExec := exe != binPath || changed
+	if !needExec {
+		return lock.Close()
+	}
+
+	if verbose {
+		fmt.Fprintf(stderr, "decomk: re-exec into %s\n", binPath)
+	}
+
+	// Release the lock before exec so the new process can lock/pull/build again
+	// if needed.
+	if err := lock.Close(); err != nil {
+		return err
+	}
+
+	argv := append([]string{binPath}, os.Args[1:]...)
+	return syscall.Exec(binPath, argv, os.Environ())
+}
+
+// ensureToolRepo ensures the decomk tool repo clone exists at <home>/decomk and
+// is up to date.
+//
+// If repoURL is empty, decomk will try to infer a suitable URL from a sibling
+// workspace checkout (e.g., "<workspaceParent>/decomk"), falling back to
+// defaultToolRepoURL.
+//
+// It returns changed=true if the clone was newly created or if git pull changed
+// HEAD.
+func ensureToolRepo(home, primaryWorkspaceRoot, repoURL string, verbose bool, stderr io.Writer) (changed bool, err error) {
+	toolDir := state.ToolDir(home)
+
+	stat, err := os.Stat(toolDir)
+	switch {
+	case err == nil:
+		if !stat.IsDir() {
+			return false, fmt.Errorf("tool repo path exists but is not a directory: %s", toolDir)
+		}
+		ok, err := isGitWorkTree(toolDir)
+		if err != nil {
+			return false, fmt.Errorf("check tool repo git state: %w", err)
+		}
+		if !ok {
+			return false, fmt.Errorf("tool repo directory exists but is not a git work tree: %s", toolDir)
+		}
+
+		origin, _ := gitOutput(toolDir, "config", "--get", "remote.origin.url")
+		if repoURL != "" && origin != "" && origin != repoURL {
+			return false, fmt.Errorf("tool repo origin URL mismatch: want %q, got %q (dir %s)", repoURL, origin, toolDir)
+		}
+
+		before, _ := gitOutput(toolDir, "rev-parse", "HEAD")
+		if verbose {
+			fmt.Fprintf(stderr, "decomk: updating tool repo in %s\n", toolDir)
+		}
+		if err := runGit(stderr, toolDir, "pull", "--ff-only"); err != nil {
+			return false, fmt.Errorf("update tool repo: %w", err)
+		}
+		after, _ := gitOutput(toolDir, "rev-parse", "HEAD")
+		return before != "" && after != "" && before != after, nil
+
+	case os.IsNotExist(err):
+		cloneURL := repoURL
+		if cloneURL == "" {
+			cloneURL = inferToolRepoURL(primaryWorkspaceRoot)
+		}
+		if cloneURL == "" {
+			cloneURL = defaultToolRepoURL
+		}
+
+		if err := state.EnsureDir(home); err != nil {
+			return false, err
+		}
+		if verbose {
+			fmt.Fprintf(stderr, "decomk: cloning tool repo into %s\n", toolDir)
+		}
+		cmd := exec.Command("git", "clone", cloneURL, toolDir)
+		cmd.Stdout = stderr
+		cmd.Stderr = stderr
+		if err := cmd.Run(); err != nil {
+			return false, fmt.Errorf("git clone tool repo: %w", err)
+		}
+		return true, nil
+
+	default:
+		return false, fmt.Errorf("stat tool repo dir %q: %w", toolDir, err)
+	}
+}
+
+// inferToolRepoURL tries to derive the decomk tool repo URL from a sibling
+// workspace checkout.
+//
+// This is a pragmatic devcontainer-friendly default: multi-repo workspaces often
+// include a WIP clone at "<workspaceParent>/decomk". If it exists, we prefer its
+// origin URL, falling back to the local path itself (which works as a git clone
+// source).
+func inferToolRepoURL(primaryWorkspaceRoot string) string {
+	// If we can't determine a stable workspace root, we can't infer siblings.
+	if primaryWorkspaceRoot == "" {
+		return ""
+	}
+	parent := filepath.Dir(primaryWorkspaceRoot)
+	candidate := filepath.Join(parent, "decomk")
+	if !isGitRepoRoot(candidate) {
+		return ""
+	}
+	origin, err := gitOutput(candidate, "config", "--get", "remote.origin.url")
+	if err == nil && origin != "" {
+		return origin
+	}
+	return candidate
+}
+
+// buildToolBinary builds the decomk binary from the tool repo clone into
+// <home>/decomk/bin/decomk.
+func buildToolBinary(home string, verbose bool, stderr io.Writer) error {
+	toolDir := state.ToolDir(home)
+	binPath := state.ToolBinPath(home)
+
+	if err := state.EnsureDir(filepath.Dir(binPath)); err != nil {
+		return err
+	}
+	if verbose {
+		fmt.Fprintf(stderr, "decomk: building %s\n", binPath)
+	}
+	cmd := exec.Command("go", "build", "-o", binPath, "./cmd/decomk")
+	cmd.Dir = toolDir
+	cmd.Stdout = stderr
+	cmd.Stderr = stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("go build decomk: %w", err)
+	}
+	return nil
+}
+
 // ensureConfRepo ensures the shared config repo clone exists under <home>/conf.
 //
 // If repoURL is empty (and DECOMK_CONF_REPO is unset), this function does
@@ -559,10 +756,6 @@ func resolvePlanForRepo(home string, repo workspaceRepo, explicitConfig, explici
 // Behavior:
 //   - If <home>/conf does not exist: git clone repoURL into it.
 //   - If <home>/conf exists and is a git repo: git pull --ff-only.
-//
-// Update failures are treated as best-effort when a usable config file is
-// already present: decomk warns (in verbose mode) and proceeds using the on-disk
-// config. If no usable config exists, update failures are fatal.
 func ensureConfRepo(home, repoURL string, verbose bool, stderr io.Writer) error {
 	if repoURL == "" {
 		repoURL = os.Getenv("DECOMK_CONF_REPO")
@@ -604,13 +797,6 @@ func ensureConfRepo(home, repoURL string, verbose bool, stderr io.Writer) error 
 			fmt.Fprintf(stderr, "decomk: updating config repo in %s\n", confDir)
 		}
 		if err := runGit(stderr, confDir, "pull", "--ff-only"); err != nil {
-			// Allow offline reuse if the config files already exist.
-			if hasUsableConfig(home) {
-				if verbose {
-					fmt.Fprintf(stderr, "decomk: warning: config repo update failed; proceeding with existing config: %v\n", err)
-				}
-				return nil
-			}
 			return fmt.Errorf("update config repo: %w", err)
 		}
 		return nil
@@ -633,13 +819,6 @@ func ensureConfRepo(home, repoURL string, verbose bool, stderr io.Writer) error 
 	default:
 		return fmt.Errorf("stat config repo dir %q: %w", confDir, err)
 	}
-}
-
-// hasUsableConfig reports whether a readable decomk.conf exists in the expected
-// config repo clone location under <home>/conf.
-func hasUsableConfig(home string) bool {
-	_, ok := configRepoConfigPath(home)
-	return ok
 }
 
 // isGitWorkTree reports whether dir is inside a git working tree.

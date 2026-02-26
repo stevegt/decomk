@@ -221,8 +221,8 @@ Pragmatic MVP: define a small set of **capability groups**, then compose per-rep
 - [x] 001.1 Decide naming for the `hosts.conf` analog (`decomk.conf` + optional `decomk.d/*.conf`).
 - [x] 001.2 Choose config file name/location and syntax (use isconf-like `decomk.conf` grammar).
 - [x] 001.3 Choose wrapper language (Go vs Bash) and document the tradeoffs/decision.
-- [ ] 001.4 Implement macro expansion (isconf `expandmacro` semantics) without Perl.
-- [ ] 001.5 Implement env snapshot generation (tuples-only) and decide where it is written.
+- [x] 001.4 Implement macro expansion (isconf `expandmacro` semantics) without Perl.
+- [x] 001.5 Implement env snapshot generation (tuples-only) and decide where it is written.
 - [ ] 001.6 Define initial target groups (BLOCK_XX analogs) and a minimal `DEFAULT` toolset.
-- [ ] 001.7 Define the config repo update model: pull config repo into `<DECOMK_HOME>/conf`; support a pinned config ref/branch (lunamake test→prod style); no tool self-update in MVP.
+- [ ] 001.7 Define the update/self-update model: pull tool repo into `<DECOMK_HOME>/decomk` (rebuild + re-exec) and pull config repo into `<DECOMK_HOME>/conf`; support a pinned config ref/branch (lunamake test→prod style).
 - [ ] 001.8 Pilot in `mob-sandbox` via `devcontainer.json` `postCreateCommand`, then generalize.
