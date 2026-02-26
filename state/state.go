@@ -1,12 +1,12 @@
 // Package state computes decomk's on-disk layout and provides helpers for
-// managing persistent state (locks, stamps, env snapshots).
+// managing persistent state (locks, stamps, env exports).
 //
 // decomk is designed to keep its state outside any workspace repo, typically
 // under a container-local directory like /var/decomk. This avoids dirtying repos
 // with stamp files and makes it clearer what is "policy" vs "state":
 //   - /var/decomk/conf   : a local clone of the shared config repo (decomk.conf + Makefile)
 //   - /var/decomk/stamps : global stamp directory used as make's working directory
-//   - /var/decomk/env    : resolved env snapshots (shell-friendly)
+//   - /var/decomk/env.sh : shell-friendly resolved tuple exports for other processes to source
 //   - /var/decomk/log    : per-run audit logs (make output)
 package state
 
@@ -73,9 +73,6 @@ func StampsDir(home string) string { return filepath.Join(home, "stamps") }
 //
 // Stamps are global (container-wide), so the lock is also global.
 func StampsLockPath(home string) string { return filepath.Join(StampsDir(home), ".lock") }
-
-// EnvDir returns the directory where decomk writes env snapshot files.
-func EnvDir(home string) string { return filepath.Join(home, "env") }
 
 // LogDir returns the directory where decomk writes per-run audit logs.
 func LogDir(home string) string { return filepath.Join(home, "log") }
@@ -173,13 +170,11 @@ func SafeComponent(s string) string {
 // themselves.
 func StampDir(home string) string { return StampsDir(home) }
 
-// EnvFile returns the env snapshot file path for a context key.
+// EnvFile returns the env export file path.
 //
-// Env snapshots are container-scoped but named by context so users can inspect
-// the resolved environment for a given context.
-func EnvFile(home, contextKey string) string {
-	return filepath.Join(EnvDir(home), SafeComponent(contextKey)+".sh")
-}
+// This file is intentionally stable so other processes can source it after
+// running decomk. It is overwritten on each invocation.
+func EnvFile(home string) string { return filepath.Join(home, "env.sh") }
 
 // AuditDir returns the directory where logs for a single decomk invocation are
 // written.

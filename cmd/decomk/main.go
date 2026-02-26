@@ -3,7 +3,7 @@
 // MVP responsibilities:
 //   - Load decomk.conf (and optional decomk.d/*.conf).
 //   - Expand macros into make targets + VAR=value tuples.
-//   - Write an auditable env snapshot.
+//   - Write a shell-friendly env file (env.sh) for other processes to source.
 //   - Optionally execute GNU make in a persistent stamp directory.
 package main
 
@@ -74,8 +74,8 @@ Usage:
   decomk <command> [flags] [ARGS...]
 
 Commands (MVP):
-  plan    Print resolved tuples/targets; write env snapshot; do not run make
-  run     Resolve, write env snapshot, and run make in the stamp dir
+  plan    Print resolved tuples/targets; write env export file; do not run make
+  run     Resolve, write env export file, and run make in the stamp dir
 
 ARGS:
   Positional args are interpreted isconf-style:
@@ -128,7 +128,7 @@ type resolvedPlan struct {
 	// intended to configure the container (tools, caches, etc.), not to manage
 	// per-repo build artifacts.
 	StampDir string
-	// EnvFile is the resolved env snapshot written for auditing/debugging.
+	// EnvFile is the shell-friendly env export file written for other processes to source.
 	EnvFile  string
 	Makefile string
 
@@ -140,7 +140,7 @@ type resolvedPlan struct {
 	Targets []string
 }
 
-// cmdPlan resolves the context and writes an env snapshot, but does not invoke make.
+// cmdPlan resolves the context and writes an env export file, but does not invoke make.
 //
 // This is intended to be safe to run in lifecycle hooks where you want to see
 // what decomk *would* do, without making changes.
@@ -157,16 +157,28 @@ func cmdPlan(args []string, stdout, stderr io.Writer) (int, error) {
 	}
 	actionArgs := fs.Args()
 
+	primaryWorkspaceRoot, err := state.WorkspaceRoot(f.workspace)
+	if err != nil {
+		return 1, err
+	}
+
 	plans, err := resolvePlansFromFlags(f, stderr)
 	if err != nil {
 		return 1, err
 	}
 
-	for i, plan := range plans {
-		targets, targetSource := selectTargets(plan.Targets, plan.Tuples, actionArgs)
+	// Write one stable env export file. For multi-workspace operation this file
+	// corresponds to the primary workspace (-C), so other processes can source it
+	// deterministically.
+	if plan := selectEnvSnapshotPlan(plans, primaryWorkspaceRoot); plan != nil {
+		targets, _ := selectTargets(plan.Targets, plan.Tuples, actionArgs)
 		if err := writeEnvSnapshot(plan.EnvFile, plan, targets); err != nil {
 			return 1, err
 		}
+	}
+
+	for i, plan := range plans {
+		targets, targetSource := selectTargets(plan.Targets, plan.Tuples, actionArgs)
 
 		if i > 0 {
 			fmt.Fprintln(stdout)
@@ -202,7 +214,7 @@ func cmdPlan(args []string, stdout, stderr io.Writer) (int, error) {
 	return 0, nil
 }
 
-// cmdRun resolves the context, writes an env snapshot, and invokes make in a
+// cmdRun resolves the context, writes an env export file, and invokes make in a
 // persistent stamp directory.
 //
 // The stamp directory is outside the workspace repo so that re-running decomk
@@ -220,6 +232,11 @@ func cmdRun(args []string, stdout, stderr io.Writer) (int, error) {
 	}
 	actionArgs := fs.Args()
 
+	primaryWorkspaceRoot, err := state.WorkspaceRoot(f.workspace)
+	if err != nil {
+		return 1, err
+	}
+
 	plans, err := resolvePlansFromFlags(f, stderr)
 	if err != nil {
 		return 1, err
@@ -231,6 +248,16 @@ func cmdRun(args []string, stdout, stderr io.Writer) (int, error) {
 	for _, plan := range plans {
 		if plan.Makefile == "" {
 			return 1, fmt.Errorf("no Makefile found for workspace %s; use -makefile to set an explicit path", plan.WorkspaceRoot)
+		}
+	}
+
+	// Write one stable env export file. For multi-workspace operation this file
+	// corresponds to the primary workspace (-C), so other processes can source it
+	// deterministically.
+	if plan := selectEnvSnapshotPlan(plans, primaryWorkspaceRoot); plan != nil {
+		targets, _ := selectTargets(plan.Targets, plan.Tuples, actionArgs)
+		if err := writeEnvSnapshot(plan.EnvFile, plan, targets); err != nil {
+			return 1, err
 		}
 	}
 
@@ -252,9 +279,6 @@ func cmdRun(args []string, stdout, stderr io.Writer) (int, error) {
 
 	for i, plan := range plans {
 		targets, _ := selectTargets(plan.Targets, plan.Tuples, actionArgs)
-		if err := writeEnvSnapshot(plan.EnvFile, plan, targets); err != nil {
-			return 1, err
-		}
 
 		// Include sub-second resolution and pid to avoid collisions when two runs start
 		// close together (otherwise one run can clobber the other's audit log).
@@ -554,7 +578,7 @@ func resolvePlanForRepo(home string, repo workspaceRepo, explicitConfig, explici
 	tuples, targets := resolve.Partition(expanded)
 
 	stampDir := state.StampDir(home)
-	envFile := state.EnvFile(home, contextKey)
+	envFile := state.EnvFile(home)
 
 	makefile := f.makefile
 	if makefile == "" {
@@ -1067,6 +1091,24 @@ func appendIfMissingTuple(tuples []string, name, value string) []string {
 	return append(tuples, name+"="+value)
 }
 
+// selectEnvSnapshotPlan chooses which resolved plan should be written to the
+// stable env export file (<DECOMK_HOME>/env.sh).
+//
+// When decomk scans multiple sibling workspaces, it still writes exactly one
+// env file so other processes can source it deterministically. That env file is
+// associated with the primary workspace (the repo rooted at -C).
+func selectEnvSnapshotPlan(plans []*resolvedPlan, primaryWorkspaceRoot string) *resolvedPlan {
+	for _, plan := range plans {
+		if plan.WorkspaceRoot == primaryWorkspaceRoot {
+			return plan
+		}
+	}
+	if len(plans) > 0 {
+		return plans[0]
+	}
+	return nil
+}
+
 // selectTargets determines which make targets decomk should pass on argv for a
 // given plan.
 //
@@ -1075,8 +1117,7 @@ func appendIfMissingTuple(tuples []string, name, value string) []string {
 //     target tokens are ignored.
 //   - Each arg is treated as either:
 //   - an action variable name (when it matches a resolved tuple variable),
-//     in which case that variable's value is split on whitespace into
-//     targets, or
+//     in which case that variable's value is split on whitespace into targets, or
 //   - a literal make target (fallback).
 //   - If actionArgs is empty, decomk preserves its historical behavior:
 //   - run config target tokens if present, else
