@@ -71,11 +71,17 @@ func usage() string {
 	return `decomk - devcontainer bootstrap wrapper around make
 
 Usage:
-  decomk <command> [flags]
+  decomk <command> [flags] [ARGS...]
 
 Commands (MVP):
   plan    Print resolved tuples/targets; write env snapshot; do not run make
   run     Resolve, write env snapshot, and run make in the stamp dir
+
+ARGS:
+  Positional args are interpreted isconf-style:
+    - If an arg matches a resolved tuple variable name (e.g. INSTALL), its value
+      is split on whitespace to produce make targets.
+    - Otherwise, the arg is treated as a literal make target name.
 `
 }
 
@@ -149,6 +155,7 @@ func cmdPlan(args []string, stdout, stderr io.Writer) (int, error) {
 		}
 		return 2, err
 	}
+	actionArgs := fs.Args()
 
 	plans, err := resolvePlansFromFlags(f, stderr)
 	if err != nil {
@@ -156,7 +163,8 @@ func cmdPlan(args []string, stdout, stderr io.Writer) (int, error) {
 	}
 
 	for i, plan := range plans {
-		if err := writeEnvSnapshot(plan.EnvFile, plan); err != nil {
+		targets, targetSource := selectTargets(plan.Targets, plan.Tuples, actionArgs)
+		if err := writeEnvSnapshot(plan.EnvFile, plan, targets); err != nil {
 			return 1, err
 		}
 
@@ -170,6 +178,10 @@ func cmdPlan(args []string, stdout, stderr io.Writer) (int, error) {
 		fmt.Fprintf(stdout, "config: %s\n", strings.Join(plan.ConfigPaths, ", "))
 		fmt.Fprintf(stdout, "env: %s\n", plan.EnvFile)
 		fmt.Fprintf(stdout, "stampDir: %s\n", plan.StampDir)
+		if len(actionArgs) > 0 {
+			fmt.Fprintf(stdout, "actionArgs: %s\n", strings.Join(actionArgs, " "))
+		}
+		fmt.Fprintf(stdout, "targetSource: %s\n", targetSource)
 		if plan.Makefile != "" {
 			fmt.Fprintf(stdout, "makefile: %s\n", plan.Makefile)
 		}
@@ -180,7 +192,10 @@ func cmdPlan(args []string, stdout, stderr io.Writer) (int, error) {
 			fmt.Fprintf(stdout, "  %s\n", t)
 		}
 		fmt.Fprintln(stdout, "targets:")
-		for _, t := range plan.Targets {
+		if len(targets) == 0 {
+			fmt.Fprintln(stdout, "  (none; make will use its default goal)")
+		}
+		for _, t := range targets {
 			fmt.Fprintf(stdout, "  %s\n", t)
 		}
 	}
@@ -203,6 +218,7 @@ func cmdRun(args []string, stdout, stderr io.Writer) (int, error) {
 		}
 		return 2, err
 	}
+	actionArgs := fs.Args()
 
 	plans, err := resolvePlansFromFlags(f, stderr)
 	if err != nil {
@@ -235,7 +251,8 @@ func cmdRun(args []string, stdout, stderr io.Writer) (int, error) {
 	}
 
 	for i, plan := range plans {
-		if err := writeEnvSnapshot(plan.EnvFile, plan); err != nil {
+		targets, _ := selectTargets(plan.Targets, plan.Tuples, actionArgs)
+		if err := writeEnvSnapshot(plan.EnvFile, plan, targets); err != nil {
 			return 1, err
 		}
 
@@ -259,15 +276,17 @@ func cmdRun(args []string, stdout, stderr io.Writer) (int, error) {
 		tuples = appendIfMissingTuple(tuples, "DECOMK_WORKSPACE_ROOT", plan.WorkspaceRoot)
 		tuples = appendIfMissingTuple(tuples, "DECOMK_STAMPDIR", plan.StampDir)
 		tuples = appendIfMissingTuple(tuples, "DECOMK_CONTEXT", plan.ContextKey)
+		tuples = appendIfMissingTuple(tuples, "DECOMK_PACKAGES", strings.Join(targets, " "))
 
 		env := withEnv(os.Environ(), map[string]string{
 			"DECOMK_HOME":           plan.Home,
 			"DECOMK_WORKSPACE_ROOT": plan.WorkspaceRoot,
 			"DECOMK_STAMPDIR":       plan.StampDir,
 			"DECOMK_CONTEXT":        plan.ContextKey,
+			"DECOMK_PACKAGES":       strings.Join(targets, " "),
 		})
 
-		exitCode, runErr := makeexec.Run(plan.StampDir, plan.Makefile, tuples, plan.Targets, env, teeOut, teeErr)
+		exitCode, runErr := makeexec.Run(plan.StampDir, plan.Makefile, tuples, targets, env, teeOut, teeErr)
 		_ = logFile.Close()
 		if runErr != nil {
 			// Preserve make's exit status.
@@ -1048,6 +1067,77 @@ func appendIfMissingTuple(tuples []string, name, value string) []string {
 	return append(tuples, name+"="+value)
 }
 
+// selectTargets determines which make targets decomk should pass on argv for a
+// given plan.
+//
+// Semantics are intentionally isconf-like:
+//   - If actionArgs is non-empty, actionArgs drive the selection and config
+//     target tokens are ignored.
+//   - Each arg is treated as either:
+//   - an action variable name (when it matches a resolved tuple variable),
+//     in which case that variable's value is split on whitespace into
+//     targets, or
+//   - a literal make target (fallback).
+//   - If actionArgs is empty, decomk preserves its historical behavior:
+//   - run config target tokens if present, else
+//   - default to INSTALL (if defined), else
+//   - pass no targets (make's default goal).
+func selectTargets(configTargets, tuples, actionArgs []string) (targets []string, source string) {
+	effective := effectiveTupleValues(tuples)
+	if len(actionArgs) > 0 {
+		return targetsFromActionArgs(actionArgs, effective), "actionArgs"
+	}
+	if len(configTargets) > 0 {
+		return append([]string(nil), configTargets...), "configTargets"
+	}
+	if installTargets, ok := effective["INSTALL"]; ok {
+		if split := splitTargetList(installTargets); len(split) > 0 {
+			return split, "defaultINSTALL"
+		}
+	}
+	return nil, "makeDefaultGoal"
+}
+
+// effectiveTupleValues returns the "last wins" values for NAME=value tuples.
+//
+// This mirrors make's command-line variable precedence: if the same variable
+// name appears multiple times on argv, the last assignment wins.
+func effectiveTupleValues(tuples []string) map[string]string {
+	out := make(map[string]string, len(tuples))
+	for _, t := range tuples {
+		k, v, ok := resolve.SplitTuple(t)
+		if !ok {
+			continue
+		}
+		out[k] = v
+	}
+	return out
+}
+
+// targetsFromActionArgs interprets each action arg as either a tuple-variable
+// name (expanding to a whitespace-separated target list) or a literal target.
+func targetsFromActionArgs(actionArgs []string, tupleValues map[string]string) []string {
+	var targets []string
+	for _, arg := range actionArgs {
+		if v, ok := tupleValues[arg]; ok {
+			targets = append(targets, splitTargetList(v)...)
+			continue
+		}
+		targets = append(targets, arg)
+	}
+	return targets
+}
+
+// splitTargetList splits a tuple value into a target list.
+//
+// We intentionally treat the value as plain text and split on whitespace. Target
+// names containing whitespace are technically possible in make, but they are
+// uncommon and awkward in practice, and decomk's isconf-style action variables
+// are expected to contain conventional target names.
+func splitTargetList(value string) []string {
+	return strings.Fields(value)
+}
+
 // withEnv returns base plus additional KEY=VALUE assignments.
 //
 // Any keys present in set replace existing entries in base (by filtering them
@@ -1115,7 +1205,7 @@ func findDefaultMakefile(home, workspaceRoot, explicitConfig string) string {
 //
 // This file is intentionally simple: it is designed to be sourced by scripts
 // and nested make invocations without requiring eval.
-func writeEnvSnapshot(path string, plan *resolvedPlan) error {
+func writeEnvSnapshot(path string, plan *resolvedPlan, targets []string) error {
 	if err := state.EnsureParentDir(path); err != nil {
 		return err
 	}
@@ -1139,6 +1229,7 @@ func writeEnvSnapshot(path string, plan *resolvedPlan) error {
 	writeExport(f, "DECOMK_WORKSPACE_ROOT", plan.WorkspaceRoot)
 	writeExport(f, "DECOMK_CONTEXT", plan.ContextKey)
 	writeExport(f, "DECOMK_STAMPDIR", plan.StampDir)
+	writeExport(f, "DECOMK_PACKAGES", strings.Join(targets, " "))
 
 	// Export config-provided tuples.
 	for _, t := range plan.Tuples {

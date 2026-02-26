@@ -52,3 +52,80 @@ func TestLoadDefs_Precedence_ConfigRepoThenRepoLocalThenExplicit(t *testing.T) {
 		t.Fatalf("paths: got %#v want %#v", got, want)
 	}
 }
+
+func TestSelectTargets(t *testing.T) {
+	t.Parallel()
+
+	// This test encodes the isconf-style "action args" behavior:
+	//   - positional args select actions/targets,
+	//   - action variable args expand via tuple values,
+	//   - otherwise args are treated as literal targets,
+	//   - and when args are present they override config-derived target tokens.
+	cases := []struct {
+		name          string
+		configTargets []string
+		tuples        []string
+		actionArgs    []string
+		wantTargets   []string
+		wantSource    string
+	}{
+		{
+			name:          "action args expand INSTALL",
+			configTargets: []string{"configTarget"},
+			tuples:        []string{"INSTALL=install-neovim install-codex"},
+			actionArgs:    []string{"INSTALL"},
+			wantTargets:   []string{"install-neovim", "install-codex"},
+			wantSource:    "actionArgs",
+		},
+		{
+			name:        "action args unknown treated as literal target",
+			actionArgs:  []string{"install-neovim"},
+			wantTargets: []string{"install-neovim"},
+			wantSource:  "actionArgs",
+		},
+		{
+			name:        "action args mix expanded and literal",
+			tuples:      []string{"INSTALL=one two"},
+			actionArgs:  []string{"INSTALL", "extra"},
+			wantTargets: []string{"one", "two", "extra"},
+			wantSource:  "actionArgs",
+		},
+		{
+			name:          "no args uses config-derived targets",
+			configTargets: []string{"Block00_base", "Block10_common"},
+			tuples:        []string{"INSTALL=ignored"},
+			wantTargets:   []string{"Block00_base", "Block10_common"},
+			wantSource:    "configTargets",
+		},
+		{
+			name:        "no args falls back to INSTALL when no config targets",
+			tuples:      []string{"INSTALL=one two"},
+			wantTargets: []string{"one", "two"},
+			wantSource:  "defaultINSTALL",
+		},
+		{
+			name:        "INSTALL last wins",
+			tuples:      []string{"INSTALL=old", "INSTALL=new newer"},
+			wantTargets: []string{"new", "newer"},
+			wantSource:  "defaultINSTALL",
+		},
+		{
+			name:       "no targets means make default goal",
+			wantSource: "makeDefaultGoal",
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			gotTargets, gotSource := selectTargets(tc.configTargets, tc.tuples, tc.actionArgs)
+			if gotSource != tc.wantSource {
+				t.Fatalf("source: got %q want %q", gotSource, tc.wantSource)
+			}
+			if !reflect.DeepEqual(gotTargets, tc.wantTargets) {
+				t.Fatalf("targets: got %#v want %#v", gotTargets, tc.wantTargets)
+			}
+		})
+	}
+}

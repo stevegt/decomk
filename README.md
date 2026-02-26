@@ -3,12 +3,13 @@
 `decomk` is an isconf-inspired bootstrap wrapper for devcontainers.
 
 It resolves a **context** (e.g., `owner/repo`, `repo`, `DEFAULT`) into:
-- a list of **make targets** to run
 - a list of `NAME=value` **tuples** to pass to `make`
+- a (possibly empty) default list of **make targets** from config tokens
 - a generated env snapshot file for audit/debugging
 
-It then runs **GNU make** as a subprocess in a persistent **stamp directory**,
-so repeated runs converge quickly.
+It then selects the final make targets from positional **action args**
+(isconf-style) and runs **GNU make** as a subprocess in a persistent **stamp
+directory**, so repeated runs converge quickly.
 
 If you want background on isconf-style bootstraps, see https://infrastructures.org/.
 
@@ -193,6 +194,34 @@ Each context key maps to a list of tokens. Tokens are one of:
 - a `NAME=value` tuple (passed to `make` on argv as a variable assignment)
 - a make target name (everything else)
 
+### Action args (isconf-style)
+
+Positional args to `decomk plan/run` are interpreted like isconf:
+
+- If an arg matches the name of a resolved tuple variable (for example `INSTALL`),
+  decomk interprets that variable’s value as a whitespace-separated list of make
+  targets.
+- Otherwise, the arg is treated as a literal make target name.
+
+This lets you define “what to run” as **action variables** rather than embedding
+targets directly in the context expansion:
+
+```conf
+DEFAULT: INSTALL='install-neovim install-codex'
+repo1: DEFAULT INSTALL='install-mob-consensus'
+```
+
+Usage:
+```bash
+decomk run INSTALL
+decomk run install-neovim    # literal target fallback
+```
+
+If you provide any positional args, decomk uses them to select targets and
+ignores any config-derived target tokens. If you provide no positional args,
+decomk runs config-derived target tokens when present; otherwise it defaults to
+`INSTALL` if defined.
+
 ### Stamps
 
 `decomk` runs `make` in a **stamp directory** outside the workspace repo.
@@ -243,8 +272,8 @@ the step has succeeded.
 
 7) For each workspace repo, load config definitions (`decomk.conf`)
    - **config repo** (optional): first existing of:
+     - `<DECOMK_HOME>/conf/etc/decomk.conf`
      - `<DECOMK_HOME>/conf/decomk.conf`
-     - clone/pull it with `-conf-repo <url>` (or `DECOMK_CONF_REPO`)
    - **repo-local overlay** (optional): `<workspaceRoot>/decomk.conf`
    - **explicit override** (optional): `-config <path>` or `DECOMK_CONFIG`
 
@@ -280,31 +309,43 @@ the step has succeeded.
 
 11) Partition expanded tokens
    - tuples: `NAME=value` where `NAME` matches `[A-Za-z_][A-Za-z0-9_]*`
-   - targets: all other tokens
+   - targets: all other tokens 
 
-12) Compute state paths
+12) Select make targets (isconf-style action args)
+   - Build an “effective tuple map” from the tuple list (last assignment wins).
+   - If positional args are provided:
+     - for each arg:
+       - if arg matches a tuple variable name: split its value on whitespace and append as targets
+       - else: treat arg as a literal make target
+     - Note: when positional args are provided, decomk ignores any config-derived target tokens.
+   - If no positional args are provided:
+     - if config-derived targets exist: use them (backward compatible)
+     - else if `INSTALL` is defined and non-empty: split its value on whitespace and use that
+     - else: pass no targets (make uses its default goal)
+   - decomk exposes the selected targets as `DECOMK_PACKAGES` (exported in the env snapshot and passed to make).
+
+13) Compute state paths
    - stamp dir (global):
      - `<DECOMK_HOME>/stamps/`
-   - env snapshot (per context; filename includes a safe hash suffix):
+   - env snapshot (per context; filename is a safe path component derived from the context key):
      - `<DECOMK_HOME>/env/<context>.sh`
 
-13) Write the env snapshot (`plan` and `run`)
+14) Write the env snapshot (`plan` and `run`)
     - a shell-friendly file with `export NAME='value'` lines
     - includes:
-      - computed `DECOMK_*` exports
+      - computed `DECOMK_*` exports (including `DECOMK_PACKAGES`)
       - config-provided tuples
 
-14) Execute make (`run` only)
+15) Execute make (`run` only)
     - determine `Makefile` path:
       - `-makefile <path>` if set
       - otherwise, first existing of:
-        - `dirname(-config)/Makefile` (if `-config`/`DECOMK_CONFIG` is set)
-        - `<DECOMK_HOME>/conf/Makefile`
+        - `<DECOMK_HOME>/Makefile`
     - acquire an exclusive global stamps lock:
       - `<DECOMK_HOME>/stamps/.lock`
     - ensure stamp dir exists, then **touch existing stamps** once (see below)
     - create a per-run audit dir (one per make invocation):
-      - `<DECOMK_HOME>/log/<runID>/`
+      - /var/log/decomk/<runID>/`
       - `runID` includes sub-second time + pid for uniqueness
     - run:
       - `make -f <Makefile> <tuples...> <targets...>`
@@ -387,8 +428,13 @@ By default, state lives under `/var/decomk`. You can override it with
 ## CLI usage
 
 ```text
-decomk plan [flags]
-decomk run  [flags]
+decomk plan [flags] [ARGS...]
+decomk run  [flags] [ARGS...]
+
+ARGS:
+  Action variable names (e.g. INSTALL) or literal make targets. If any ARGS are
+  provided, decomk ignores config-derived target tokens and uses ARGS to select
+  targets.
 
 Flags:
   -home <abs-path>          Override DECOMK_HOME

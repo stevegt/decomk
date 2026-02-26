@@ -148,9 +148,9 @@ decomk run install-neovim    # literal target fallback
 
 ## Subtasks
 
-- [ ] 004.1 Document isconf flow precisely (with examples and invariants).
-- [ ] 004.2 Define decomk’s positional-args semantics (`INSTALL` vars vs literal targets).
-- [ ] 004.3 Decide default action when no args provided (what does isconf do?)
-- [ ] 004.4 Update `README.md` to describe the isconf-aligned flow + examples.
-- [ ] 004.5 Implement action-arg parsing (derive targets from effective tuple values).
-- [ ] 004.6 Add tests for action-arg parsing and fallback behavior.
+- [x] 004.1 Document isconf flow precisely (with examples and invariants).
+- [x] 004.2 Define decomk’s positional-args semantics (`INSTALL` vars vs literal targets).
+- [x] 004.3 Decide default action when no args provided (what does isconf do?)
+- [x] 004.4 Update `README.md` to describe the isconf-aligned flow + examples.
+- [x] 004.5 Implement action-arg parsing (derive targets from effective tuple values).
+- [x] 004.6 Add tests for action-arg parsing and fallback behavior.
