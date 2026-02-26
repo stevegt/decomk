@@ -74,7 +74,7 @@ Usage:
   decomk <command> [flags] [ARGS...]
 
 Commands (MVP):
-  plan    Print resolved tuples/targets; write env export file; do not run make
+  plan    Print resolved tuples/targets + env exports; run make -n (dry-run); do not write env export file
   run     Resolve, write env export file, and run make in the stamp dir
 
 ARGS:
@@ -87,21 +87,23 @@ ARGS:
 
 // commonFlags are the shared flags for subcommands that resolve a context.
 type commonFlags struct {
-	home        string
-	workspace   string
-	context     string
-	config      string
-	toolRepo    string
-	confRepo    string
-	makefile    string
-	verbose     bool
-	maxExpDepth int
+	home          string
+	startDir      string
+	workspacesDir string
+	context       string
+	config        string
+	toolRepo      string
+	confRepo      string
+	makefile      string
+	verbose       bool
+	maxExpDepth   int
 }
 
 // addCommonFlags defines flags shared by plan/run.
 func addCommonFlags(fs *flag.FlagSet, f *commonFlags) {
 	fs.StringVar(&f.home, "home", "", "decomk home directory (overrides DECOMK_HOME)")
-	fs.StringVar(&f.workspace, "C", ".", "workspace directory (like make -C)")
+	fs.StringVar(&f.startDir, "C", ".", "starting directory (like make -C)")
+	fs.StringVar(&f.workspacesDir, "workspaces", "", "workspaces root directory to scan (overrides DECOMK_WORKSPACES_DIR; default /workspaces)")
 	fs.StringVar(&f.context, "context", "", "context key override (also DECOMK_CONTEXT)")
 	fs.StringVar(&f.config, "config", "", "config file path override (also DECOMK_CONFIG)")
 	fs.StringVar(&f.toolRepo, "tool-repo", "", "decomk tool repo URL to clone/pull into <home>/decomk (also DECOMK_TOOL_REPO)")
@@ -114,10 +116,20 @@ func addCommonFlags(fs *flag.FlagSet, f *commonFlags) {
 
 type resolvedPlan struct {
 	// Home is the decomk state root (DECOMK_HOME, or /var/decomk by default).
-	Home          string
-	WorkspaceRoot string
-	WorkspaceKey  string
-	ContextKey    string
+	Home string
+
+	// WorkspaceRepos are the directories under the workspaces root that were
+	// considered during resolution.
+	//
+	// The workspace repo list is used only for config selection and does not imply
+	// that decomk will read or write any repo-local state.
+	WorkspaceRepos []workspaceRepo
+
+	// ContextKeys are the config keys seeded for expansion, in order.
+	//
+	// In the common case this is DEFAULT plus one key per discovered workspace
+	// (when that key exists in the loaded config).
+	ContextKeys []string
 
 	// ConfigPaths are the config sources that were loaded (in precedence order).
 	ConfigPaths []string
@@ -140,78 +152,23 @@ type resolvedPlan struct {
 	Targets []string
 }
 
-// cmdPlan resolves the context and writes an env export file, but does not invoke make.
+// cmdPlan resolves config and prints what decomk would do, without running real
+// make or modifying stamp files.
+//
+// Specifically:
+//   - it prints the env exports that would be written to <DECOMK_HOME>/env.sh
+//   - and it invokes make with -n (GNU make dry-run) to show what recipes would run
 //
 // This is intended to be safe to run in lifecycle hooks where you want to see
-// what decomk *would* do, without making changes.
+// what decomk *would* do, without making changes to stamps or the env export
+// file.
+//
+// Note: plan still performs the normal bootstrap/update steps:
+//   - it may self-update the decomk tool repo under <DECOMK_HOME>/decomk
+//   - it may clone/pull the config repo under <DECOMK_HOME>/conf (when configured)
+//   - it may create <DECOMK_HOME>/stamps if it does not exist (so make -n can run)
 func cmdPlan(args []string, stdout, stderr io.Writer) (int, error) {
-	fs := flag.NewFlagSet("decomk plan", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-	var f commonFlags
-	addCommonFlags(fs, &f)
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0, nil
-		}
-		return 2, err
-	}
-	actionArgs := fs.Args()
-
-	primaryWorkspaceRoot, err := state.WorkspaceRoot(f.workspace)
-	if err != nil {
-		return 1, err
-	}
-
-	plans, err := resolvePlansFromFlags(f, stderr)
-	if err != nil {
-		return 1, err
-	}
-
-	// Write one stable env export file. For multi-workspace operation this file
-	// corresponds to the primary workspace (-C), so other processes can source it
-	// deterministically.
-	if plan := selectEnvSnapshotPlan(plans, primaryWorkspaceRoot); plan != nil {
-		targets, _ := selectTargets(plan.Targets, plan.Tuples, actionArgs)
-		if err := writeEnvSnapshot(plan.EnvFile, plan, targets); err != nil {
-			return 1, err
-		}
-	}
-
-	for i, plan := range plans {
-		targets, targetSource := selectTargets(plan.Targets, plan.Tuples, actionArgs)
-
-		if i > 0 {
-			fmt.Fprintln(stdout)
-		}
-		fmt.Fprintf(stdout, "home: %s\n", plan.Home)
-		fmt.Fprintf(stdout, "workspaceRoot: %s\n", plan.WorkspaceRoot)
-		fmt.Fprintf(stdout, "workspaceKey: %s\n", plan.WorkspaceKey)
-		fmt.Fprintf(stdout, "contextKey: %s\n", plan.ContextKey)
-		fmt.Fprintf(stdout, "config: %s\n", strings.Join(plan.ConfigPaths, ", "))
-		fmt.Fprintf(stdout, "env: %s\n", plan.EnvFile)
-		fmt.Fprintf(stdout, "stampDir: %s\n", plan.StampDir)
-		if len(actionArgs) > 0 {
-			fmt.Fprintf(stdout, "actionArgs: %s\n", strings.Join(actionArgs, " "))
-		}
-		fmt.Fprintf(stdout, "targetSource: %s\n", targetSource)
-		if plan.Makefile != "" {
-			fmt.Fprintf(stdout, "makefile: %s\n", plan.Makefile)
-		}
-		fmt.Fprintln(stdout)
-
-		fmt.Fprintln(stdout, "tuples:")
-		for _, t := range plan.Tuples {
-			fmt.Fprintf(stdout, "  %s\n", t)
-		}
-		fmt.Fprintln(stdout, "targets:")
-		if len(targets) == 0 {
-			fmt.Fprintln(stdout, "  (none; make will use its default goal)")
-		}
-		for _, t := range targets {
-			fmt.Fprintf(stdout, "  %s\n", t)
-		}
-	}
-	return 0, nil
+	return cmdExecute(args, stdout, stderr, execModePlan)
 }
 
 // cmdRun resolves the context, writes an env export file, and invokes make in a
@@ -220,7 +177,68 @@ func cmdPlan(args []string, stdout, stderr io.Writer) (int, error) {
 // The stamp directory is outside the workspace repo so that re-running decomk
 // doesn't dirty the repo with generated state.
 func cmdRun(args []string, stdout, stderr io.Writer) (int, error) {
-	fs := flag.NewFlagSet("decomk run", flag.ContinueOnError)
+	return cmdExecute(args, stdout, stderr, execModeRun)
+}
+
+// executionMode describes the user-visible behavior differences between
+// subcommands that resolve a plan.
+type executionMode struct {
+	// Name is used only for diagnostics and internal labels.
+	Name string
+
+	// DryRun indicates whether the command should avoid persistent mutations that
+	// represent applying changes.
+	//
+	// Note: even in dry-run mode, decomk may still self-update and update the
+	// config repo when configured; those are considered bootstrap steps.
+	DryRun bool
+
+	// MakeFlags are passed to make before variable tuples and targets.
+	MakeFlags []string
+
+	// WriteEnv controls whether decomk writes <DECOMK_HOME>/env.sh.
+	WriteEnv bool
+
+	// LockStamps controls whether decomk takes the global stamps lock and touches
+	// existing stamps before running make.
+	LockStamps bool
+
+	// Audit controls whether decomk writes make output to a per-run log file.
+	Audit bool
+}
+
+var (
+	execModePlan = executionMode{
+		Name:       "plan",
+		DryRun:     true,
+		MakeFlags:  []string{"-n"},
+		WriteEnv:   false,
+		LockStamps: false,
+		Audit:      false,
+	}
+	execModeRun = executionMode{
+		Name:       "run",
+		DryRun:     false,
+		MakeFlags:  nil,
+		WriteEnv:   true,
+		LockStamps: true,
+		Audit:      true,
+	}
+)
+
+// cmdExecute is the shared implementation for plan/run.
+//
+// Both commands:
+//   - parse flags and action args
+//   - apply -C (starting directory) for relative path resolution
+//   - resolve config, expand macros, and partition tokens
+//   - select targets (isconf-style action args)
+//   - invoke make (real or -n)
+//
+// The executionMode controls whether env.sh is written, whether stamp state is
+// locked/touched, and whether output is audited to a per-run log file.
+func cmdExecute(args []string, stdout, stderr io.Writer, mode executionMode) (int, error) {
+	fs := flag.NewFlagSet("decomk "+mode.Name, flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var f commonFlags
 	addCommonFlags(fs, &f)
@@ -232,92 +250,134 @@ func cmdRun(args []string, stdout, stderr io.Writer) (int, error) {
 	}
 	actionArgs := fs.Args()
 
-	primaryWorkspaceRoot, err := state.WorkspaceRoot(f.workspace)
-	if err != nil {
+	if err := applyStartDir(f.startDir); err != nil {
 		return 1, err
 	}
 
-	plans, err := resolvePlansFromFlags(f, stderr)
+	plan, err := resolvePlanFromFlags(f, stderr)
 	if err != nil {
 		return 1, err
 	}
-
-	if len(plans) == 0 {
-		return 1, fmt.Errorf("no workspaces found to apply")
+	if plan == nil {
+		return 1, fmt.Errorf("internal error: resolvePlanFromFlags returned nil plan")
 	}
-	for _, plan := range plans {
-		if plan.Makefile == "" {
-			return 1, fmt.Errorf("no Makefile found for workspace %s; use -makefile to set an explicit path", plan.WorkspaceRoot)
-		}
+	if plan.Makefile == "" {
+		return 1, fmt.Errorf("no Makefile found; use -makefile to set an explicit path")
 	}
 
-	// Write one stable env export file. For multi-workspace operation this file
-	// corresponds to the primary workspace (-C), so other processes can source it
-	// deterministically.
-	if plan := selectEnvSnapshotPlan(plans, primaryWorkspaceRoot); plan != nil {
-		targets, _ := selectTargets(plan.Targets, plan.Tuples, actionArgs)
-		if err := writeEnvSnapshot(plan.EnvFile, plan, targets); err != nil {
+	targets, targetSource := selectTargets(plan.Targets, plan.Tuples, actionArgs)
+
+	if mode.DryRun {
+		printPlan(stdout, plan, actionArgs, targets, targetSource)
+		fmt.Fprintln(stdout)
+		fmt.Fprintln(stdout, "env exports (dry-run; not written):")
+		if err := writeEnvExport(stdout, plan, targets); err != nil {
 			return 1, err
 		}
 	}
 
-	// Prevent concurrent stamp mutation for the container.
-	lock, err := state.LockFile(state.StampsLockPath(plans[0].Home))
-	if err != nil {
-		return 1, fmt.Errorf("lock stamps: %w", err)
-	}
-	defer lock.Close()
-
-	// Ensure the global stamp directory exists and normalize mtime semantics once
-	// per invocation (not per workspace).
-	if err := state.EnsureDir(plans[0].StampDir); err != nil {
+	// Ensure the stamp dir exists so make can run. This does not touch any stamp
+	// files; it only ensures the directory exists.
+	if err := state.EnsureDir(plan.StampDir); err != nil {
 		return 1, err
 	}
-	if err := state.TouchExistingStamps(plans[0].StampDir, time.Now()); err != nil {
-		return 1, fmt.Errorf("touch stamps: %w", err)
+
+	var lock *state.Lock
+	if mode.LockStamps {
+		// Prevent concurrent stamp mutation for the container.
+		lock, err = state.LockFile(state.StampsLockPath(plan.Home))
+		if err != nil {
+			return 1, fmt.Errorf("lock stamps: %w", err)
+		}
+		defer lock.Close()
+
+		// Normalize mtime semantics once per invocation.
+		if err := state.TouchExistingStamps(plan.StampDir, time.Now()); err != nil {
+			return 1, fmt.Errorf("touch stamps: %w", err)
+		}
 	}
 
-	for i, plan := range plans {
-		targets, _ := selectTargets(plan.Targets, plan.Tuples, actionArgs)
+	if mode.WriteEnv {
+		if err := writeEnvFile(plan.EnvFile, plan, targets); err != nil {
+			return 1, err
+		}
+	}
 
+	makeTuples, makeEnv := makeInvocation(plan, targets)
+
+	out := stdout
+	errOut := stderr
+	var logPath string
+	if mode.Audit {
 		// Include sub-second resolution and pid to avoid collisions when two runs start
 		// close together (otherwise one run can clobber the other's audit log).
-		runID := time.Now().UTC().Format("20060102T150405.000000000Z") + "-" + strconv.Itoa(os.Getpid()) + "-" + strconv.Itoa(i)
+		runID := time.Now().UTC().Format("20060102T150405.000000000Z") + "-" + strconv.Itoa(os.Getpid())
 		auditDir, err := createAuditDir(plan.Home, runID)
 		if err != nil {
 			return 1, err
 		}
-		logPath := filepath.Join(auditDir, "make.log")
+		logPath = filepath.Join(auditDir, "make.log")
 		logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o600)
 		if err != nil {
 			return 1, err
 		}
+		defer logFile.Close()
 
-		teeOut := io.MultiWriter(stdout, logFile)
-		teeErr := io.MultiWriter(stderr, logFile)
+		out = io.MultiWriter(stdout, logFile)
+		errOut = io.MultiWriter(stderr, logFile)
+	}
 
-		tuples := append([]string(nil), plan.Tuples...)
-		tuples = appendIfMissingTuple(tuples, "DECOMK_WORKSPACE_ROOT", plan.WorkspaceRoot)
-		tuples = appendIfMissingTuple(tuples, "DECOMK_STAMPDIR", plan.StampDir)
-		tuples = appendIfMissingTuple(tuples, "DECOMK_CONTEXT", plan.ContextKey)
-		tuples = appendIfMissingTuple(tuples, "DECOMK_PACKAGES", strings.Join(targets, " "))
+	if mode.DryRun {
+		fmt.Fprintln(stdout)
+		fmt.Fprintln(stdout, "make -n output:")
+	}
 
-		env := withEnv(os.Environ(), map[string]string{
-			"DECOMK_HOME":           plan.Home,
-			"DECOMK_WORKSPACE_ROOT": plan.WorkspaceRoot,
-			"DECOMK_STAMPDIR":       plan.StampDir,
-			"DECOMK_CONTEXT":        plan.ContextKey,
-			"DECOMK_PACKAGES":       strings.Join(targets, " "),
-		})
-
-		exitCode, runErr := makeexec.Run(plan.StampDir, plan.Makefile, tuples, targets, env, teeOut, teeErr)
-		_ = logFile.Close()
-		if runErr != nil {
-			// Preserve make's exit status.
-			return exitCode, fmt.Errorf("make failed for workspace %s context %s (exit %d); log: %s: %w", plan.WorkspaceRoot, plan.ContextKey, exitCode, logPath, runErr)
+	exitCode, runErr := makeexec.RunWithFlags(plan.StampDir, plan.Makefile, mode.MakeFlags, makeTuples, targets, makeEnv, out, errOut)
+	if runErr != nil {
+		if logPath != "" {
+			return exitCode, fmt.Errorf("make failed (exit %d); log: %s: %w", exitCode, logPath, runErr)
 		}
+		return exitCode, fmt.Errorf("make failed (exit %d): %w", exitCode, runErr)
 	}
 	return 0, nil
+}
+
+// printPlan prints the human-readable plan header and resolved argv pieces.
+func printPlan(w io.Writer, plan *resolvedPlan, actionArgs, targets []string, targetSource string) {
+	fmt.Fprintf(w, "home: %s\n", plan.Home)
+	if len(plan.WorkspaceRepos) > 0 {
+		var names []string
+		for _, repo := range plan.WorkspaceRepos {
+			names = append(names, repo.Name)
+		}
+		fmt.Fprintf(w, "workspaces: %s\n", strings.Join(names, " "))
+	}
+	if len(plan.ContextKeys) > 0 {
+		fmt.Fprintf(w, "contexts: %s\n", strings.Join(plan.ContextKeys, " "))
+	}
+	fmt.Fprintf(w, "config: %s\n", strings.Join(plan.ConfigPaths, ", "))
+	fmt.Fprintf(w, "env: %s\n", plan.EnvFile)
+	fmt.Fprintf(w, "stampDir: %s\n", plan.StampDir)
+	if len(actionArgs) > 0 {
+		fmt.Fprintf(w, "actionArgs: %s\n", strings.Join(actionArgs, " "))
+	}
+	fmt.Fprintf(w, "targetSource: %s\n", targetSource)
+	if plan.Makefile != "" {
+		fmt.Fprintf(w, "makefile: %s\n", plan.Makefile)
+	}
+	fmt.Fprintln(w)
+
+	fmt.Fprintln(w, "tuples:")
+	for _, t := range plan.Tuples {
+		fmt.Fprintf(w, "  %s\n", t)
+	}
+	fmt.Fprintln(w, "targets:")
+	if len(targets) == 0 {
+		fmt.Fprintln(w, "  (none; make will use its default goal)")
+	}
+	for _, t := range targets {
+		fmt.Fprintf(w, "  %s\n", t)
+	}
 }
 
 // createAuditDir creates a per-run audit directory and returns its path.
@@ -343,31 +403,97 @@ func createAuditDir(home, runID string) (string, error) {
 	}
 }
 
-// resolvePlansFromFlags builds one or more fully-resolved plans from the user-
-// facing flags.
+// applyStartDir changes the current working directory to match -C.
 //
-// In the common devcontainer case, there may be multiple git repos under the
-// workspace parent directory (often /workspaces). decomk scans sibling repos and
-// resolves a context for each so the container can be configured based on all
-// WIP repos present.
+// This mirrors the common expectation of tools like make: relative paths provided
+// on the command line (for example -config, -makefile, or local -tool-repo
+// paths) are interpreted relative to -C.
+//
+// decomk also normalizes -C to an absolute path in os.Args so that if decomk
+// self-updates and re-execs into a new binary, the restarted process will not
+// accidentally apply a relative -C a second time (syscall.Exec preserves cwd).
+func applyStartDir(startDir string) error {
+	abs, err := filepath.Abs(startDir)
+	if err != nil {
+		return fmt.Errorf("abs -C %q: %w", startDir, err)
+	}
+	rewriteCFlagInOSArgs(abs)
+	if err := os.Chdir(abs); err != nil {
+		return fmt.Errorf("chdir -C %q: %w", startDir, err)
+	}
+	return nil
+}
+
+// rewriteCFlagInOSArgs rewrites any "-C" flag occurrences in os.Args to use an
+// absolute path.
+func rewriteCFlagInOSArgs(absStartDir string) {
+	os.Args = rewriteCFlag(os.Args, absStartDir)
+}
+
+// rewriteCFlag rewrites any "-C" flag occurrences in args to use an absolute
+// path.
+//
+// This supports both forms:
+//   - "-C <dir>"
+//   - "-C=<dir>"
+//
+// It returns a new slice so callers can use it without mutating shared state.
+func rewriteCFlag(args []string, absStartDir string) []string {
+	out := append([]string(nil), args...)
+	for i := 1; i < len(out); i++ {
+		arg := out[i]
+		switch {
+		case arg == "-C" && i+1 < len(out):
+			out[i+1] = absStartDir
+			i++
+		case strings.HasPrefix(arg, "-C="):
+			out[i] = "-C=" + absStartDir
+		}
+	}
+	return out
+}
+
+const defaultWorkspacesDir = "/workspaces"
+
+// resolveWorkspacesDir determines where decomk should scan for WIP workspace
+// repos.
+//
+// Precedence:
+//   - flagOverride (if non-empty)
+//   - DECOMK_WORKSPACES_DIR
+//   - /workspaces
+func resolveWorkspacesDir(flagOverride string) string {
+	if flagOverride != "" {
+		return flagOverride
+	}
+	if env := os.Getenv("DECOMK_WORKSPACES_DIR"); env != "" {
+		return env
+	}
+	return defaultWorkspacesDir
+}
+
+// resolvePlanFromFlags builds a single fully-resolved plan from the user-facing
+// flags.
+//
+// In the common devcontainer case, there may be multiple repos under
+// /workspaces/* and the container should be configured based on all of them.
+// decomk discovers the workspaces, selects any matching config keys, and expands
+// them all into one merged set of tuples/targets.
 //
 // If the user explicitly sets a context (via -context or DECOMK_CONTEXT), decomk
-// resolves a single plan for the primary workspace only. This makes debugging
-// and experimentation predictable.
-func resolvePlansFromFlags(f commonFlags, stderr io.Writer) ([]*resolvedPlan, error) {
+// skips workspace discovery and expands only that context (plus DEFAULT when
+// present). This makes debugging and experimentation predictable.
+func resolvePlanFromFlags(f commonFlags, stderr io.Writer) (*resolvedPlan, error) {
 	home, err := state.Home(f.home)
 	if err != nil {
 		return nil, err
 	}
 
-	primaryWorkspaceRoot, err := state.WorkspaceRoot(f.workspace)
-	if err != nil {
-		return nil, err
-	}
+	workspacesDir := resolveWorkspacesDir(f.workspacesDir)
 
 	// Before doing any other work, update decomk itself (isconf-style). This
 	// may rebuild and re-exec into the updated binary under <home>/decomk.
-	if err := selfUpdateTool(home, primaryWorkspaceRoot, f.toolRepo, f.verbose, stderr); err != nil {
+	if err := selfUpdateTool(home, workspacesDir, f.toolRepo, f.verbose, stderr); err != nil {
 		return nil, err
 	}
 
@@ -380,39 +506,86 @@ func resolvePlansFromFlags(f commonFlags, stderr io.Writer) ([]*resolvedPlan, er
 	if explicitConfig == "" {
 		explicitConfig = os.Getenv("DECOMK_CONFIG")
 	}
+	if explicitConfig != "" {
+		abs, err := filepath.Abs(explicitConfig)
+		if err != nil {
+			return nil, fmt.Errorf("abs config path %q: %w", explicitConfig, err)
+		}
+		explicitConfig = abs
+	}
 
-	// If the user explicitly sets a context, do not scan sibling workspaces.
+	defs, configPaths, err := loadDefs(home, explicitConfig)
+	if err != nil {
+		return nil, err
+	}
+
+	// If the user explicitly sets a context, do not scan workspaces.
 	explicitContext := f.context
 	if explicitContext == "" {
 		explicitContext = os.Getenv("DECOMK_CONTEXT")
 	}
+	var (
+		workspaceRepos []workspaceRepo
+		contextKeys    []string
+	)
 	if explicitContext != "" {
-		repo := inspectWorkspaceRepo(primaryWorkspaceRoot)
-		plan, err := resolvePlanForRepo(home, repo, explicitConfig, explicitContext, f)
+		key, err := selectContextKey(defs, explicitContext)
 		if err != nil {
 			return nil, err
 		}
-		return []*resolvedPlan{plan}, nil
+		contextKeys = []string{key}
+	} else {
+		workspaceRepos, err = discoverWorkspaces(workspacesDir)
+		if err != nil {
+			return nil, err
+		}
+		contextKeys = contextKeysForWorkspaces(defs, workspaceRepos)
 	}
 
-	// Otherwise scan sibling repos under the workspace parent directory.
-	repos, err := discoverWorkspaceRepos(primaryWorkspaceRoot)
+	seed := seedTokensForContexts(defs, contextKeys)
+	expanded, err := expand.ExpandTokens(expand.Defs(defs), seed, expand.Options{MaxDepth: f.maxExpDepth})
 	if err != nil {
 		return nil, err
 	}
-	if len(repos) == 0 {
-		repos = []workspaceRepo{inspectWorkspaceRepo(primaryWorkspaceRoot)}
+	tuples, targets := resolve.Partition(expanded)
+
+	stampDir := state.StampDir(home)
+	envFile := state.EnvFile(home)
+
+	makefile := f.makefile
+	if makefile != "" {
+		abs, err := filepath.Abs(makefile)
+		if err != nil {
+			return nil, fmt.Errorf("abs makefile path %q: %w", makefile, err)
+		}
+		makefile = abs
+	}
+	if makefile == "" {
+		makefile = findDefaultMakefile(home, explicitConfig)
+	}
+	if makefile != "" {
+		abs, err := filepath.Abs(makefile)
+		if err != nil {
+			return nil, fmt.Errorf("abs makefile path %q: %w", makefile, err)
+		}
+		makefile = abs
+	}
+	if makefile != "" && !fileExists(makefile) {
+		return nil, fmt.Errorf("makefile not found: %s", makefile)
 	}
 
-	plans := make([]*resolvedPlan, 0, len(repos))
-	for _, repo := range repos {
-		plan, err := resolvePlanForRepo(home, repo, explicitConfig, "", f)
-		if err != nil {
-			return nil, err
-		}
-		plans = append(plans, plan)
-	}
-	return plans, nil
+	return &resolvedPlan{
+		Home:           home,
+		WorkspaceRepos: workspaceRepos,
+		ContextKeys:    seed,
+		ConfigPaths:    configPaths,
+		StampDir:       stampDir,
+		EnvFile:        envFile,
+		Makefile:       makefile,
+		Expanded:       expanded,
+		Tuples:         tuples,
+		Targets:        targets,
+	}, nil
 }
 
 // workspaceRepo describes a workspace repo directory that may drive context
@@ -425,23 +598,24 @@ type workspaceRepo struct {
 	RepoName  string // parsed repo name when possible (falls back to Name)
 }
 
-// discoverWorkspaceRepos finds git repos under the parent directory of the
-// provided workspace root.
+// discoverWorkspaces finds candidate workspaces under workspacesDir.
 //
-// This intentionally does not recurse: the expected layout is one git checkout
-// per child directory under a common parent (e.g., /workspaces/<repo>).
-func discoverWorkspaceRepos(primaryWorkspaceRoot string) ([]workspaceRepo, error) {
-	// If the primary workspace is not a git repo, we don't have a safe way to
-	// infer a sibling root. Fall back to a single-workspace plan.
-	if !isGitRepoRoot(primaryWorkspaceRoot) {
-		return nil, nil
+// This intentionally does not recurse: the expected layout is one checkout per
+// child directory (e.g., /workspaces/<repo>).
+//
+// A directory does not need to be a git repo to be considered a "workspace" for
+// identity selection; if git metadata is missing, decomk falls back to using the
+// directory basename as an identity hint.
+func discoverWorkspaces(workspacesDir string) ([]workspaceRepo, error) {
+	if workspacesDir == "" {
+		workspacesDir = defaultWorkspacesDir
 	}
-
-	parent := filepath.Dir(primaryWorkspaceRoot)
-	entries, err := os.ReadDir(parent)
+	entries, err := os.ReadDir(workspacesDir)
 	if err != nil {
-		// If we can't scan siblings, fall back to applying only the current repo.
-		return nil, nil
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
 	}
 
 	var repos []workspaceRepo
@@ -453,10 +627,7 @@ func discoverWorkspaceRepos(primaryWorkspaceRoot string) ([]workspaceRepo, error
 		if strings.HasPrefix(name, ".") {
 			continue
 		}
-		root := filepath.Join(parent, name)
-		if !isGitRepoRoot(root) {
-			continue
-		}
+		root := filepath.Join(workspacesDir, name)
 		repos = append(repos, inspectWorkspaceRepo(root))
 	}
 	sort.Slice(repos, func(i, j int) bool { return repos[i].Root < repos[j].Root })
@@ -545,64 +716,6 @@ func parseOwnerRepo(originURL string) (ownerRepo, repoName string) {
 	return ownerRepo, repoName
 }
 
-// resolvePlanForRepo resolves decomk config + context into a concrete plan for
-// a single workspace repo.
-func resolvePlanForRepo(home string, repo workspaceRepo, explicitConfig, explicitContext string, f commonFlags) (*resolvedPlan, error) {
-	workspaceRoot := repo.Root
-
-	workspaceKey, err := state.WorkspaceKey(workspaceRoot, repo.OwnerRepo)
-	if err != nil {
-		return nil, err
-	}
-
-	defs, configPaths, err := loadDefs(home, workspaceRoot, explicitConfig)
-	if err != nil {
-		return nil, err
-	}
-
-	var contextKey string
-	if explicitContext != "" {
-		contextKey, err = selectContextKey(defs, explicitContext)
-	} else {
-		contextKey, err = selectContextKeyForRepo(defs, repo)
-	}
-	if err != nil {
-		return nil, err
-	}
-
-	seed := seedTokens(defs, contextKey)
-	expanded, err := expand.ExpandTokens(expand.Defs(defs), seed, expand.Options{MaxDepth: f.maxExpDepth})
-	if err != nil {
-		return nil, err
-	}
-	tuples, targets := resolve.Partition(expanded)
-
-	stampDir := state.StampDir(home)
-	envFile := state.EnvFile(home)
-
-	makefile := f.makefile
-	if makefile == "" {
-		makefile = findDefaultMakefile(home, workspaceRoot, explicitConfig)
-	}
-	if makefile != "" && !fileExists(makefile) {
-		return nil, fmt.Errorf("makefile not found: %s", makefile)
-	}
-
-	return &resolvedPlan{
-		Home:          home,
-		WorkspaceRoot: workspaceRoot,
-		WorkspaceKey:  workspaceKey,
-		ContextKey:    contextKey,
-		ConfigPaths:   configPaths,
-		StampDir:      stampDir,
-		EnvFile:       envFile,
-		Makefile:      makefile,
-		Expanded:      expanded,
-		Tuples:        tuples,
-		Targets:       targets,
-	}, nil
-}
-
 // defaultToolRepoURL is the upstream repo URL used when decomk can't infer a
 // better source for its own tool repo clone.
 //
@@ -620,7 +733,7 @@ const defaultToolRepoURL = "https://github.com/stevegt/decomk"
 // the latest pulled source.
 //
 // If updates require network access and the pull fails, this returns an error.
-func selfUpdateTool(home, primaryWorkspaceRoot, repoURL string, verbose bool, stderr io.Writer) error {
+func selfUpdateTool(home, workspacesDir, repoURL string, verbose bool, stderr io.Writer) error {
 	if repoURL == "" {
 		repoURL = os.Getenv("DECOMK_TOOL_REPO")
 	}
@@ -632,7 +745,7 @@ func selfUpdateTool(home, primaryWorkspaceRoot, repoURL string, verbose bool, st
 		return fmt.Errorf("lock tool repo: %w", err)
 	}
 
-	changed, err := ensureToolRepo(home, primaryWorkspaceRoot, repoURL, verbose, stderr)
+	changed, err := ensureToolRepo(home, workspacesDir, repoURL, verbose, stderr)
 	if err != nil {
 		_ = lock.Close()
 		return err
@@ -680,12 +793,12 @@ func selfUpdateTool(home, primaryWorkspaceRoot, repoURL string, verbose bool, st
 // is up to date.
 //
 // If repoURL is empty, decomk will try to infer a suitable URL from a sibling
-// workspace checkout (e.g., "<workspaceParent>/decomk"), falling back to
+// workspace checkout (e.g., "/workspaces/decomk"), falling back to
 // defaultToolRepoURL.
 //
 // It returns changed=true if the clone was newly created or if git pull changed
 // HEAD.
-func ensureToolRepo(home, primaryWorkspaceRoot, repoURL string, verbose bool, stderr io.Writer) (changed bool, err error) {
+func ensureToolRepo(home, workspacesDir, repoURL string, verbose bool, stderr io.Writer) (changed bool, err error) {
 	toolDir := state.ToolDir(home)
 
 	stat, err := os.Stat(toolDir)
@@ -720,7 +833,7 @@ func ensureToolRepo(home, primaryWorkspaceRoot, repoURL string, verbose bool, st
 	case os.IsNotExist(err):
 		cloneURL := repoURL
 		if cloneURL == "" {
-			cloneURL = inferToolRepoURL(primaryWorkspaceRoot)
+			cloneURL = inferToolRepoURL(workspacesDir)
 		}
 		if cloneURL == "" {
 			cloneURL = defaultToolRepoURL
@@ -749,16 +862,14 @@ func ensureToolRepo(home, primaryWorkspaceRoot, repoURL string, verbose bool, st
 // workspace checkout.
 //
 // This is a pragmatic devcontainer-friendly default: multi-repo workspaces often
-// include a WIP clone at "<workspaceParent>/decomk". If it exists, we prefer its
+// include a WIP clone at "/workspaces/decomk". If it exists, we prefer its
 // origin URL, falling back to the local path itself (which works as a git clone
 // source).
-func inferToolRepoURL(primaryWorkspaceRoot string) string {
-	// If we can't determine a stable workspace root, we can't infer siblings.
-	if primaryWorkspaceRoot == "" {
-		return ""
+func inferToolRepoURL(workspacesDir string) string {
+	if workspacesDir == "" {
+		workspacesDir = defaultWorkspacesDir
 	}
-	parent := filepath.Dir(primaryWorkspaceRoot)
-	candidate := filepath.Join(parent, "decomk")
+	candidate := filepath.Join(workspacesDir, "decomk")
 	if !isGitRepoRoot(candidate) {
 		return ""
 	}
@@ -898,27 +1009,22 @@ func runGit(w io.Writer, dir string, args ...string) error {
 //
 // Precedence is "last wins" (higher precedence overrides lower):
 //
-// Future: extend precedence beyond these three sources (e.g., per-owner/per-org
+// Future: extend precedence beyond these sources (e.g., per-owner/per-org
 // defaults, container-image defaults, etc.) while keeping the model auditable.
 //
 //  1. config repo decomk.conf (lowest; optional)
-//  2. repo-local decomk.conf (optional)
-//  3. explicit -config / DECOMK_CONFIG (highest; optional)
+//  2. explicit -config / DECOMK_CONFIG (highest; optional)
 //
 // Each source is loaded via contexts.LoadTree so it can also include a sibling
 // decomk.d/*.conf directory.
-func loadDefs(home, workspaceRoot, explicitConfig string) (defs contexts.Defs, paths []string, err error) {
-	// Precedence: config repo (lowest) -> repo-local -> explicit override (highest).
+func loadDefs(home, explicitConfig string) (defs contexts.Defs, paths []string, err error) {
+	// Precedence: config repo (lowest) -> explicit override (highest).
 	var sources []string
 
 	if configRepo, ok := configRepoConfigPath(home); ok {
 		sources = append(sources, configRepo)
 	}
 
-	repoLocal := filepath.Join(workspaceRoot, "decomk.conf")
-	if fileExists(repoLocal) {
-		sources = append(sources, repoLocal)
-	}
 	if explicitConfig != "" {
 		if !fileExists(explicitConfig) {
 			return nil, nil, fmt.Errorf("config file not found: %s", explicitConfig)
@@ -928,7 +1034,6 @@ func loadDefs(home, workspaceRoot, explicitConfig string) (defs contexts.Defs, p
 
 	if len(sources) == 0 {
 		tried := append([]string(nil), configRepoConfigCandidates(home)...)
-		tried = append(tried, repoLocal)
 		return nil, nil, fmt.Errorf("no config found; tried %s; set -config/DECOMK_CONFIG or -conf-repo/DECOMK_CONF_REPO", strings.Join(tried, ", "))
 	}
 
@@ -1003,71 +1108,61 @@ func selectContextKey(defs contexts.Defs, flagContext string) (string, error) {
 	return "", fmt.Errorf("no matching context found; tried %v", candidates)
 }
 
-// selectContextKeyForRepo chooses a context key for a specific workspace repo.
+// contextKeysForWorkspaces selects at most one non-DEFAULT context key for each
+// discovered workspace.
 //
-// Candidate order is "most specific to least specific":
-//  1. owner/repo (derived from remote origin URL when available)
-//  2. repo name (derived from origin URL or directory basename)
-//  3. workspace directory basename
-//  4. DEFAULT
-//
-// The first candidate that exists as a key in defs wins.
-func selectContextKeyForRepo(defs contexts.Defs, repo workspaceRepo) (string, error) {
-	seen := make(map[string]bool, 4)
-	var candidates []string
-
-	add := func(s string) {
-		if s == "" {
-			return
-		}
-		if seen[s] {
-			return
-		}
-		seen[s] = true
-		candidates = append(candidates, s)
-	}
-
-	add(repo.OwnerRepo)
-	add(repo.RepoName)
-	add(repo.Name)
-	add("DEFAULT")
-
-	for _, c := range candidates {
-		if _, ok := defs[c]; ok {
-			return c, nil
-		}
-	}
-	return "", fmt.Errorf("no matching context found for workspace %s; tried %v", repo.Root, candidates)
-}
-
-// seedTokens returns the initial macro tokens to expand for a context.
-//
-// The common idiom is "DEFAULT + <context>" composition. To reduce surprising
-// duplicates, if a context explicitly includes DEFAULT in its own token list we
-// do not add it implicitly here.
-func seedTokens(defs contexts.Defs, contextKey string) []string {
-	var seed []string
-	if contextKey != "DEFAULT" {
-		if _, ok := defs["DEFAULT"]; ok {
-			// Users sometimes include "DEFAULT" explicitly inside a context
-			// definition (isconf style). If so, don't also seed it implicitly.
-			if ctx, ok := defs[contextKey]; !ok || !containsToken(ctx, "DEFAULT") {
-				seed = append(seed, "DEFAULT")
+// This helper is intentionally tolerant: if a workspace has no matching stanza
+// in defs, it contributes nothing. This mirrors isconf's behavior of always
+// applying DEFAULT and optionally applying host-specific stanzas only when they
+// exist.
+func contextKeysForWorkspaces(defs contexts.Defs, repos []workspaceRepo) []string {
+	seen := make(map[string]bool)
+	var keys []string
+	for _, repo := range repos {
+		var chosen string
+		for _, c := range []string{repo.OwnerRepo, repo.RepoName, repo.Name} {
+			if c == "" {
+				continue
+			}
+			if _, ok := defs[c]; ok {
+				chosen = c
+				break
 			}
 		}
+		if chosen == "" || chosen == "DEFAULT" {
+			continue
+		}
+		if seen[chosen] {
+			continue
+		}
+		seen[chosen] = true
+		keys = append(keys, chosen)
 	}
-	seed = append(seed, contextKey)
-	return seed
+	return keys
 }
 
-// containsToken reports whether tokens contains want.
-func containsToken(tokens []string, want string) bool {
-	for _, t := range tokens {
-		if t == want {
-			return true
+// seedTokensForContexts builds the initial macro token list to expand.
+//
+// It always includes DEFAULT first when present, then includes each provided
+// context key in order, deduplicating along the way.
+func seedTokensForContexts(defs contexts.Defs, contextKeys []string) []string {
+	seen := make(map[string]bool)
+	var seed []string
+	add := func(key string) {
+		if key == "" || seen[key] {
+			return
 		}
+		seen[key] = true
+		seed = append(seed, key)
 	}
-	return false
+
+	if _, ok := defs["DEFAULT"]; ok {
+		add("DEFAULT")
+	}
+	for _, key := range contextKeys {
+		add(key)
+	}
+	return seed
 }
 
 // fileExists reports whether path exists and is a regular file.
@@ -1079,34 +1174,23 @@ func fileExists(path string) bool {
 	return info.Mode().IsRegular()
 }
 
-// appendIfMissingTuple appends a NAME=value tuple unless a tuple with NAME is
-// already present (in which case the existing value wins).
-func appendIfMissingTuple(tuples []string, name, value string) []string {
-	for _, t := range tuples {
-		k, _, ok := resolve.SplitTuple(t)
-		if ok && k == name {
-			return tuples
-		}
-	}
-	return append(tuples, name+"="+value)
-}
-
-// selectEnvSnapshotPlan chooses which resolved plan should be written to the
-// stable env export file (<DECOMK_HOME>/env.sh).
+// computedVars returns decomk-owned computed exports/variables for this plan.
 //
-// When decomk scans multiple sibling workspaces, it still writes exactly one
-// env file so other processes can source it deterministically. That env file is
-// associated with the primary workspace (the repo rooted at -C).
-func selectEnvSnapshotPlan(plans []*resolvedPlan, primaryWorkspaceRoot string) *resolvedPlan {
-	for _, plan := range plans {
-		if plan.WorkspaceRoot == primaryWorkspaceRoot {
-			return plan
-		}
+// These variables are always defined by decomk and must not be overridden by
+// config-provided tuples, because other processes (and Makefile recipes) rely on
+// them to describe decomk's actual execution environment.
+func computedVars(plan *resolvedPlan, targets []string) map[string]string {
+	var workspaces []string
+	for _, repo := range plan.WorkspaceRepos {
+		workspaces = append(workspaces, repo.Name)
 	}
-	if len(plans) > 0 {
-		return plans[0]
+	return map[string]string{
+		"DECOMK_HOME":       plan.Home,
+		"DECOMK_STAMPDIR":   plan.StampDir,
+		"DECOMK_WORKSPACES": strings.Join(workspaces, " "),
+		"DECOMK_CONTEXTS":   strings.Join(plan.ContextKeys, " "),
+		"DECOMK_PACKAGES":   strings.Join(targets, " "),
 	}
-	return nil
 }
 
 // selectTargets determines which make targets decomk should pass on argv for a
@@ -1218,8 +1302,7 @@ func withEnv(base []string, set map[string]string) []string {
 // Selection order (first match wins):
 //  1. sibling of explicitConfig (if non-empty)
 //  2. <DECOMK_HOME>/conf/etc/Makefile (or <DECOMK_HOME>/conf/Makefile)
-//  3. workspaceRoot/Makefile (workspace-local fallback)
-func findDefaultMakefile(home, workspaceRoot, explicitConfig string) string {
+func findDefaultMakefile(home, explicitConfig string) string {
 	if explicitConfig != "" {
 		candidate := filepath.Join(filepath.Dir(explicitConfig), "Makefile")
 		if fileExists(candidate) {
@@ -1234,19 +1317,39 @@ func findDefaultMakefile(home, workspaceRoot, explicitConfig string) string {
 			return candidate
 		}
 	}
-	repoLocalMakefile := filepath.Join(workspaceRoot, "Makefile")
-	if fileExists(repoLocalMakefile) {
-		return repoLocalMakefile
-	}
 	return ""
 }
 
-// writeEnvSnapshot writes a shell-friendly env file that captures the resolved
-// tuples for the run.
+// makeInvocation returns the tuple list and environment slice for invoking make.
+//
+// This is shared by plan (make -n) and run (real make) so both paths agree on
+// which computed variables are exported.
+func makeInvocation(plan *resolvedPlan, targets []string) (tuples []string, env []string) {
+	tuples = append([]string(nil), plan.Tuples...)
+
+	// Append computed variables last so they override any config-provided tuples
+	// with the same NAME. This mirrors isconf's "last wins" make argv behavior and
+	// ensures decomk-owned variables are trustworthy.
+	//
+	// Note: some values contain spaces (e.g. DECOMK_PACKAGES). This is safe: argv
+	// elements are not re-split by spaces when exec'd.
+	cv := computedVars(plan, targets)
+	for _, name := range []string{"DECOMK_HOME", "DECOMK_STAMPDIR", "DECOMK_WORKSPACES", "DECOMK_CONTEXTS", "DECOMK_PACKAGES"} {
+		if v, ok := cv[name]; ok {
+			tuples = append(tuples, name+"="+v)
+		}
+	}
+
+	env = withEnv(os.Environ(), cv)
+	return tuples, env
+}
+
+// writeEnvFile writes the shell-friendly env export file that captures the
+// resolved configuration for the run.
 //
 // This file is intentionally simple: it is designed to be sourced by scripts
 // and nested make invocations without requiring eval.
-func writeEnvSnapshot(path string, plan *resolvedPlan, targets []string) error {
+func writeEnvFile(path string, plan *resolvedPlan, targets []string) error {
 	if err := state.EnsureParentDir(path); err != nil {
 		return err
 	}
@@ -1257,34 +1360,57 @@ func writeEnvSnapshot(path string, plan *resolvedPlan, targets []string) error {
 		return err
 	}
 
+	if err := writeEnvExport(f, plan, targets); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
+// writeEnvExport writes the full env export file content to w.
+//
+// The output format is a POSIX-shell-friendly sequence of "export NAME='value'"
+// lines, optionally preceded by comment lines. It is safe to "source" this file
+// in a shell or make recipe.
+func writeEnvExport(w io.Writer, plan *resolvedPlan, targets []string) error {
 	now := time.Now().UTC().Format(time.RFC3339)
-	fmt.Fprintf(f, "# generated by decomk; do not edit\n")
-	fmt.Fprintf(f, "# time: %s\n", now)
-	fmt.Fprintf(f, "# workspaceRoot: %s\n", plan.WorkspaceRoot)
-	fmt.Fprintf(f, "# contextKey: %s\n", plan.ContextKey)
-	fmt.Fprintf(f, "# config: %s\n", strings.Join(plan.ConfigPaths, ", "))
-	fmt.Fprintln(f)
+	fmt.Fprintf(w, "# generated by decomk; do not edit\n")
+	fmt.Fprintf(w, "# time: %s\n", now)
+	if len(plan.ContextKeys) > 0 {
+		fmt.Fprintf(w, "# contexts: %s\n", strings.Join(plan.ContextKeys, " "))
+	}
+	if len(plan.WorkspaceRepos) > 0 {
+		var names []string
+		for _, repo := range plan.WorkspaceRepos {
+			names = append(names, repo.Name)
+		}
+		fmt.Fprintf(w, "# workspaces: %s\n", strings.Join(names, " "))
+	}
+	fmt.Fprintf(w, "# config: %s\n", strings.Join(plan.ConfigPaths, ", "))
+	fmt.Fprintln(w)
 
-	// Export computed helpers for recipes/scripts.
-	writeExport(f, "DECOMK_HOME", plan.Home)
-	writeExport(f, "DECOMK_WORKSPACE_ROOT", plan.WorkspaceRoot)
-	writeExport(f, "DECOMK_CONTEXT", plan.ContextKey)
-	writeExport(f, "DECOMK_STAMPDIR", plan.StampDir)
-	writeExport(f, "DECOMK_PACKAGES", strings.Join(targets, " "))
-
-	// Export config-provided tuples.
+	// Export config-provided tuples first.
+	//
+	// computedVars are emitted later and override any config-provided entries with
+	// the same variable name.
 	for _, t := range plan.Tuples {
 		k, v, ok := resolve.SplitTuple(t)
 		if !ok {
 			continue
 		}
-		writeExport(f, k, v)
+		writeExport(w, k, v)
 	}
 
-	if err := f.Close(); err != nil {
-		return err
+	// Export computed helpers for recipes/scripts last so they override any
+	// config-provided values.
+	cv := computedVars(plan, targets)
+	for _, name := range []string{"DECOMK_HOME", "DECOMK_STAMPDIR", "DECOMK_WORKSPACES", "DECOMK_CONTEXTS", "DECOMK_PACKAGES"} {
+		writeExport(w, name, cv[name])
 	}
-	return os.Rename(tmp, path)
+	return nil
 }
 
 // writeExport emits one export line using conservative shell quoting.

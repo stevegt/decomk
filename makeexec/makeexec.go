@@ -9,7 +9,8 @@ import (
 	"os/exec"
 )
 
-// Run executes "make" in dir using the given makefile, variable tuples, and targets.
+// Run executes "make" in dir using the given makefile, variable tuples, and
+// targets.
 //
 // Ordering matters:
 //   - variable tuples must appear before targets on argv
@@ -18,7 +19,17 @@ import (
 // It returns make's exit code. If make could not be started, exitCode will be 1
 // and err will describe the failure.
 func Run(dir, makefile string, tuples, targets []string, env []string, stdout, stderr io.Writer) (exitCode int, err error) {
+	return RunWithFlags(dir, makefile, nil, tuples, targets, env, stdout, stderr)
+}
+
+// RunWithFlags executes "make" like Run, but prepends additional make flags
+// (for example "-n" for a dry-run).
+//
+// Flags must appear before variable tuples and targets on argv so GNU make
+// interprets them as options rather than goals.
+func RunWithFlags(dir, makefile string, flags, tuples, targets []string, env []string, stdout, stderr io.Writer) (exitCode int, err error) {
 	args := []string{}
+	args = append(args, flags...)
 	if makefile != "" {
 		args = append(args, "-f", makefile)
 	}

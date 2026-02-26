@@ -7,15 +7,14 @@ import (
 	"testing"
 )
 
-func TestLoadDefs_Precedence_ConfigRepoThenRepoLocalThenExplicit(t *testing.T) {
+func TestLoadDefs_Precedence_ConfigRepoThenExplicit(t *testing.T) {
 	t.Parallel()
 
 	// This test encodes the intended config layering:
-	//   config repo (lowest) < repo-local < explicit -config/DECOMK_CONFIG (highest).
+	//   config repo (lowest) < explicit -config/DECOMK_CONFIG (highest).
 	//
 	// Each layer may override any key by redefining it.
 	home := t.TempDir()
-	workspace := t.TempDir()
 
 	configRepoConfig := filepath.Join(home, "conf", "etc", "decomk.conf")
 	if err := os.MkdirAll(filepath.Dir(configRepoConfig), 0o755); err != nil {
@@ -25,30 +24,25 @@ func TestLoadDefs_Precedence_ConfigRepoThenRepoLocalThenExplicit(t *testing.T) {
 		t.Fatalf("WriteFile(config repo decomk.conf): %v", err)
 	}
 
-	repoLocalConfig := filepath.Join(workspace, "decomk.conf")
-	if err := os.WriteFile(repoLocalConfig, []byte("A: repoA\n"), 0o600); err != nil {
-		t.Fatalf("WriteFile(repo-local decomk.conf): %v", err)
-	}
-
 	explicit := filepath.Join(t.TempDir(), "decomk.conf")
 	if err := os.WriteFile(explicit, []byte("B: explicitB\n"), 0o600); err != nil {
 		t.Fatalf("WriteFile(explicit decomk.conf): %v", err)
 	}
 
-	defs, paths, err := loadDefs(home, workspace, explicit)
+	defs, paths, err := loadDefs(home, explicit)
 	if err != nil {
 		t.Fatalf("loadDefs() error: %v", err)
 	}
 
-	// Precedence is "last wins": config repo < repo-local < explicit.
-	if got, want := defs["A"], []string{"repoA"}; !reflect.DeepEqual(got, want) {
+	// Precedence is "last wins": config repo < explicit.
+	if got, want := defs["A"], []string{"configA"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("A tokens: got %#v want %#v", got, want)
 	}
 	if got, want := defs["B"], []string{"explicitB"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("B tokens: got %#v want %#v", got, want)
 	}
 
-	if got, want := paths, []string{configRepoConfig, repoLocalConfig, explicit}; !reflect.DeepEqual(got, want) {
+	if got, want := paths, []string{configRepoConfig, explicit}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("paths: got %#v want %#v", got, want)
 	}
 }
@@ -125,6 +119,94 @@ func TestSelectTargets(t *testing.T) {
 			}
 			if !reflect.DeepEqual(gotTargets, tc.wantTargets) {
 				t.Fatalf("targets: got %#v want %#v", gotTargets, tc.wantTargets)
+			}
+		})
+	}
+}
+
+func TestResolveWorkspacesDir_Precedence(t *testing.T) {
+	t.Parallel()
+
+	const envKey = "DECOMK_WORKSPACES_DIR"
+	old, had := os.LookupEnv(envKey)
+	t.Cleanup(func() {
+		if had {
+			_ = os.Setenv(envKey, old)
+			return
+		}
+		_ = os.Unsetenv(envKey)
+	})
+
+	// Flag overrides env.
+	if err := os.Setenv(envKey, "/from-env"); err != nil {
+		t.Fatalf("Setenv: %v", err)
+	}
+	if got, want := resolveWorkspacesDir("/from-flag"), "/from-flag"; got != want {
+		t.Fatalf("flag wins: got %q want %q", got, want)
+	}
+
+	// Env overrides default.
+	if got, want := resolveWorkspacesDir(""), "/from-env"; got != want {
+		t.Fatalf("env wins: got %q want %q", got, want)
+	}
+
+	// Default when neither set.
+	if err := os.Unsetenv(envKey); err != nil {
+		t.Fatalf("Unsetenv: %v", err)
+	}
+	if got, want := resolveWorkspacesDir(""), defaultWorkspacesDir; got != want {
+		t.Fatalf("default: got %q want %q", got, want)
+	}
+}
+
+func TestRewriteCFlag(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name        string
+		args        []string
+		absStartDir string
+		want        []string
+	}{
+		{
+			name:        "no -C unchanged",
+			args:        []string{"decomk", "plan"},
+			absStartDir: "/abs",
+			want:        []string{"decomk", "plan"},
+		},
+		{
+			name:        "-C arg rewritten",
+			args:        []string{"decomk", "plan", "-C", ".."},
+			absStartDir: "/abs",
+			want:        []string{"decomk", "plan", "-C", "/abs"},
+		},
+		{
+			name:        "-C= arg rewritten",
+			args:        []string{"decomk", "plan", "-C=.."},
+			absStartDir: "/abs",
+			want:        []string{"decomk", "plan", "-C=/abs"},
+		},
+		{
+			name:        "multiple -C occurrences all rewritten",
+			args:        []string{"decomk", "plan", "-C", "..", "-C=.", "-C", "x"},
+			absStartDir: "/abs",
+			want:        []string{"decomk", "plan", "-C", "/abs", "-C=/abs", "-C", "/abs"},
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			orig := append([]string(nil), tc.args...)
+			got := rewriteCFlag(tc.args, tc.absStartDir)
+
+			if !reflect.DeepEqual(tc.args, orig) {
+				t.Fatalf("rewriteCFlag mutated input: got %#v want %#v", tc.args, orig)
+			}
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("rewriteCFlag: got %#v want %#v", got, tc.want)
 			}
 		})
 	}

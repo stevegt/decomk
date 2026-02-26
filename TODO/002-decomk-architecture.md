@@ -24,9 +24,11 @@ The intended container layout is:
 │       │       ├── decomk.d/*.conf   (optional)
 │       │       └── Makefile
 │       ├── stamps/               (global stamp dir; make working directory)
-│       ├── env/                  (resolved env snapshots; per context)
+│       ├── env.sh                (env exports for other processes to source)
 │       ├── log/                  (audit logs; per make invocation)
-│       └── conf.lock             (advisory lock used during git pull/clone)
+│       ├── conf.lock             (advisory lock used during git pull/clone)
+│       ├── decomk.lock           (advisory lock used during tool self-update)
+│       └── stamps/.lock          (advisory lock used during stamp mutation)
 └── workspaces/
     ├── repo1/                    (WIP repo clone)
     ├── repo2/                    (WIP repo clone)
@@ -76,7 +78,7 @@ Non-goals (for MVP):
 `decomk` is a small CLI wrapper around `make`, modeled after isconf’s
 split between:
 - `etc/rc.isconf` (bootstrap/refresh) and
-- `bin/isconf` (resolve context → write env snapshot → run make)
+- `bin/isconf` (resolve context → write env export file → run make)
 
 ### Phase A: Bootstrap (rc.isconf analog)
 
@@ -88,7 +90,7 @@ command.
 Like `rc.isconf`, decomk needs a bootstrap/update step, but the current scope is
 intentionally small and focused on container-local state:
 - ensure `<DECOMK_HOME>` exists (default `/var/decomk`) and required subdirs
-  exist (`conf/`, `stamps/`, `env/`, `log/`)
+  exist (`conf/`, `stamps/`, `log/`)
 - clone/pull the decomk tool repo into `<DECOMK_HOME>/decomk`, rebuild, and
   re-exec into the updated binary (self-update)
 - optionally clone/pull the shared config repo into `<DECOMK_HOME>/conf` when
@@ -105,8 +107,8 @@ For `decomk`, that translates to:
 3. Refresh the configs/makefiles repo (when configured):
    - clone into `<DECOMK_HOME>/conf` if missing
    - `git pull --ff-only` to update (best-effort if offline)
-4. Discover workspace repos and resolve a context key for each.
-5. Create required state subdirs (stamps/env/log) as needed.
+4. Discover workspace repos and resolve a config key for each (when present).
+5. Create required state subdirs (stamps/log) as needed.
 
 ### Phase B: Plan + apply (isconf analog)
 
@@ -115,14 +117,18 @@ via `expandmacro`, write `etc/environment` via `mk_env`, then run `make`
 in the stamps directory.
 
 For `decomk`, that translates to:
-1. Seed expansion with `DEFAULT` + `contextKey` (and optionally
-   `owner/repo` → `repo` fallback if the more specific key is missing).
+1. Choose which context keys to apply:
+   - if `-context` / `DECOMK_CONTEXT` is set: apply that single key (must exist)
+   - otherwise: scan workspaces and select at most one key per workspace repo,
+     preferring `owner/repo` then `repo` then directory basename (only when the key
+     exists in config)
+   - apply `DEFAULT` first when defined, then the selected per-workspace keys
 2. Expand macros recursively into a flat token list (isconf
    `expandmacro` semantics, but with cycle detection and max depth).
 3. Partition the expanded tokens into:
    - `NAME=value` tuples (to pass to `make` on argv), and
    - make targets (everything else).
-4. Write an env snapshot file (mk_env analog) from the tuples.
+4. Write an env export file (`<DECOMK_HOME>/env.sh`) from the tuples plus computed variables.
 5. Run GNU `make` as a subprocess with:
    - working directory = the stamps directory (so stamps live outside
      the repo), and
@@ -146,8 +152,8 @@ Notes:
   `/var/decomk`, the devcontainer image should create it and `chown` it
   appropriately.
 - If you explicitly set `DECOMK_HOME` under `$HOME`, always namespace
-  state by `workspaceKey` to avoid collisions across workspaces and/or
-  containers that share the same home volume.
+  state carefully to avoid collisions across multiple containers that share the
+  same home volume.
 
 Proposed layout (all under `DECOMK_HOME` or `/var/decomk`):
 - Note: this layout assumes the “make-as-engine” direction discussed in
@@ -163,26 +169,27 @@ Proposed layout (all under `DECOMK_HOME` or `/var/decomk`):
     - `.../conf/etc/Makefile`
 - Execution state:
   - `.../stamps/` (global stamp dir; make working directory)
-  - `.../env/<contextKey>.sh` (resolved env snapshots; per context)
+  - `.../env.sh` (env exports for other processes to source)
   - `.../log/<runID>/make.log` (audit logs; per make invocation)
   - `.../decomk.lock`, `.../conf.lock`, and `.../stamps/.lock` (advisory locks)
 
 When using `/var/decomk`, use the same internal tree under it.
 
-### Workspace key
+### Workspace discovery and context keys
 
-Stamps are global (container-scoped), so `workspaceKey` is not used to namespace
-stamp paths. It remains useful for:
-- stable-ish identifiers in logs/debug output
-- future enhancements where some state may need per-workspace namespacing
+In a typical devcontainer there may be multiple WIP repos under `/workspaces/*`.
+decomk scans a configurable workspaces root directory (default `/workspaces`,
+override with `-workspaces` / `DECOMK_WORKSPACES_DIR`) and
+derives identity hints for each repo:
+- `owner/repo` from `remote.origin.url` when possible
+- `repo` from origin URL or directory basename
+- directory basename
 
-Define:
-- `workspaceRoot`: `git rev-parse --show-toplevel` (fallback: `PWD`)
-- `workspaceKey`: a filesystem-safe identifier computed as a SHA-256 hash of:
-  - `ownerRepo + "\n" + abs(workspaceRoot)`
-  - where `ownerRepo` is derived from the repo’s `remote.origin.url` when possible
-
-The key should be filesystem-safe (hex-encoded hash is easiest).
+For each discovered repo, decomk selects at most one matching config key (first
+match wins, most specific to least specific) and applies:
+- `DEFAULT` first when defined, then
+- the selected per-workspace keys (deduplicated),
+as the seed token list for macro expansion.
 
 ## Configuration model
 
@@ -210,8 +217,7 @@ Semantics:
 
 Config precedence (highest wins):
 1. `-config <path>` (or `DECOMK_CONFIG`) if provided
-2. (optional) repo-local config (e.g., `<repoRoot>/decomk.conf`) for experimentation/overrides
-3. config repo clone (e.g., `<DECOMK_HOME>/conf/etc/decomk.conf` + optional `decomk.d/*.conf`)
+2. config repo clone (e.g., `<DECOMK_HOME>/conf/etc/decomk.conf` + optional `decomk.d/*.conf`)
 
 Merging rule (simple and auditable):
 - Configs are key→[]token maps; when the same key exists in multiple
@@ -265,8 +271,11 @@ Run `make` with:
   - then targets
 
 Pass-through variables (recommended as both env vars and make tuples):
-- `DECOMK_WORKSPACE_ROOT=<workspaceRoot>`
+- `DECOMK_HOME=<home>`
 - `DECOMK_STAMPDIR=<stampDir>`
+- `DECOMK_WORKSPACES=<space-separated workspace basenames>`
+- `DECOMK_CONTEXTS=<space-separated context keys used for expansion>`
+- `DECOMK_PACKAGES=<space-separated make targets actually invoked>`
 
 Output handling:
 - Stream output to terminal by default (good for lifecycle hooks).
@@ -280,7 +289,7 @@ Locking:
 
 Keep packages as small, root-level directories (no `internal/`, no `pkg/`):
 - `cmd/decomk/`: main + CLI parsing
-- `state/`: resolve config/state directories + workspaceKey
+- `state/`: resolve config/state directories + locks + stamps helpers
 - `contexts/`: load/merge decomk.conf
 - `expand/`: macro expansion algorithm + cycle detection
 - `makeexec/`: subprocess wrapper around `make`
@@ -291,13 +300,14 @@ become painful.
 ## CLI shape
 
 Proposed commands:
-- `decomk plan` (print resolved tuples/targets; no `make`)
+- `decomk plan` (print resolved tuples/targets + env exports; run `make -n`; do not write `env.sh`)
 - `decomk run` (default; resolves + stamps + runs `make`)
 - `decomk status` (show existing stamp files)
 - `decomk clean` (remove stamp files; all or selected)
 
 Common flags:
-- `-C <dir>` (workspace root override; like `make -C`)
+- `-C <dir>` (starting directory; like `make -C`)
+- `-workspaces <dir>` (workspaces root directory to scan; default `/workspaces`)
 - `-context <key>` (force context; bypass auto-detect)
 - `-config <path>` (explicit config file path)
 - `-makefile <path>` (override default `Makefile`)
@@ -308,12 +318,12 @@ Common flags:
 ## Subtasks
 
 - [x] 002.1 Decide default persistent directory policy (`/var/decomk` by default; `DECOMK_HOME` override) and document it.
-- [ ] 002.2 Specify `decomk.conf` grammar + search/merge precedence (config repo vs repo-local vs explicit `-config`).
-- [ ] 002.3 Define workspaceKey + contextKey algorithms (env + git fallback order + filesystem-safe encoding).
+- [ ] 002.2 Specify `decomk.conf` grammar + search/merge precedence (config repo vs explicit `-config`).
+- [ ] 002.3 Define workspace discovery + context-key selection (git origin + basename fallbacks; merged multi-workspace expansion).
 - [ ] 002.4 Specify tokenization/quoting rules (single quotes) and how they map to `exec.Command` argv (no shell).
 - [ ] 002.5 Specify macro expansion semantics (isconf-like; add cycle detection + max depth).
 - [ ] 002.6 Specify stamp directory conventions (file targets, optional pre-touch, and clean/force behaviors).
-- [ ] 002.7 Specify env snapshot format + stable path (`.../env/<contextKey>.sh`).
+- [ ] 002.7 Specify env export file format + stable path (`.../env.sh`).
 - [ ] 002.8 Specify audit record format + file set written per run.
 - [ ] 002.9 Confirm package layout fits repo conventions (no `internal/`/`pkg/`; minimal deps).
 - [ ] 002.10 Specify config repo update behavior (clone/pull, offline mode, and failure policy).

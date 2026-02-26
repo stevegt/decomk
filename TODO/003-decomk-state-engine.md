@@ -188,7 +188,7 @@ What exists there (high level):
 ### Pros of “finish lunamake” (vs build decomk)
 
 - The Python implementation demonstrates a proven pattern we want:
-  - context expansion → env snapshot → numbered hooks → make-in-stampdir
+  - context expansion → env export file → numbered hooks → make-in-stampdir
 - The Dockerfile-like stanza idea is a promising **better language**
   than Makefile recipes for multi-line commands and explicit ordering.
   The main tradeoff is that a pure “ordered stanza list” gives up one of
@@ -243,7 +243,7 @@ What exists there (high level):
 - Use a persistent stamp dir outside the repo and run `make -C <stampdir> -f <makefile>`.
 - Use “touch all stamps first” as the default behavior (explicit invalidation via deleting stamps).
 - Keep config syntax close to isconf/hosts.conf (continuations +
-  shlex-like quoting) and generate an env snapshot for audit.
+  shlex-like quoting) and generate an env export file for other processes to source.
   For decomk, treat **stamps** as the primary execution state (because
   they interoperate with make) and treat the **audit log** as a journal
   for debugging and change review (plan, resolved tuples/targets,
