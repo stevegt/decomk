@@ -16,7 +16,7 @@ func TestLoadDefs_Precedence_ConfigRepoThenExplicit(t *testing.T) {
 	// Each layer may override any key by redefining it.
 	home := t.TempDir()
 
-	configRepoConfig := filepath.Join(home, "conf", "etc", "decomk.conf")
+	configRepoConfig := filepath.Join(home, "conf", "decomk.conf")
 	if err := os.MkdirAll(filepath.Dir(configRepoConfig), 0o755); err != nil {
 		t.Fatalf("MkdirAll(config repo): %v", err)
 	}

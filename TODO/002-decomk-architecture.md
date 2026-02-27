@@ -132,7 +132,7 @@ For `decomk`, that translates to:
 5. Run GNU `make` as a subprocess with:
    - working directory = the stamps directory (so stamps live outside
      the repo), and
-   - `-f <Makefile>` (explicit path, typically from `<DECOMK_HOME>/conf/etc/Makefile`),
+   - `-f <Makefile>` (explicit path, typically from `<DECOMK_HOME>/conf/Makefile`),
    - argv = tuples + targets.
 6. Exit with `make`’s status code, keeping audit logs for post-mortem.
 
@@ -143,8 +143,9 @@ directory. For decomk, prefer a **container-local** root directory and
 do not default to `$HOME` (because `$HOME` may be shared across multiple
 containers in some devcontainer hosts).
 
-Directory selection (in priority order):
-1. `DECOMK_HOME` (absolute path): if set, use it for everything.
+Directory selection (in priority order) for decomk's **state root** (config repo
+clone, stamps, env exports, and locks):
+1. `DECOMK_HOME` (absolute path): if set, use it for state.
 2. Default: `/var/decomk`
 
 Notes:
@@ -155,7 +156,10 @@ Notes:
   state carefully to avoid collisions across multiple containers that share the
   same home volume.
 
-Proposed layout (all under `DECOMK_HOME` or `/var/decomk`):
+Audit logs are written separately under `/var/log/decomk` (not under
+`DECOMK_HOME`).
+
+Proposed layout (mostly under `DECOMK_HOME` or `/var/decomk`):
 - Note: this layout assumes the “make-as-engine” direction discussed in
   TODO 003. If we later replace `make` as the execution/state engine,
   the repo and state layout may change.
@@ -164,16 +168,17 @@ Proposed layout (all under `DECOMK_HOME` or `/var/decomk`):
     - `.../decomk/bin/decomk` (built binary)
 - Configs/makefiles repo clone (policy):
   - `.../conf/` (git clone)
-    - `.../conf/etc/decomk.conf`
-    - `.../conf/etc/decomk.d/*.conf` (optional)
-    - `.../conf/etc/Makefile`
+    - `.../conf/decomk.conf`
+    - `.../conf/decomk.d/*.conf` (optional)
+    - `.../conf/Makefile`
 - Execution state:
   - `.../stamps/` (global stamp dir; make working directory)
   - `.../env.sh` (env exports for other processes to source)
-  - `.../log/<runID>/make.log` (audit logs; per make invocation)
+  - `/var/log/decomk/<runID>/make.log` (audit logs; per make invocation)
   - `.../decomk.lock`, `.../conf.lock`, and `.../stamps/.lock` (advisory locks)
 
-When using `/var/decomk`, use the same internal tree under it.
+When using `/var/decomk`, use the same internal tree under it (audit logs still
+go to `/var/log/decomk`).
 
 ### Workspace discovery and context keys
 
@@ -217,7 +222,7 @@ Semantics:
 
 Config precedence (highest wins):
 1. `-config <path>` (or `DECOMK_CONFIG`) if provided
-2. config repo clone (e.g., `<DECOMK_HOME>/conf/etc/decomk.conf` + optional `decomk.d/*.conf`)
+2. config repo clone (e.g., `<DECOMK_HOME>/conf/decomk.conf` + optional `decomk.d/*.conf`)
 
 Merging rule (simple and auditable):
 - Configs are key→[]token maps; when the same key exists in multiple

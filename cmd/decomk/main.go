@@ -1053,9 +1053,13 @@ func loadDefs(home, explicitConfig string) (defs contexts.Defs, paths []string, 
 
 // configRepoConfigCandidates returns candidate decomk.conf paths inside the
 // config repo clone.
+//
+// The config repo is expected to keep decomk.conf at the root of the clone
+// directory (<DECOMK_HOME>/conf/decomk.conf). decomk intentionally does not
+// search alternate layouts (for example a nested etc/ directory) so that the
+// precedence model stays simple and predictable.
 func configRepoConfigCandidates(home string) []string {
 	return []string{
-		filepath.Join(state.ConfDir(home), "etc", "decomk.conf"),
 		filepath.Join(state.ConfDir(home), "decomk.conf"),
 	}
 }
@@ -1301,7 +1305,7 @@ func withEnv(base []string, set map[string]string) []string {
 //
 // Selection order (first match wins):
 //  1. sibling of explicitConfig (if non-empty)
-//  2. <DECOMK_HOME>/conf/etc/Makefile (or <DECOMK_HOME>/conf/Makefile)
+//  2. <DECOMK_HOME>/conf/Makefile
 func findDefaultMakefile(home, explicitConfig string) string {
 	if explicitConfig != "" {
 		candidate := filepath.Join(filepath.Dir(explicitConfig), "Makefile")
@@ -1309,13 +1313,9 @@ func findDefaultMakefile(home, explicitConfig string) string {
 			return candidate
 		}
 	}
-	for _, candidate := range []string{
-		filepath.Join(state.ConfDir(home), "etc", "Makefile"),
-		filepath.Join(state.ConfDir(home), "Makefile"),
-	} {
-		if fileExists(candidate) {
-			return candidate
-		}
+	candidate := filepath.Join(state.ConfDir(home), "Makefile")
+	if fileExists(candidate) {
+		return candidate
 	}
 	return ""
 }

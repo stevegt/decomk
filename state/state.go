@@ -1,13 +1,16 @@
 // Package state computes decomk's on-disk layout and provides helpers for
 // managing persistent state (locks, stamps, env exports).
 //
-// decomk is designed to keep its state outside any workspace repo, typically
-// under a container-local directory like /var/decomk. This avoids dirtying repos
-// with stamp files and makes it clearer what is "policy" vs "state":
-//   - /var/decomk/conf   : a local clone of the shared config repo (decomk.conf + Makefile)
-//   - /var/decomk/stamps : global stamp directory used as make's working directory
-//   - /var/decomk/env.sh : shell-friendly resolved tuple exports for other processes to source
-//   - /var/decomk/log    : per-run audit logs (make output)
+// decomk is designed to keep its state outside any workspace repo. Most state
+// lives under a container-local directory like /var/decomk, while per-run audit
+// logs are written under /var/log/decomk.
+//
+// Keeping state/logs out of workspaces avoids dirtying repos with stamp files and
+// makes it clearer what is "policy" vs "state":
+//   - /var/decomk/conf    : local clone of the shared config repo (decomk.conf + Makefile)
+//   - /var/decomk/stamps  : global stamp directory used as make's working directory
+//   - /var/decomk/env.sh  : shell-friendly resolved tuple exports for other processes to source
+//   - /var/log/decomk     : per-run audit logs (make output)
 package state
 
 import (
@@ -27,6 +30,12 @@ const (
 	// DefaultHome is the default persistent root used inside a container when
 	// DECOMK_HOME is not set.
 	DefaultHome = "/var/decomk"
+
+	// DefaultLogDir is the default directory for decomk's per-run audit logs.
+	//
+	// Audit logs intentionally live under /var/log so they can be managed
+	// separately from decomk's mutable state under DefaultHome (or DECOMK_HOME).
+	DefaultLogDir = "/var/log/decomk"
 )
 
 // ToolDir returns the directory where decomk keeps a clone of its own tool repo.
@@ -50,8 +59,10 @@ func ToolLockPath(home string) string { return filepath.Join(home, "decomk.lock"
 
 // ConfDir returns the directory where decomk expects the config repo clone.
 //
-// This is a git working tree that contains (typically) an etc/ directory with
-// decomk.conf and a Makefile.
+// This is a git working tree that typically contains:
+//   - decomk.conf
+//   - optional decomk.d/*.conf overlays
+//   - Makefile
 func ConfDir(home string) string { return filepath.Join(home, "conf") }
 
 // ConfLockPath returns the lock file used to prevent concurrent updates to the
@@ -75,7 +86,11 @@ func StampsDir(home string) string { return filepath.Join(home, "stamps") }
 func StampsLockPath(home string) string { return filepath.Join(StampsDir(home), ".lock") }
 
 // LogDir returns the directory where decomk writes per-run audit logs.
-func LogDir(home string) string { return filepath.Join(home, "log") }
+//
+// The home parameter is intentionally ignored: audit logs are written under
+// DefaultLogDir (typically /var/log/decomk) regardless of where DECOMK_HOME
+// points.
+func LogDir(_ string) string { return DefaultLogDir }
 
 // Home resolves the decomk home directory.
 //

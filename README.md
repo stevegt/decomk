@@ -278,9 +278,7 @@ the step has succeeded.
      under `<DECOMK_HOME>/conf` (if any)
 
 6) Load config definitions (`decomk.conf`)
-   - **config repo** (optional): first existing of:
-     - `<DECOMK_HOME>/conf/etc/decomk.conf`
-     - `<DECOMK_HOME>/conf/decomk.conf`
+   - **config repo** (optional): `<DECOMK_HOME>/conf/decomk.conf`
    - **explicit override** (optional): `-config <path>` or `DECOMK_CONFIG`
 
    Precedence is “last wins”:
@@ -347,18 +345,17 @@ the step has succeeded.
 14) Execute make (`decomk run`)
     - write the env export file:
       - `<DECOMK_HOME>/env.sh`
-    - determine `Makefile` path:
-      - `-makefile <path>` if set
-      - otherwise, first existing of:
-        - sibling of explicit `-config` (if set): `<dir-of-config>/Makefile`
-        - `<DECOMK_HOME>/conf/etc/Makefile`
-        - `<DECOMK_HOME>/conf/Makefile`
+	    - determine `Makefile` path:
+	      - `-makefile <path>` if set
+	      - otherwise, first existing of:
+	        - sibling of explicit `-config` (if set): `<dir-of-config>/Makefile`
+	        - `<DECOMK_HOME>/conf/Makefile`
     - acquire an exclusive global stamps lock:
       - `<DECOMK_HOME>/stamps/.lock`
     - ensure stamp dir exists, then **touch existing stamps** once (see below)
-    - create a per-run audit dir (one per make invocation):
-      - `<DECOMK_HOME>/log/<runID>/`
-      - `runID` includes sub-second time + pid for uniqueness
+	    - create a per-run audit dir (one per make invocation):
+	      - `/var/log/decomk/<runID>/`
+	      - `runID` includes sub-second time + pid for uniqueness
     - run:
       - `make -f <Makefile> <tuples...> <targets...>`
       - working directory = stamp dir
