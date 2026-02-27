@@ -36,6 +36,9 @@ keep it updated.
 
 DECOMK_HOME defaults to /var/decomk, so the config repo clone lives under `/var/decomk/conf`. 
 
+By default, decomk writes per-run logs under `/var/log/decomk` (override with
+`-log-dir` / `DECOMK_LOG_DIR`).
+
 Before using the config repo, decomk also self-updates (isconf-style): it keeps
 a canonical clone of its own repo under `<DECOMK_HOME>/decomk`, runs
 `git pull --ff-only`, rebuilds, and re-execs into the updated binary. You can
@@ -80,7 +83,7 @@ DECOMK_HOME=/tmp/decomk go run ./cmd/decomk plan -config ./decomk.conf -makefile
 
 3) Run `make` via `decomk`:
 ```bash
-DECOMK_HOME=/tmp/decomk go run ./cmd/decomk run -config ./decomk.conf -makefile ./Makefile -context myrepo
+DECOMK_HOME=/tmp/decomk DECOMK_LOG_DIR=/tmp/decomk/log go run ./cmd/decomk run -config ./decomk.conf -makefile ./Makefile -context myrepo
 ```
 
 To install a binary instead of using `go run`:
@@ -93,6 +96,7 @@ go install ./cmd/decomk
 Example container filesystem tree:
   - WIP repos are under `/workspaces/*`
   - decomk keeps persistent state under `/var/decomk/*`
+  - decomk writes per-run logs under `/var/log/decomk/*` by default
   - the shared config repo is cloned under `/var/decomk/conf` (not under
     `/workspaces`, to avoid conflicts when you have a WIP clone of the config
     repo too)
@@ -100,31 +104,34 @@ Example container filesystem tree:
 ```text
 /
 ├── var
-│   └── decomk
-│       ├── decomk                 (tool repo clone; self-updated)
-│       │   └── bin
-│       │       └── decomk         (built binary)
-│       ├── conf                   (config repo clone; self-updated)
-│       │   ├── decomk.conf        (configuration file for all managed
-repos)
-│       │   ├── decomk.d
-│       │   │   └── *.conf
-│       │   └── Makefile           (Makefile for all managed repos)
-│       ├── env.sh                 (env exports for other processes to source)
-│       ├── log
-│       │   └── <runID>
-│       │       └── make.log
-│       ├── stamps
-│       │   ├── install-codex      (example)
-│       │   ├── install-mob-consensus (example)
-│       │   └── install-neovim     (example)
-│       ├── conf.lock              (lock while pulling config repo)
-│       └── decomk.lock            (lock while self-updating tool repo)
+│   ├── decomk
+│   │   ├── decomk                 (tool repo clone; self-updated)
+│   │   │   └── bin
+│   │   │       └── decomk         (built binary)
+│   │   ├── conf                   (config repo clone; self-updated)
+│   │   │   ├── decomk.conf        (configuration file for all managed repos)
+│   │   │   ├── decomk.d
+│   │   │   │   └── *.conf
+│   │   │   └── Makefile           (Makefile for all managed repos)
+│   │   ├── env.sh                 (env exports for other processes to source)
+│   │   ├── stamps
+│   │   │   ├── install-codex      (example)
+│   │   │   ├── install-mob-consensus (example)
+│   │   │   └── install-neovim     (example)
+│   │   ├── conf.lock              (lock while pulling config repo)
+│   │   └── decomk.lock            (lock while self-updating tool repo)
+│   └── log
+│       └── decomk
+│           └── <runID>
+│               └── make.log        (per-run make output)
 └── workspaces
     ├── repo1  (example)
     └── repo2  (example)
 
 ```
+
+If `/var/log/decomk` is not writable and you did not explicitly set
+`-log-dir`/`DECOMK_LOG_DIR`, decomk falls back to `<DECOMK_HOME>/log`.
 
 Example `/var/decomk/conf/decomk.conf`:
 ```conf
@@ -345,21 +352,25 @@ the step has succeeded.
 14) Execute make (`decomk run`)
     - write the env export file:
       - `<DECOMK_HOME>/env.sh`
-	    - determine `Makefile` path:
-	      - `-makefile <path>` if set
-	      - otherwise, first existing of:
-	        - sibling of explicit `-config` (if set): `<dir-of-config>/Makefile`
-	        - `<DECOMK_HOME>/conf/Makefile`
+    - determine `Makefile` path:
+      - `-makefile <path>` if set
+      - otherwise, first existing of:
+        - sibling of explicit `-config` (if set): `<dir-of-config>/Makefile`
+        - `<DECOMK_HOME>/conf/Makefile`
     - acquire an exclusive global stamps lock:
       - `<DECOMK_HOME>/stamps/.lock`
     - ensure stamp dir exists, then **touch existing stamps** once (see below)
-	    - create a per-run audit dir (one per make invocation):
-	      - `/var/log/decomk/<runID>/`
-	      - `runID` includes sub-second time + pid for uniqueness
+    - determine log root (first match wins):
+      - `-log-dir <abs-path>` (overrides `DECOMK_LOG_DIR`)
+      - `DECOMK_LOG_DIR`
+      - `/var/log/decomk` (falls back to `<DECOMK_HOME>/log` when not writable)
+    - create a per-run log dir (one per make invocation):
+      - `<logRoot>/<runID>/`
+      - `runID` includes sub-second time + pid for uniqueness
     - run:
       - `make -f <Makefile> <tuples...> <targets...>`
       - working directory = stamp dir
-      - stdout/stderr are teed to `make.log` under the audit dir
+      - stdout/stderr are teed to `make.log` under the per-run log dir
 
 ## `decomk.conf` format
 
@@ -434,6 +445,11 @@ command will automate this).
 By default, state lives under `/var/decomk`. You can override it with
 `DECOMK_HOME` or `decomk -home`.
 
+By default, per-run logs are written under `/var/log/decomk`. You can override
+this with `DECOMK_LOG_DIR` or `decomk -log-dir`. If `/var/log/decomk` is not
+writable and you did not explicitly override the log dir, decomk falls back to
+`<DECOMK_HOME>/log`.
+
 ## CLI usage
 
 ```text
@@ -447,6 +463,7 @@ ARGS:
 
 Flags:
   -home <abs-path>          Override DECOMK_HOME
+  -log-dir <abs-path>       Override DECOMK_LOG_DIR (default /var/log/decomk)
   -C <dir>                  Starting directory (like make -C)
   -workspaces <dir>         Workspaces root directory to scan (default /workspaces; overrides DECOMK_WORKSPACES_DIR)
   -context <key>            Override context selection
@@ -460,9 +477,9 @@ Flags:
 
 ## Devcontainer notes
 
-- `/var/decomk` must be writable by the dev user.
+- `/var/decomk` (state) and `/var/log/decomk` (logs) should be writable by the dev user (or override with `DECOMK_HOME`/`DECOMK_LOG_DIR`).
   - In a Dockerfile, you typically want:
-    - `RUN mkdir -p /var/decomk && chown -R $USER:$USER /var/decomk`
+    - `RUN mkdir -p /var/decomk /var/log/decomk && chown -R $USER:$USER /var/decomk /var/log/decomk`
 - The repo’s workspace path is host-dependent; prefer using
   `${containerWorkspaceFolder}` in `devcontainer.json` rather than assuming
   `/workspaces/<repo>`.

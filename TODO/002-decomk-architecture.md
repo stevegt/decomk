@@ -17,18 +17,19 @@ The intended container layout is:
 ```text
 /
 ├── var
-│   └── decomk
-│       ├── conf/                 (git clone of shared config repo)
-│       │   └── etc/
-│       │       ├── decomk.conf
-│       │       ├── decomk.d/*.conf   (optional)
-│       │       └── Makefile
-│       ├── stamps/               (global stamp dir; make working directory)
-│       ├── env.sh                (env exports for other processes to source)
-│       ├── log/                  (audit logs; per make invocation)
-│       ├── conf.lock             (advisory lock used during git pull/clone)
-│       ├── decomk.lock           (advisory lock used during tool self-update)
-│       └── stamps/.lock          (advisory lock used during stamp mutation)
+│   ├── decomk
+│   │   ├── conf/                 (git clone of shared config repo)
+│   │   │   ├── decomk.conf
+│   │   │   ├── decomk.d/*.conf   (optional)
+│   │   │   └── Makefile
+│   │   ├── stamps/               (global stamp dir; make working directory)
+│   │   ├── env.sh                (env exports for other processes to source)
+│   │   ├── conf.lock             (advisory lock used during git pull/clone)
+│   │   ├── decomk.lock           (advisory lock used during tool self-update)
+│   │   └── stamps/.lock          (advisory lock used during stamp mutation)
+│   └── log
+│       └── decomk/               (per-run logs; default)
+│           └── <runID>/make.log
 └── workspaces/
     ├── repo1/                    (WIP repo clone)
     ├── repo2/                    (WIP repo clone)
@@ -51,8 +52,8 @@ Constraints:
 - Execution model: call GNU `make` as a subprocess; `decomk` does not
   re-implement make evaluation.
 - State model: stamps + config must live in a persistent directory in
-  the container (Dev Container standard-friendly); if in doubt, keep
-  everything under `/var/decomk` per-container.
+  the container (Dev Container standard-friendly); if in doubt, keep state under
+  `/var/decomk` per-container and per-run logs under `/var/log/decomk`.
 
 Non-goals (for MVP):
 - Managing system package installs directly (that stays in `make`).
@@ -134,7 +135,7 @@ For `decomk`, that translates to:
      the repo), and
    - `-f <Makefile>` (explicit path, typically from `<DECOMK_HOME>/conf/Makefile`),
    - argv = tuples + targets.
-6. Exit with `make`’s status code, keeping audit logs for post-mortem.
+6. Exit with `make`’s status code, keeping per-run logs for post-mortem.
 
 ## Persistent directories (config + stamps)
 
@@ -156,8 +157,9 @@ Notes:
   state carefully to avoid collisions across multiple containers that share the
   same home volume.
 
-Audit logs are written separately under `/var/log/decomk` (not under
-`DECOMK_HOME`).
+Per-run logs are written under `/var/log/decomk` by default:
+- override with `DECOMK_LOG_DIR` / `-log-dir`
+- when using the default and it is not writable, fall back to `<DECOMK_HOME>/log`
 
 Proposed layout (mostly under `DECOMK_HOME` or `/var/decomk`):
 - Note: this layout assumes the “make-as-engine” direction discussed in
@@ -174,11 +176,11 @@ Proposed layout (mostly under `DECOMK_HOME` or `/var/decomk`):
 - Execution state:
   - `.../stamps/` (global stamp dir; make working directory)
   - `.../env.sh` (env exports for other processes to source)
-  - `/var/log/decomk/<runID>/make.log` (audit logs; per make invocation)
+  - `/var/log/decomk/<runID>/make.log` (per-run logs; per make invocation)
   - `.../decomk.lock`, `.../conf.lock`, and `.../stamps/.lock` (advisory locks)
 
-When using `/var/decomk`, use the same internal tree under it (audit logs still
-go to `/var/log/decomk`).
+When using `/var/decomk`, use the same internal state tree under it. Per-run log
+placement follows the default/override/fallback policy described above.
 
 ### Workspace discovery and context keys
 
@@ -284,7 +286,7 @@ Pass-through variables (recommended as both env vars and make tuples):
 
 Output handling:
 - Stream output to terminal by default (good for lifecycle hooks).
-- Also tee to an audit log file for post-mortem debugging.
+- Also tee to a per-run log file for post-mortem debugging.
 
 Locking:
 - Use a global stamps lock file to prevent concurrent runs from
@@ -311,6 +313,8 @@ Proposed commands:
 - `decomk clean` (remove stamp files; all or selected)
 
 Common flags:
+- `-home <abs-path>` (state root override; like `DECOMK_HOME`)
+- `-log-dir <abs-path>` (per-run log root override; like `DECOMK_LOG_DIR`)
 - `-C <dir>` (starting directory; like `make -C`)
 - `-workspaces <dir>` (workspaces root directory to scan; default `/workspaces`)
 - `-context <key>` (force context; bypass auto-detect)
@@ -329,6 +333,6 @@ Common flags:
 - [ ] 002.5 Specify macro expansion semantics (isconf-like; add cycle detection + max depth).
 - [ ] 002.6 Specify stamp directory conventions (file targets, optional pre-touch, and clean/force behaviors).
 - [ ] 002.7 Specify env export file format + stable path (`.../env.sh`).
-- [ ] 002.8 Specify audit record format + file set written per run.
+- [ ] 002.8 Specify per-run log format + file set written per run.
 - [ ] 002.9 Confirm package layout fits repo conventions (no `internal/`/`pkg/`; minimal deps).
 - [ ] 002.10 Specify config repo update behavior (clone/pull, offline mode, and failure policy).

@@ -117,13 +117,11 @@ Rationale:
      - document the same default/override/fallback policy as README
 
 ## Subtasks
-
-- [ ] 005.1 Rename “audit” identifiers/comments to “log” (cmd + state + docs).
-- [ ] 005.2 Add `-log-dir` flag and `DECOMK_LOG_DIR` env var (absolute-only).
-- [ ] 005.3 Resolve/store `LogRoot` + `LogRootExplicit` in `resolvedPlan`.
-- [ ] 005.4 Implement per-run log dir creation with default-only fallback to `<home>/log`.
-- [ ] 005.5 Remove/replace `state.AuditDir`; restore `state.LogDir(home)` to `<home>/log`; keep `state.DefaultLogDir`.
-- [ ] 005.6 Add unit tests for precedence + fallback behavior.
-- [ ] 005.7 Update `README.md` and `TODO/002-decomk-architecture.md` for consistency + fix tab-indented bullets.
-- [ ] 005.8 Run `gofmt` + `go test ./...`.
-
+- [x] 005.1 Rename “audit” identifiers/comments to “log” (cmd + state + docs).
+- [x] 005.2 Add `-log-dir` flag and `DECOMK_LOG_DIR` env var (absolute-only).
+- [x] 005.3 Resolve/store `LogRoot` + `LogRootExplicit` in `resolvedPlan`.
+- [x] 005.4 Implement per-run log dir creation with default-only fallback to `<home>/log`.
+- [x] 005.5 Remove/replace `state.AuditDir`; restore `state.LogDir(home)` to `<home>/log`; keep `state.DefaultLogDir`.
+- [x] 005.6 Add unit tests for precedence + fallback behavior.
+- [x] 005.7 Update `README.md` and `TODO/002-decomk-architecture.md` for consistency + fix tab-indented bullets.
+- [x] 005.8 Run `gofmt` + `go test ./...`.

@@ -2,15 +2,15 @@
 // managing persistent state (locks, stamps, env exports).
 //
 // decomk is designed to keep its state outside any workspace repo. Most state
-// lives under a container-local directory like /var/decomk, while per-run audit
-// logs are written under /var/log/decomk.
+// lives under a container-local directory like /var/decomk, while per-run logs
+// are written under /var/log/decomk by default (see DefaultLogDir).
 //
 // Keeping state/logs out of workspaces avoids dirtying repos with stamp files and
 // makes it clearer what is "policy" vs "state":
 //   - /var/decomk/conf    : local clone of the shared config repo (decomk.conf + Makefile)
 //   - /var/decomk/stamps  : global stamp directory used as make's working directory
 //   - /var/decomk/env.sh  : shell-friendly resolved tuple exports for other processes to source
-//   - /var/log/decomk     : per-run audit logs (make output)
+//   - /var/log/decomk     : per-run logs (make output)
 package state
 
 import (
@@ -31,9 +31,9 @@ const (
 	// DECOMK_HOME is not set.
 	DefaultHome = "/var/decomk"
 
-	// DefaultLogDir is the default directory for decomk's per-run audit logs.
+	// DefaultLogDir is the preferred default directory for decomk's per-run logs.
 	//
-	// Audit logs intentionally live under /var/log so they can be managed
+	// Per-run logs intentionally live under /var/log so they can be managed
 	// separately from decomk's mutable state under DefaultHome (or DECOMK_HOME).
 	DefaultLogDir = "/var/log/decomk"
 )
@@ -85,12 +85,12 @@ func StampsDir(home string) string { return filepath.Join(home, "stamps") }
 // Stamps are global (container-wide), so the lock is also global.
 func StampsLockPath(home string) string { return filepath.Join(StampsDir(home), ".lock") }
 
-// LogDir returns the directory where decomk writes per-run audit logs.
+// LogDir returns the per-run log directory under decomk's state root.
 //
-// The home parameter is intentionally ignored: audit logs are written under
-// DefaultLogDir (typically /var/log/decomk) regardless of where DECOMK_HOME
-// points.
-func LogDir(_ string) string { return DefaultLogDir }
+// This is the legacy/home-rooted location (<DECOMK_HOME>/log). Callers that want
+// system-style log placement should prefer DefaultLogDir, and may fall back to
+// LogDir(home) when DefaultLogDir is not writable.
+func LogDir(home string) string { return filepath.Join(home, "log") }
 
 // Home resolves the decomk home directory.
 //
@@ -190,14 +190,6 @@ func StampDir(home string) string { return StampsDir(home) }
 // This file is intentionally stable so other processes can source it after
 // running decomk. It is overwritten on each invocation.
 func EnvFile(home string) string { return filepath.Join(home, "env.sh") }
-
-// AuditDir returns the directory where logs for a single decomk invocation are
-// written.
-//
-// Callers should ensure runID is unique per invocation to avoid overwriting
-// logs. Individual make invocations within the run may create subdirectories
-// under this path.
-func AuditDir(home, runID string) string { return filepath.Join(LogDir(home), runID) }
 
 // EnsureDir ensures a directory exists with safe permissions.
 func EnsureDir(path string) error {

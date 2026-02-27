@@ -129,7 +129,7 @@ executor; delete stamps to re-run”.
 ### Pros
 
 - Domain-aligned semantics:
-  - run-once steps, force rebuild, upgrade steps, and audit logs can be
+  - run-once steps, force rebuild, upgrade steps, and per-run logs can be
     first-class
   - content-hash state (not timestamps) becomes straightforward
 - Better UX:
@@ -245,7 +245,7 @@ What exists there (high level):
 - Keep config syntax close to isconf/hosts.conf (continuations +
   shlex-like quoting) and generate an env export file for other processes to source.
   For decomk, treat **stamps** as the primary execution state (because
-  they interoperate with make) and treat the **audit log** as a journal
+  they interoperate with make) and treat the **run log** as a journal
   for debugging and change review (plan, resolved tuples/targets,
   make output, exit status). Don’t conflate the two in MVP.
 

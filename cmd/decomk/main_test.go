@@ -1,10 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
+
+	"github.com/stevegt/decomk/state"
 )
 
 func TestLoadDefs_Precedence_ConfigRepoThenExplicit(t *testing.T) {
@@ -209,5 +213,147 @@ func TestRewriteCFlag(t *testing.T) {
 				t.Fatalf("rewriteCFlag: got %#v want %#v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestResolveLogRoot(t *testing.T) {
+	// Note: this test intentionally does not run in parallel because it mutates
+	// environment variables (process-global state).
+
+	t.Run("default uses state.DefaultLogDir", func(t *testing.T) {
+		t.Setenv("DECOMK_LOG_DIR", "")
+		got, explicit, err := resolveLogRoot("")
+		if err != nil {
+			t.Fatalf("resolveLogRoot() error: %v", err)
+		}
+		if got != state.DefaultLogDir {
+			t.Fatalf("log root: got %q want %q", got, state.DefaultLogDir)
+		}
+		if explicit {
+			t.Fatalf("explicit: got true want false")
+		}
+	})
+
+	t.Run("env overrides default", func(t *testing.T) {
+		envDir := filepath.Join(t.TempDir(), "logs")
+		t.Setenv("DECOMK_LOG_DIR", envDir)
+		got, explicit, err := resolveLogRoot("")
+		if err != nil {
+			t.Fatalf("resolveLogRoot() error: %v", err)
+		}
+		if got != envDir {
+			t.Fatalf("log root: got %q want %q", got, envDir)
+		}
+		if !explicit {
+			t.Fatalf("explicit: got false want true")
+		}
+	})
+
+	t.Run("flag overrides env", func(t *testing.T) {
+		envDir := filepath.Join(t.TempDir(), "env-logs")
+		flagDir := filepath.Join(t.TempDir(), "flag-logs")
+		t.Setenv("DECOMK_LOG_DIR", envDir)
+		got, explicit, err := resolveLogRoot(flagDir)
+		if err != nil {
+			t.Fatalf("resolveLogRoot() error: %v", err)
+		}
+		if got != flagDir {
+			t.Fatalf("log root: got %q want %q", got, flagDir)
+		}
+		if !explicit {
+			t.Fatalf("explicit: got false want true")
+		}
+	})
+
+	t.Run("flag must be absolute", func(t *testing.T) {
+		t.Setenv("DECOMK_LOG_DIR", "")
+		_, _, err := resolveLogRoot("relative/path")
+		if err == nil {
+			t.Fatalf("resolveLogRoot() error: got nil want error")
+		}
+		if !strings.Contains(err.Error(), "flag -log-dir") {
+			t.Fatalf("error: got %q want mention of flag -log-dir", err.Error())
+		}
+	})
+
+	t.Run("env must be absolute", func(t *testing.T) {
+		t.Setenv("DECOMK_LOG_DIR", "relative/path")
+		_, _, err := resolveLogRoot("")
+		if err == nil {
+			t.Fatalf("resolveLogRoot() error: got nil want error")
+		}
+		if !strings.Contains(err.Error(), "DECOMK_LOG_DIR") {
+			t.Fatalf("error: got %q want mention of DECOMK_LOG_DIR", err.Error())
+		}
+	})
+}
+
+func TestCreateRunLogDir_FallbackToHomeLogDir(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	runID := "20000102T030405Z-1234"
+
+	// Use a file (not a directory) as the log root so directory creation fails in
+	// a deterministic way, regardless of platform.
+	badRoot := filepath.Join(t.TempDir(), "not-a-dir")
+	if err := os.WriteFile(badRoot, []byte("x"), 0o600); err != nil {
+		t.Fatalf("WriteFile(badRoot): %v", err)
+	}
+
+	plan := &resolvedPlan{
+		Home:            home,
+		LogRoot:         badRoot,
+		LogRootExplicit: false, // default path behavior: allow fallback
+	}
+
+	var stderr bytes.Buffer
+	dir, err := createRunLogDir(plan, runID, &stderr)
+	if err != nil {
+		t.Fatalf("createRunLogDir() error: %v", err)
+	}
+
+	wantRoot := state.LogDir(home)
+	wantDir := filepath.Join(wantRoot, runID)
+	if dir != wantDir {
+		t.Fatalf("dir: got %q want %q", dir, wantDir)
+	}
+	if _, err := os.Stat(dir); err != nil {
+		t.Fatalf("Stat(dir): %v", err)
+	}
+	if got := stderr.String(); !strings.Contains(got, "falling back") || !strings.Contains(got, wantRoot) {
+		t.Fatalf("stderr: got %q want fallback message mentioning %q", got, wantRoot)
+	}
+}
+
+func TestCreateRunLogDir_ExplicitDoesNotFallback(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	runID := "20000102T030405Z-1234"
+
+	badRoot := filepath.Join(t.TempDir(), "not-a-dir")
+	if err := os.WriteFile(badRoot, []byte("x"), 0o600); err != nil {
+		t.Fatalf("WriteFile(badRoot): %v", err)
+	}
+
+	plan := &resolvedPlan{
+		Home:            home,
+		LogRoot:         badRoot,
+		LogRootExplicit: true, // explicit means strict: do not fall back
+	}
+
+	var stderr bytes.Buffer
+	_, err := createRunLogDir(plan, runID, &stderr)
+	if err == nil {
+		t.Fatalf("createRunLogDir() error: got nil want error")
+	}
+
+	// Explicit log roots should not implicitly create <home>/log.
+	if _, err := os.Stat(state.LogDir(home)); !os.IsNotExist(err) {
+		t.Fatalf("fallback log dir exists unexpectedly: err=%v", err)
+	}
+	if got := stderr.String(); got != "" {
+		t.Fatalf("stderr: got %q want empty", got)
 	}
 }

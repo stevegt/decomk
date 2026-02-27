@@ -88,6 +88,7 @@ ARGS:
 // commonFlags are the shared flags for subcommands that resolve a context.
 type commonFlags struct {
 	home          string
+	logDir        string
 	startDir      string
 	workspacesDir string
 	context       string
@@ -102,6 +103,7 @@ type commonFlags struct {
 // addCommonFlags defines flags shared by plan/run.
 func addCommonFlags(fs *flag.FlagSet, f *commonFlags) {
 	fs.StringVar(&f.home, "home", "", "decomk home directory (overrides DECOMK_HOME)")
+	fs.StringVar(&f.logDir, "log-dir", "", "per-run log root directory (absolute path; overrides DECOMK_LOG_DIR; default /var/log/decomk)")
 	fs.StringVar(&f.startDir, "C", ".", "starting directory (like make -C)")
 	fs.StringVar(&f.workspacesDir, "workspaces", "", "workspaces root directory to scan (overrides DECOMK_WORKSPACES_DIR; default /workspaces)")
 	fs.StringVar(&f.context, "context", "", "context key override (also DECOMK_CONTEXT)")
@@ -117,6 +119,20 @@ func addCommonFlags(fs *flag.FlagSet, f *commonFlags) {
 type resolvedPlan struct {
 	// Home is the decomk state root (DECOMK_HOME, or /var/decomk by default).
 	Home string
+
+	// LogRoot is the preferred root directory for per-run logs.
+	//
+	// decomk prefers /var/log/decomk so logs can be managed separately from state
+	// under DECOMK_HOME. When LogRoot is the default and not writable (common in
+	// non-root environments), decomk may fall back to <DECOMK_HOME>/log.
+	LogRoot string
+
+	// LogRootExplicit reports whether LogRoot was explicitly set by the user via
+	// -log-dir or DECOMK_LOG_DIR.
+	//
+	// If this is true and decomk cannot create the per-run log directory, decomk
+	// returns an error instead of silently falling back to another location.
+	LogRootExplicit bool
 
 	// WorkspaceRepos are the directories under the workspaces root that were
 	// considered during resolution.
@@ -203,8 +219,8 @@ type executionMode struct {
 	// existing stamps before running make.
 	LockStamps bool
 
-	// Audit controls whether decomk writes make output to a per-run log file.
-	Audit bool
+	// Log controls whether decomk writes make output to a per-run log file.
+	Log bool
 }
 
 var (
@@ -214,7 +230,7 @@ var (
 		MakeFlags:  []string{"-n"},
 		WriteEnv:   false,
 		LockStamps: false,
-		Audit:      false,
+		Log:        false,
 	}
 	execModeRun = executionMode{
 		Name:       "run",
@@ -222,7 +238,7 @@ var (
 		MakeFlags:  nil,
 		WriteEnv:   true,
 		LockStamps: true,
-		Audit:      true,
+		Log:        true,
 	}
 )
 
@@ -236,7 +252,7 @@ var (
 //   - invoke make (real or -n)
 //
 // The executionMode controls whether env.sh is written, whether stamp state is
-// locked/touched, and whether output is audited to a per-run log file.
+// locked/touched, and whether output is captured to a per-run log file.
 func cmdExecute(args []string, stdout, stderr io.Writer, mode executionMode) (int, error) {
 	fs := flag.NewFlagSet("decomk "+mode.Name, flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -307,17 +323,17 @@ func cmdExecute(args []string, stdout, stderr io.Writer, mode executionMode) (in
 
 	out := stdout
 	errOut := stderr
-	var logPath string
-	if mode.Audit {
+	var runLogPath string
+	if mode.Log {
 		// Include sub-second resolution and pid to avoid collisions when two runs start
-		// close together (otherwise one run can clobber the other's audit log).
+		// close together (otherwise one run can clobber the other's log output).
 		runID := time.Now().UTC().Format("20060102T150405.000000000Z") + "-" + strconv.Itoa(os.Getpid())
-		auditDir, err := createAuditDir(plan.Home, runID)
+		runLogDir, err := createRunLogDir(plan, runID, stderr)
 		if err != nil {
 			return 1, err
 		}
-		logPath = filepath.Join(auditDir, "make.log")
-		logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o600)
+		runLogPath = filepath.Join(runLogDir, "make.log")
+		logFile, err := os.OpenFile(runLogPath, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o600)
 		if err != nil {
 			return 1, err
 		}
@@ -334,8 +350,8 @@ func cmdExecute(args []string, stdout, stderr io.Writer, mode executionMode) (in
 
 	exitCode, runErr := makeexec.RunWithFlags(plan.StampDir, plan.Makefile, mode.MakeFlags, makeTuples, targets, makeEnv, out, errOut)
 	if runErr != nil {
-		if logPath != "" {
-			return exitCode, fmt.Errorf("make failed (exit %d); log: %s: %w", exitCode, logPath, runErr)
+		if runLogPath != "" {
+			return exitCode, fmt.Errorf("make failed (exit %d); log: %s: %w", exitCode, runLogPath, runErr)
 		}
 		return exitCode, fmt.Errorf("make failed (exit %d): %w", exitCode, runErr)
 	}
@@ -380,12 +396,12 @@ func printPlan(w io.Writer, plan *resolvedPlan, actionArgs, targets []string, ta
 	}
 }
 
-// createAuditDir creates a per-run audit directory and returns its path.
+// createUniqueDir creates a directory at base, adding a numeric suffix when the
+// directory already exists.
 //
-// The directory must be unique for each invocation so audit logs never
-// overwrite each other.
-func createAuditDir(home, runID string) (string, error) {
-	base := state.AuditDir(home, runID)
+// This is used for per-run log directories so that two decomk invocations that
+// start at the same time don't clobber each other's output.
+func createUniqueDir(base string) (string, error) {
 	if err := state.EnsureDir(filepath.Dir(base)); err != nil {
 		return "", err
 	}
@@ -394,13 +410,41 @@ func createAuditDir(home, runID string) (string, error) {
 	for i := 0; ; i++ {
 		if err := os.Mkdir(dir, 0o755); err != nil {
 			if os.IsExist(err) {
-				dir = base + "-" + strconv.Itoa(i+1)
+				dir = base + "-" + strconv.Itoa(i+2)
 				continue
 			}
 			return "", err
 		}
 		return dir, nil
 	}
+}
+
+// createRunLogDir creates a per-run log directory and returns its path.
+//
+// decomk prefers to write per-run logs under plan.LogRoot. If plan.LogRoot is
+// the default log root and is not writable, decomk falls back to writing logs
+// under <DECOMK_HOME>/log so `decomk run` remains usable in non-root
+// environments.
+func createRunLogDir(plan *resolvedPlan, runID string, stderr io.Writer) (string, error) {
+	base := filepath.Join(plan.LogRoot, runID)
+	dir, err := createUniqueDir(base)
+	if err == nil {
+		return dir, nil
+	}
+
+	if plan.LogRootExplicit {
+		return "", fmt.Errorf("create run log dir %s: %w", base, err)
+	}
+
+	fallbackRoot := state.LogDir(plan.Home)
+	fallbackBase := filepath.Join(fallbackRoot, runID)
+	fallbackDir, fallbackErr := createUniqueDir(fallbackBase)
+	if fallbackErr == nil {
+		fmt.Fprintf(stderr, "decomk: log dir %s not writable; falling back to %s (set -log-dir or DECOMK_LOG_DIR to override)\n", plan.LogRoot, fallbackRoot)
+		return fallbackDir, nil
+	}
+
+	return "", fmt.Errorf("create run log dir: tried %s: %v; fallback %s: %v", base, err, fallbackBase, fallbackErr)
 }
 
 // applyStartDir changes the current working directory to match -C.
@@ -455,6 +499,44 @@ func rewriteCFlag(args []string, absStartDir string) []string {
 
 const defaultWorkspacesDir = "/workspaces"
 
+// resolveLogRoot determines where decomk should write per-run logs.
+//
+// Precedence:
+//   - flagOverride (if non-empty)
+//   - DECOMK_LOG_DIR
+//   - /var/log/decomk (state.DefaultLogDir)
+//
+// The returned bool reports whether the result was explicitly configured via
+// flag/env. Callers can use this to decide whether to fall back when the
+// default isn't writable.
+func resolveLogRoot(flagOverride string) (logRoot string, explicit bool, err error) {
+	switch {
+	case flagOverride != "":
+		logRoot = flagOverride
+		explicit = true
+	case os.Getenv("DECOMK_LOG_DIR") != "":
+		logRoot = os.Getenv("DECOMK_LOG_DIR")
+		explicit = true
+	default:
+		logRoot = state.DefaultLogDir
+		explicit = false
+	}
+
+	label := "default log dir"
+	if explicit {
+		if flagOverride != "" {
+			label = "flag -log-dir"
+		} else {
+			label = "DECOMK_LOG_DIR"
+		}
+	}
+	if !filepath.IsAbs(logRoot) {
+		return "", false, fmt.Errorf("%s must be an absolute path (got %q)", label, logRoot)
+	}
+
+	return filepath.Clean(logRoot), explicit, nil
+}
+
 // resolveWorkspacesDir determines where decomk should scan for WIP workspace
 // repos.
 //
@@ -485,6 +567,11 @@ func resolveWorkspacesDir(flagOverride string) string {
 // present). This makes debugging and experimentation predictable.
 func resolvePlanFromFlags(f commonFlags, stderr io.Writer) (*resolvedPlan, error) {
 	home, err := state.Home(f.home)
+	if err != nil {
+		return nil, err
+	}
+
+	logRoot, logRootExplicit, err := resolveLogRoot(f.logDir)
 	if err != nil {
 		return nil, err
 	}
@@ -575,16 +662,18 @@ func resolvePlanFromFlags(f commonFlags, stderr io.Writer) (*resolvedPlan, error
 	}
 
 	return &resolvedPlan{
-		Home:           home,
-		WorkspaceRepos: workspaceRepos,
-		ContextKeys:    seed,
-		ConfigPaths:    configPaths,
-		StampDir:       stampDir,
-		EnvFile:        envFile,
-		Makefile:       makefile,
-		Expanded:       expanded,
-		Tuples:         tuples,
-		Targets:        targets,
+		Home:            home,
+		LogRoot:         logRoot,
+		LogRootExplicit: logRootExplicit,
+		WorkspaceRepos:  workspaceRepos,
+		ContextKeys:     seed,
+		ConfigPaths:     configPaths,
+		StampDir:        stampDir,
+		EnvFile:         envFile,
+		Makefile:        makefile,
+		Expanded:        expanded,
+		Tuples:          tuples,
+		Targets:         targets,
 	}, nil
 }
 
