@@ -1,6 +1,18 @@
 # TODO 001 - decomk: isconf-like devcontainer tool bootstrap
 
-Goal: create an isconf-inspired “context -> target groups + vars”
+## Decision Intent Log
+
+ID: DI-001-20260309-172358
+Date: 2026-03-09 17:23:58
+Status: active
+Decision: Default to running `make` as root (via passwordless `sudo -n` when needed), export `DECOMK_DEV_USER`/`DECOMK_MAKE_USER` so Makefiles can drop privileges explicitly, and avoid guessing dev usernames in the reference devcontainer bootstrap (warn + run as root when unknown).
+Intent: Keep devcontainer bootstrap non-interactive (no password prompts), avoid sprinkling `sudo` throughout Makefiles, keep stamp semantics predictable by using a single privilege mode per run, and avoid mis-identifying the dev user by using only reliable inference signals.
+Constraints: No sudo password prompts; `decomk plan` should work without sudo; stamps must remain writable by the dev user across runs; when running under a root lifecycle hook, user inference must not guess incorrect usernames.
+Affects: `cmd/decomk/main.go`, `makeexec/makeexec.go`, `README.md`, `examples/devcontainer/postCreateCommand.sh`.
+
+## Goal
+
+Create an isconf-inspired “context -> target groups + vars”
 bootstrap so a devcontainer-based workspace (Codespaces now; other
 hosts later) can automatically install **shared** dev tools plus
 **repo-specific** tools using a Makefile, without needing
@@ -225,3 +237,4 @@ Pragmatic MVP: define a small set of **capability groups**, then compose per-rep
 - [ ] 001.6 Define initial target groups (BLOCK_XX analogs) and a minimal `DEFAULT` toolset.
 - [ ] 001.7 Define the update/self-update model: pull tool repo into `<DECOMK_HOME>/decomk` (rebuild + re-exec) and pull config repo into `<DECOMK_HOME>/conf`; support a pinned config ref/branch (lunamake test→prod style).
 - [ ] 001.8 Pilot in `mob-sandbox` via `devcontainer.json` `postCreateCommand`, then generalize.
+- [x] 001.9 Add a reference `examples/devcontainer/postCreateCommand.sh` that bootstraps decomk into `/var/decomk` and runs it (clone/pull + `go run`), then reuse it in pilots.

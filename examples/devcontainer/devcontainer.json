@@ -1,0 +1,4 @@
+{
+  "name": "decomk (example)",
+  "postCreateCommand": "bash .devcontainer/postCreateCommand.sh"
+}

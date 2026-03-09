@@ -1,6 +1,18 @@
 # TODO 005 - decomk: log dir override + naming cleanup
 
-Goal: make decomk’s per-run `make` output logging robust (no hard dependency on
+## Decision Intent Log
+
+ID: DI-005-20260309-172359
+Date: 2026-03-09 17:23:59
+Status: active
+Decision: Prefer `/var/log/decomk` for per-run logs, support explicit overrides via `-log-dir`/`DECOMK_LOG_DIR`, and fall back to `<DECOMK_HOME>/log` only when the default log root is not writable; also standardize terminology on “log” (remove “audit”).
+Intent: Keep logs in conventional system locations by default while preventing `decomk run` from failing in common non-root/container environments, and reduce maintenance risk by using consistent “log” terminology across code and docs.
+Constraints: Explicit log-root settings must be strict (no implicit fallback); defaults must remain usable without requiring root; docs and identifiers must avoid mixed “audit/log” wording.
+Affects: `cmd/decomk/main.go`, `state/*`, `README.md`, `TODO/002-decomk-architecture.md`, unit tests for log root selection/fallback.
+
+## Goal
+
+Make decomk’s per-run `make` output logging robust (no hard dependency on
 `/var/log/decomk` being writable) while keeping `/var/log/decomk` as the preferred
 default location, and remove confusing “audit” terminology by consistently using
 “log”.

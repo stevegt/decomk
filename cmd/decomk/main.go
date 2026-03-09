@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"os/user"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -27,6 +28,7 @@ import (
 	"github.com/stevegt/decomk/makeexec"
 	"github.com/stevegt/decomk/resolve"
 	"github.com/stevegt/decomk/state"
+	"github.com/stevegt/envi"
 )
 
 func main() {
@@ -89,6 +91,7 @@ ARGS:
 type commonFlags struct {
 	home          string
 	logDir        string
+	makeAsRoot    bool
 	startDir      string
 	workspacesDir string
 	context       string
@@ -104,6 +107,7 @@ type commonFlags struct {
 func addCommonFlags(fs *flag.FlagSet, f *commonFlags) {
 	fs.StringVar(&f.home, "home", "", "decomk home directory (overrides DECOMK_HOME)")
 	fs.StringVar(&f.logDir, "log-dir", "", "per-run log root directory (absolute path; overrides DECOMK_LOG_DIR; default /var/log/decomk)")
+	fs.BoolVar(&f.makeAsRoot, "make-as-root", f.makeAsRoot, "run make as root (default true; overrides DECOMK_MAKE_AS_ROOT; when decomk is non-root this uses passwordless sudo -n; set -make-as-root=false to run make as the current user)")
 	fs.StringVar(&f.startDir, "C", ".", "starting directory (like make -C)")
 	fs.StringVar(&f.workspacesDir, "workspaces", "", "workspaces root directory to scan (overrides DECOMK_WORKSPACES_DIR; default /workspaces)")
 	fs.StringVar(&f.context, "context", "", "context key override (also DECOMK_CONTEXT)")
@@ -125,6 +129,10 @@ type resolvedPlan struct {
 	// decomk prefers /var/log/decomk so logs can be managed separately from state
 	// under DECOMK_HOME. When LogRoot is the default and not writable (common in
 	// non-root environments), decomk may fall back to <DECOMK_HOME>/log.
+	//
+	// Intent: Prefer conventional system log locations by default while keeping
+	// "decomk run" reliable in non-root environments via a default-only fallback.
+	// Source: DI-005-20260309-172359 (TODO/005)
 	LogRoot string
 
 	// LogRootExplicit reports whether LogRoot was explicitly set by the user via
@@ -257,6 +265,13 @@ func cmdExecute(args []string, stdout, stderr io.Writer, mode executionMode) (in
 	fs := flag.NewFlagSet("decomk "+mode.Name, flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var f commonFlags
+
+	// Intent: Default to running make as root (via passwordless sudo -n when
+	// decomk is non-root) so Makefile recipes can install system packages without
+	// embedding sudo and without prompting for a password.
+	// Source: DI-001-20260309-172358 (TODO/001)
+	f.makeAsRoot = envi.Bool("DECOMK_MAKE_AS_ROOT", true)
+
 	addCommonFlags(fs, &f)
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -265,6 +280,16 @@ func cmdExecute(args []string, stdout, stderr io.Writer, mode executionMode) (in
 		return 2, err
 	}
 	actionArgs := fs.Args()
+
+	// makeAsRoot is an execution concern (how decomk invokes make), not part of
+	// the resolved config/expansion model. Keep it out of resolvedPlan so plan
+	// resolution stays purely about "which tokens/tuples/targets" rather than
+	// "how to execute them".
+	//
+	// Intent: Keep plan resolution deterministic and reusable (plan/run) while
+	// letting callers choose make privilege mode independently.
+	// Source: DI-001-20260309-172358 (TODO/001)
+	makeAsRoot := f.makeAsRoot
 
 	if err := applyStartDir(f.startDir); err != nil {
 		return 1, err
@@ -284,10 +309,19 @@ func cmdExecute(args []string, stdout, stderr io.Writer, mode executionMode) (in
 	targets, targetSource := selectTargets(plan.Targets, plan.Tuples, actionArgs)
 
 	if mode.DryRun {
+		warnIfRunRequiresPasswordlessSudo(makeAsRoot, stderr)
+	}
+
+	makeCmd, makeUsesSudo, err := resolveMakeCommand(makeAsRoot, mode.DryRun)
+	if err != nil {
+		return 1, err
+	}
+
+	if mode.DryRun {
 		printPlan(stdout, plan, actionArgs, targets, targetSource)
 		fmt.Fprintln(stdout)
 		fmt.Fprintln(stdout, "env exports (dry-run; not written):")
-		if err := writeEnvExport(stdout, plan, targets); err != nil {
+		if err := writeEnvExport(stdout, plan, targets, makeAsRoot); err != nil {
 			return 1, err
 		}
 	}
@@ -307,6 +341,16 @@ func cmdExecute(args []string, stdout, stderr io.Writer, mode executionMode) (in
 		}
 		defer lock.Close()
 
+		// When make runs as root via sudo, it may leave root-owned stamps behind.
+		// Fix that before touching stamps so subsequent runs stay idempotent.
+		// Intent: Keep stamp ownership stable even when make runs as root.
+		// Source: DI-001-20260309-172358 (TODO/001)
+		if makeUsesSudo {
+			if err := chownTreeToCurrentUser(plan.StampDir); err != nil {
+				return 1, fmt.Errorf("chown stamp dir: %w", err)
+			}
+		}
+
 		// Normalize mtime semantics once per invocation.
 		if err := state.TouchExistingStamps(plan.StampDir, time.Now()); err != nil {
 			return 1, fmt.Errorf("touch stamps: %w", err)
@@ -314,12 +358,12 @@ func cmdExecute(args []string, stdout, stderr io.Writer, mode executionMode) (in
 	}
 
 	if mode.WriteEnv {
-		if err := writeEnvFile(plan.EnvFile, plan, targets); err != nil {
+		if err := writeEnvFile(plan.EnvFile, plan, targets, makeAsRoot); err != nil {
 			return 1, err
 		}
 	}
 
-	makeTuples, makeEnv := makeInvocation(plan, targets)
+	makeTuples, makeEnv := makeInvocation(plan, targets, makeAsRoot)
 
 	out := stdout
 	errOut := stderr
@@ -343,12 +387,40 @@ func cmdExecute(args []string, stdout, stderr io.Writer, mode executionMode) (in
 		errOut = io.MultiWriter(stderr, logFile)
 	}
 
+	// Makefile recipes that drop privileges (runuser/su) typically need a
+	// non-empty username. Warn early if we can't determine it so users aren't
+	// surprised by a confusing "unknown user" failure during make.
+	//
+	// Intent: Provide a clear, early signal when user-scoped recipe patterns are
+	// likely to fail in root-make mode.
+	// Source: DI-001-20260309-172358 (TODO/001)
+	devUser := resolveDevUser()
+	makeUser := resolveMakeUser(makeAsRoot, devUser)
+	if makeUser == "root" && devUser == "" {
+		fmt.Fprintln(errOut, "decomk: warning: DECOMK_DEV_USER is empty; Makefile recipes that drop privileges (runuser/su) may fail")
+	}
+
 	if mode.DryRun {
 		fmt.Fprintln(stdout)
 		fmt.Fprintln(stdout, "make -n output:")
 	}
 
-	exitCode, runErr := makeexec.RunWithFlags(plan.StampDir, plan.Makefile, mode.MakeFlags, makeTuples, targets, makeEnv, out, errOut)
+	exitCode, runErr := makeexec.RunWithFlagsCommand(plan.StampDir, plan.Makefile, makeCmd, mode.MakeFlags, makeTuples, targets, makeEnv, out, errOut)
+	if makeUsesSudo {
+		// Make may have created or updated stamp files as root. Return ownership to
+		// the dev user so future runs can touch/check stamps without sudo.
+		// Intent: Avoid leaving root-owned state behind after a root-make run.
+		// Source: DI-001-20260309-172358 (TODO/001)
+		if chownErr := chownTreeToCurrentUser(plan.StampDir); chownErr != nil {
+			if runErr != nil {
+				if runLogPath != "" {
+					return exitCode, fmt.Errorf("make failed (exit %d); log: %s: %w; additionally failed to chown stamp dir back to user: %v", exitCode, runLogPath, runErr, chownErr)
+				}
+				return exitCode, fmt.Errorf("make failed (exit %d): %w; additionally failed to chown stamp dir back to user: %v", exitCode, runErr, chownErr)
+			}
+			return 1, fmt.Errorf("make succeeded but failed to chown stamp dir back to user: %w", chownErr)
+		}
+	}
 	if runErr != nil {
 		if runLogPath != "" {
 			return exitCode, fmt.Errorf("make failed (exit %d); log: %s: %w", exitCode, runLogPath, runErr)
@@ -509,6 +581,10 @@ const defaultWorkspacesDir = "/workspaces"
 // The returned bool reports whether the result was explicitly configured via
 // flag/env. Callers can use this to decide whether to fall back when the
 // default isn't writable.
+//
+// Intent: Support explicit log-root overrides while keeping the default robust
+// in non-root environments via a default-only fallback to <DECOMK_HOME>/log.
+// Source: DI-005-20260309-172359 (TODO/005)
 func resolveLogRoot(flagOverride string) (logRoot string, explicit bool, err error) {
 	switch {
 	case flagOverride != "":
@@ -552,6 +628,100 @@ func resolveWorkspacesDir(flagOverride string) string {
 		return env
 	}
 	return defaultWorkspacesDir
+}
+
+// warnIfRunRequiresPasswordlessSudo prints a best-effort warning when decomk is
+// running in a mode that does not require sudo (plan/dry-run), but the current
+// flags/env imply that "decomk run" will attempt to invoke make via passwordless
+// sudo.
+//
+// This is intentionally a warning, not an error: plan output is still useful
+// even when a subsequent run would fail.
+//
+// Intent: Keep "decomk plan" usable without sudo while still surfacing that
+// "decomk run" will require passwordless sudo in root-make mode.
+// Source: DI-001-20260309-172358 (TODO/001)
+func warnIfRunRequiresPasswordlessSudo(makeAsRoot bool, stderr io.Writer) {
+	if !makeAsRoot || os.Geteuid() == 0 {
+		return
+	}
+	if _, err := exec.LookPath("sudo"); err != nil {
+		fmt.Fprintln(stderr, "decomk: warning: make will run as root by default but sudo is not in PATH; decomk run will fail unless you set -make-as-root=false")
+		return
+	}
+	cmd := exec.Command("sudo", "-n", "true")
+	if err := cmd.Run(); err != nil {
+		fmt.Fprintln(stderr, "decomk: warning: make will run as root by default but passwordless sudo is not available (sudo -n failed); decomk run will fail unless you set -make-as-root=false")
+	}
+}
+
+// resolveMakeCommand returns the argv-style command prefix to execute make.
+//
+// If makeAsRoot is true and the current process is not running as root, this
+// verifies passwordless sudo is available and returns a "sudo -n ... make"
+// prefix.
+//
+// For dry-run (plan), decomk always returns a plain "make" command so plan does
+// not depend on sudo.
+//
+// Intent: Provide a deterministic privilege boundary for make so Makefile
+// recipes can avoid embedding sudo while still supporting user-scoped steps via
+// explicit runuser/su calls.
+// Source: DI-001-20260309-172358 (TODO/001)
+func resolveMakeCommand(makeAsRoot bool, dryRun bool) (command []string, usesSudo bool, err error) {
+	if dryRun {
+		return []string{"make"}, false, nil
+	}
+	if !makeAsRoot || os.Geteuid() == 0 {
+		return []string{"make"}, false, nil
+	}
+	if _, err := exec.LookPath("sudo"); err != nil {
+		return nil, false, fmt.Errorf("running make as root requires sudo in PATH (set -make-as-root=false to disable)")
+	}
+	cmd := exec.Command("sudo", "-n", "true")
+	if err := cmd.Run(); err != nil {
+		return nil, false, fmt.Errorf("running make as root requires passwordless sudo (sudo -n failed); set -make-as-root=false to disable: %w", err)
+	}
+
+	usesSudo = true
+
+	// Best-effort: preserve PATH so root-run make sees the same toolchain paths
+	// as the dev user (common in devcontainers).
+	//
+	// This is intentionally tolerant:
+	//   - some sudo builds do not support --preserve-env
+	//   - some sudoers policies disallow preserving PATH
+	//
+	// In those cases we fall back to plain "sudo -n make" and let make recipes
+	// manage PATH explicitly if needed.
+	if err := exec.Command("sudo", "-n", "--preserve-env=PATH", "true").Run(); err == nil {
+		return []string{"sudo", "-n", "--preserve-env=PATH", "make"}, usesSudo, nil
+	}
+	return []string{"sudo", "-n", "make"}, usesSudo, nil
+}
+
+// chownTreeToCurrentUser ensures path and its contents are owned by the current
+// uid/gid.
+//
+// This is used to keep decomk-managed state (especially stamps) writable by the
+// dev user even when make was executed as root via passwordless sudo.
+//
+// Intent: Prevent root-owned stamp files from breaking future non-root runs.
+// Source: DI-001-20260309-172358 (TODO/001)
+func chownTreeToCurrentUser(path string) error {
+	uid := os.Getuid()
+	gid := os.Getgid()
+	owner := fmt.Sprintf("%d:%d", uid, gid)
+	cmd := exec.Command("sudo", "-n", "chown", "-R", owner, path)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if msg == "" {
+			return fmt.Errorf("sudo -n chown -R %s %s: %w", owner, path, err)
+		}
+		return fmt.Errorf("sudo -n chown -R %s %s: %w: %s", owner, path, err, msg)
+	}
+	return nil
 }
 
 // resolvePlanFromFlags builds a single fully-resolved plan from the user-facing
@@ -1267,12 +1437,89 @@ func fileExists(path string) bool {
 	return info.Mode().IsRegular()
 }
 
+// computedVarOrder is the stable order used when emitting decomk-owned computed
+// variables on both make's argv and in env export files.
+//
+// Keeping this list centralized prevents subtle drift between "decomk plan"
+// output (env exports), env.sh generation, and the actual make invocation.
+//
+// Intent: Ensure Makefile recipes and nested scripts can reliably see both the
+// dev user identity and the effective make user when privilege-dropping is
+// required.
+// Source: DI-001-20260309-172358 (TODO/001)
+var computedVarOrder = []string{
+	"DECOMK_HOME",
+	"DECOMK_STAMPDIR",
+	"DECOMK_DEV_USER",
+	"DECOMK_MAKE_USER",
+	"DECOMK_WORKSPACES",
+	"DECOMK_CONTEXTS",
+	"DECOMK_PACKAGES",
+}
+
+// resolveDevUser reports the non-root username that "owns" decomk's state for
+// this invocation.
+//
+// In the common case, decomk itself runs as the dev user and this returns that
+// username. When decomk is invoked via sudo, prefer SUDO_USER so Makefile
+// recipes have a stable name to drop privileges back to.
+//
+// Intent: Provide a stable non-root identity for user-scoped recipe steps when
+// make is running as root.
+// Source: DI-001-20260309-172358 (TODO/001)
+func resolveDevUser() string {
+	if u := strings.TrimSpace(os.Getenv("SUDO_USER")); u != "" && u != "root" {
+		return u
+	}
+
+	if cu, err := user.Current(); err == nil {
+		u := strings.TrimSpace(cu.Username)
+		if u != "" {
+			// When a container user has no /etc/passwd entry, user.Current can fall
+			// back to returning the numeric uid as "Username". That is not useful as
+			// a username (for example for runuser/su), so treat it as unknown.
+			if _, err := strconv.Atoi(u); err != nil {
+				return u
+			}
+		}
+	}
+
+	for _, key := range []string{"LOGNAME", "USER"} {
+		if u := strings.TrimSpace(os.Getenv(key)); u != "" {
+			return u
+		}
+	}
+	return ""
+}
+
+// resolveMakeUser reports the effective username that make will run as.
+//
+// When decomk itself is running as root, make runs as root regardless of
+// makeAsRoot. When decomk is non-root:
+//   - makeAsRoot=true means decomk will invoke make via passwordless sudo -n
+//   - makeAsRoot=false means decomk will invoke make as the current user
+//
+// Intent: Let Makefiles choose when to drop privileges based on a simple,
+// explicit signal instead of inferring from environment state.
+// Source: DI-001-20260309-172358 (TODO/001)
+func resolveMakeUser(makeAsRoot bool, devUser string) string {
+	if os.Geteuid() == 0 || makeAsRoot {
+		return "root"
+	}
+	return devUser
+}
+
 // computedVars returns decomk-owned computed exports/variables for this plan.
 //
 // These variables are always defined by decomk and must not be overridden by
 // config-provided tuples, because other processes (and Makefile recipes) rely on
 // them to describe decomk's actual execution environment.
-func computedVars(plan *resolvedPlan, targets []string) map[string]string {
+//
+// Intent: Expose computed helpers for Makefiles/scripts so root-run make can
+// still perform user-scoped work by explicitly dropping privileges.
+// Source: DI-001-20260309-172358 (TODO/001)
+func computedVars(plan *resolvedPlan, targets []string, makeAsRoot bool) map[string]string {
+	devUser := resolveDevUser()
 	var workspaces []string
 	for _, repo := range plan.WorkspaceRepos {
 		workspaces = append(workspaces, repo.Name)
@@ -1280,6 +1527,8 @@ func computedVars(plan *resolvedPlan, targets []string) map[string]string {
 	return map[string]string{
 		"DECOMK_HOME":       plan.Home,
 		"DECOMK_STAMPDIR":   plan.StampDir,
+		"DECOMK_DEV_USER":   devUser,
+		"DECOMK_MAKE_USER":  resolveMakeUser(makeAsRoot, devUser),
 		"DECOMK_WORKSPACES": strings.Join(workspaces, " "),
 		"DECOMK_CONTEXTS":   strings.Join(plan.ContextKeys, " "),
 		"DECOMK_PACKAGES":   strings.Join(targets, " "),
@@ -1413,7 +1662,7 @@ func findDefaultMakefile(home, explicitConfig string) string {
 //
 // This is shared by plan (make -n) and run (real make) so both paths agree on
 // which computed variables are exported.
-func makeInvocation(plan *resolvedPlan, targets []string) (tuples []string, env []string) {
+func makeInvocation(plan *resolvedPlan, targets []string, makeAsRoot bool) (tuples []string, env []string) {
 	tuples = append([]string(nil), plan.Tuples...)
 
 	// Append computed variables last so they override any config-provided tuples
@@ -1422,8 +1671,8 @@ func makeInvocation(plan *resolvedPlan, targets []string) (tuples []string, env 
 	//
 	// Note: some values contain spaces (e.g. DECOMK_PACKAGES). This is safe: argv
 	// elements are not re-split by spaces when exec'd.
-	cv := computedVars(plan, targets)
-	for _, name := range []string{"DECOMK_HOME", "DECOMK_STAMPDIR", "DECOMK_WORKSPACES", "DECOMK_CONTEXTS", "DECOMK_PACKAGES"} {
+	cv := computedVars(plan, targets, makeAsRoot)
+	for _, name := range computedVarOrder {
 		if v, ok := cv[name]; ok {
 			tuples = append(tuples, name+"="+v)
 		}
@@ -1438,7 +1687,7 @@ func makeInvocation(plan *resolvedPlan, targets []string) (tuples []string, env 
 //
 // This file is intentionally simple: it is designed to be sourced by scripts
 // and nested make invocations without requiring eval.
-func writeEnvFile(path string, plan *resolvedPlan, targets []string) error {
+func writeEnvFile(path string, plan *resolvedPlan, targets []string, makeAsRoot bool) error {
 	if err := state.EnsureParentDir(path); err != nil {
 		return err
 	}
@@ -1449,7 +1698,7 @@ func writeEnvFile(path string, plan *resolvedPlan, targets []string) error {
 		return err
 	}
 
-	if err := writeEnvExport(f, plan, targets); err != nil {
+	if err := writeEnvExport(f, plan, targets, makeAsRoot); err != nil {
 		_ = f.Close()
 		return err
 	}
@@ -1464,7 +1713,7 @@ func writeEnvFile(path string, plan *resolvedPlan, targets []string) error {
 // The output format is a POSIX-shell-friendly sequence of "export NAME='value'"
 // lines, optionally preceded by comment lines. It is safe to "source" this file
 // in a shell or make recipe.
-func writeEnvExport(w io.Writer, plan *resolvedPlan, targets []string) error {
+func writeEnvExport(w io.Writer, plan *resolvedPlan, targets []string, makeAsRoot bool) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 	fmt.Fprintf(w, "# generated by decomk; do not edit\n")
 	fmt.Fprintf(w, "# time: %s\n", now)
@@ -1495,8 +1744,8 @@ func writeEnvExport(w io.Writer, plan *resolvedPlan, targets []string) error {
 
 	// Export computed helpers for recipes/scripts last so they override any
 	// config-provided values.
-	cv := computedVars(plan, targets)
-	for _, name := range []string{"DECOMK_HOME", "DECOMK_STAMPDIR", "DECOMK_WORKSPACES", "DECOMK_CONTEXTS", "DECOMK_PACKAGES"} {
+	cv := computedVars(plan, targets, makeAsRoot)
+	for _, name := range computedVarOrder {
 		writeExport(w, name, cv[name])
 	}
 	return nil
