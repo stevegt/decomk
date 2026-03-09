@@ -10,6 +10,15 @@ Intent: Keep the devcontainer contract intact while moving control, cost, and op
 Constraints: Preserve decomk non-interactive behavior (no sudo prompts), preserve current make-as-root default behavior, and preserve `DECOMK_HOME` and `DECOMK_LOG_DIR` semantics.
 Affects: `TODO/007-devpod-gcp-selfhost-migration.md`, `TODO/TODO.md`, future `examples/devpod/*`, future `infra/terraform/*`, `README.md`.
 
+ID: DI-007-20260309-124345
+Date: 2026-03-09 12:43:45
+Status: active
+Decision: Implement an automated self-test harness for local DevPod with Docker provider under `examples/decomk-selftest`, make Codespaces parity checks the next stage, and defer remote GCP-provider test automation until a later move-to-GCP decision.
+Intent: Lock down decomk bootstrap behavior in the environment we can validate today, while avoiding premature coupling to remote-provider decisions that are not yet approved.
+Constraints: Keep tests non-interactive, preserve current decomk runtime behavior, avoid repository file mutation during test runs, and keep GCP validation out of the immediate harness scope.
+Affects: `examples/decomk-selftest/*`, `TODO/007-devpod-gcp-selfhost-migration.md`, `README.md`.
+Supersedes: DI-007-20260309-114541 (validation harness scope only)
+
 ## Goal
 
 Define a decision-complete migration plan from GitHub Codespaces to DevPod on GCP so implementation can proceed without architecture ambiguity.
@@ -86,7 +95,8 @@ When the GCP machine provider is selected:
 Why this matters for decomk migration:
 
 - Keep `devcontainer.json` as the portability contract across providers.
-- Validate parity in both local Docker-provider and remote GCP-provider paths.
+- Validate local DevPod Docker-provider behavior first, then add Codespaces parity checks.
+- Defer remote GCP-provider automation until the migration decision is approved.
 - Avoid hardcoding Codespaces-only assumptions in bootstrap and tests.
 
 ## Provider modes we support
@@ -188,18 +198,19 @@ Ownership model:
 
 Required test scenarios:
 
-- Local Docker provider: workspace boots and decomk bootstrap completes.
-- GCP provider: workspace boots and decomk bootstrap completes.
+- Local DevPod Docker provider: automated workspace bring-up and decomk bootstrap scenarios pass.
 - Default make behavior: no password prompts during normal bootstrap.
 - Path behavior: `DECOMK_HOME` and `DECOMK_LOG_DIR` produce expected state/log locations.
 - Ownership invariants: stamps and generated state remain writable by intended dev user.
 - Failure behavior: clear error when root-make is required but sudo capability is missing.
-- Parity checks: selected repo produces equivalent bootstrap outputs in Codespaces and DevPod.
+- Codespaces parity checks: run after local DevPod matrix is stable.
+- GCP provider checks: deferred until a separate move-to-GCP decision is made.
 
 Acceptance gate before cutover:
 
-- All required scenarios pass in pilot and dual-run windows.
-- Documented rollback path is tested once successfully.
+- Immediate gate: local DevPod Docker-provider matrix passes consistently.
+- Follow-on gate: Codespaces parity checks pass before default recommendation changes.
+- Remote GCP gates remain deferred pending separate approval.
 
 ## Rollback plan
 
@@ -241,7 +252,9 @@ Mitigation: pin provider and CLI versions in docs and CI checks.
 - [ ] 007.5 Implement `observability` module for logs/metrics/budget labels and alerts.
 - [ ] 007.6 Add `examples/devpod/` reference docs showing provider setup and `devpod up` flow.
 - [ ] 007.7 Add migration runbook covering pilot, dual-run, cutover, and rollback.
-- [ ] 007.8 Define and automate the validation matrix for local Docker and remote GCP providers.
+- [x] 007.8 Define and automate local DevPod Docker-provider validation matrix in `examples/decomk-selftest/devpod-local`.
 - [ ] 007.9 Execute pilot cohort and capture parity findings vs Codespaces.
 - [ ] 007.10 Perform default switch and keep rollback window open for one stabilization period.
 - [ ] 007.11 Decommission Codespaces dependencies after stabilization and archive fallback documentation.
+- [ ] 007.12 Add automated Codespaces parity harness under `examples/decomk-selftest/codespaces`.
+- [ ] 007.13 Revisit remote GCP-provider self-test scope after explicit move-to-GCP decision.

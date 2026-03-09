@@ -517,6 +517,16 @@ install-user-stuff:
   `${containerWorkspaceFolder}` in `devcontainer.json` rather than assuming
   `/workspaces/<repo>`.
 
+## Self-test harness
+
+- Local DevPod Docker-provider validation lives under `examples/decomk-selftest/`.
+  - Run all local scenarios with:
+    - `examples/decomk-selftest/devpod-local/run.sh --scenario all`
+  - Scenario details and prerequisites are documented in:
+    - `examples/decomk-selftest/README.md`
+- Codespaces parity checks are planned as the next stage after local DevPod stability.
+- Remote GCP-provider self-tests are intentionally deferred until a separate move-to-GCP decision is approved.
+
 ## Limitations (current MVP)
 
 - No `status` / `clean` commands yet.

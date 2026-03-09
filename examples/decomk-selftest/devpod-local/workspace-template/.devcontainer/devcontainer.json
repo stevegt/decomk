@@ -1,0 +1,9 @@
+{
+  "name": "decomk-selftest-devpod-local",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "remoteUser": "root",
+  "postCreateCommand": "bash .devcontainer/postCreateCommand.sh"
+}
