@@ -44,6 +44,51 @@ Intent clarification:
 - We do not require a separate always-on management-plane container for this workflow.
 - `devcontainer.json` remains the workspace contract.
 
+## How DevPod works
+
+This section captures the practical runtime model we are assuming for this migration.
+
+### Local provider path (Docker)
+
+When the Docker provider is selected:
+
+- DevPod CLI/Desktop runs on the developer machine as the controller.
+- `dockerd` is the runtime that actually builds and runs workspace containers.
+- `devpod up` asks Docker to start the workspace defined by `devcontainer.json`.
+- DevPod then starts `devpod-agent` in the workspace environment to handle command/session control operations.
+
+### Remote provider path (GCP machine provider)
+
+When the GCP machine provider is selected:
+
+- DevPod on the developer machine controls workspace lifecycle.
+- The provider creates or reuses a GCP VM.
+- Docker on that VM runs the workspace container from `devcontainer.json`.
+- DevPod connects through the provider path (including IAP-style tunneling where configured) and uses `devpod-agent` in the workspace environment for operations.
+
+### What `devpod-agent` is
+
+`devpod-agent` is the remote-side helper process used by DevPod for workspace control tasks. It is not a separate product that users install manually. In the Docker provider case, it runs in the local workspace environment; in the GCP provider case, it runs in the remote workspace environment.
+
+### Management-plane clarification
+
+- For normal local Docker-provider usage, no separate always-on DevPod management-plane container is required.
+- If `devcontainer.json` uses Docker Compose, multiple service containers may exist, but those are workspace/application containers, not a separate DevPod management plane.
+
+### Installation and runtime dependencies
+
+- DevPod CLI or Desktop must be installed on the developer machine.
+- A provider runtime is still required:
+  - Local mode: Docker engine (`dockerd`).
+  - Remote mode: GCP provider prerequisites plus Docker on the workspace VM.
+- For GCP provider usage, developer authentication and project/zone/provider configuration must be set before `devpod up`.
+
+Why this matters for decomk migration:
+
+- Keep `devcontainer.json` as the portability contract across providers.
+- Validate parity in both local Docker-provider and remote GCP-provider paths.
+- Avoid hardcoding Codespaces-only assumptions in bootstrap and tests.
+
 ## Provider modes we support
 
 We support two provider classes with one configuration contract:
