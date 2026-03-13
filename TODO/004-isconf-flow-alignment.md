@@ -10,6 +10,10 @@ conflates two concepts that isconf keeps separate:
 - **identity selection** (which stanza(s) apply), and
 - **action selection** (which package groups/targets to run).
 
+Related design docs:
+- `doc/isconf-design.md`
+- `doc/decomk-design.md`
+
 ## Background: what isconf does (as observed)
 
 Key files in isconf (paths and line references are approximate, per notes):

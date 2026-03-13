@@ -1,69 +1,81 @@
 # decomk self-test
 
-This directory contains reproducible integration checks for `decomk` runtime behavior.
+This directory contains a local DevPod/Docker self-test harness that validates decomk bootstrap behavior end-to-end.
+
+Template note:
+- `workspace-template/.devcontainer/devcontainer.json` and `workspace-template/.devcontainer/postCreateCommand.sh` are generated from `cmd/decomk/templates/*`.
+- Regenerate from repo root with `go generate ./...` (or `make generate`).
 
 ## Current scope
 
-The current harness scope is:
-
 - Local DevPod with Docker provider (automated)
+- Codespaces parity checks (planned next stage)
+- Remote GCP provider checks (deferred)
 
-The next planned scope is:
+## Harness model
 
-- Codespaces parity checks (after local DevPod scenarios stay green)
-
-Deferred scope (decision pending):
-
-- DevPod remote GCP provider checks
-
-## Why this exists
-
-The self-test validates the reference bootstrap flow in `examples/devcontainer/postCreateCommand.sh` under controlled scenarios so changes in privilege handling, env propagation, and path selection are caught before rollout.
-
-## Prerequisites
-
-- `devpod` CLI installed and on `PATH`
-- Local Docker engine running
-- `git` available locally
-
-The harness configures/uses the DevPod Docker provider and runs each scenario in an isolated temporary workspace clone.
+1. `run.sh` creates a temporary fixture config repo from `fixtures/confrepo/`.
+2. `run.sh` also creates a temporary bare tool repo from the current decomk checkout.
+3. `run.sh` serves both repos over `git://` via a temporary local `git daemon`.
+4. DevPod starts a workspace from `workspace-template/.devcontainer/`.
+5. `postCreateCommand.sh` performs stage-0 bootstrap:
+   - ensures a `decomk` binary exists in `PATH` (install-first by default; selftest uses clone mode),
+   - clone/pull `DECOMK_CONF_REPO`.
+6. `postCreateCommand.sh` runs `decomk run`.
+7. `run.sh` reads container make logs and enforces PASS/FAIL markers.
+8. `run.sh` then runs two explicit stamp regression invocations:
+   - `decomk run TUPLE_STAMP_PROBE`
+   - `decomk run TUPLE_STAMP_PROBE TUPLE_STAMP_VERIFY`
 
 ## Run
 
-Run all scenarios:
+Default run (tuple checks):
 
 ```bash
-examples/decomk-selftest/devpod-local/run.sh --scenario all
+examples/decomk-selftest/devpod-local/run.sh
 ```
 
-Run one scenario:
+Explicit action args:
 
 ```bash
-examples/decomk-selftest/devpod-local/run.sh --scenario no_sudo_make_as_user
+examples/decomk-selftest/devpod-local/run.sh TUPLE_VERIFY_TOOL TUPLE_VERIFY_CONF TUPLE_CONTEXT_OVERRIDE TUPLE_DEFAULT_SHARED
 ```
 
-## Automated scenarios
+Literal target run:
 
-- `root_hook_owner_inferred`: execute bootstrap as root while exporting `GITHUB_USER=dev` so owner inference path is exercised.
-- `non_root_default_make_as_root`: execute bootstrap as `dev` with default root-make behavior.
-- `no_sudo_expect_fail`: execute as `dev` with a fake `sudo` shim first in `PATH`; expects clear failure.
-- `no_sudo_make_as_user`: same fake `sudo` setup with `DECOMK_MAKE_AS_ROOT=false`; expects success.
+```bash
+examples/decomk-selftest/devpod-local/run.sh all
+```
 
-## Assertions
+## Context and tuple semantics covered
 
-Passing scenarios require:
+- Workspace repo name `decomk` is auto-detected as context key.
+- `DEFAULT` defines:
+  - `TUPLE_VERIFY_TOOL`
+  - `TUPLE_VERIFY_CONF`
+  - `TUPLE_CONTEXT_OVERRIDE`
+  - `TUPLE_DEFAULT_SHARED`
+  - `TUPLE_STAMP_PROBE`
+  - `TUPLE_STAMP_VERIFY`
+- `decomk` context overrides only `TUPLE_CONTEXT_OVERRIDE`.
+- Test expectation:
+  - context tuple override is applied,
+  - other DEFAULT tuples remain available,
+  - tool repo origin matches the temporary git server URL,
+  - config repo origin matches the temporary git server URL,
+  - make runs in `DECOMK_STAMPDIR`,
+  - stamp probe target does not rerun once stamped.
 
-- `<DECOMK_HOME>/env.sh` exists
-- expected stamp target exists under `<DECOMK_HOME>/stamps/`
-- at least one non-empty `make.log` exists under `<DECOMK_LOG_DIR>/<runID>/`
-- expected `DECOMK_MAKE_USER` and `DECOMK_DEV_USER` values appear in `env.sh`
+## PASS/FAIL markers
 
-The expected-failure scenario additionally validates that the failure includes `need passwordless sudo`.
+`run.sh` requires these log markers from `make.log`:
 
-## Output location in workspace
+- `SELFTEST PASS conf-repo-origin`
+- `SELFTEST PASS tool-repo-origin`
+- `SELFTEST PASS context-override`
+- `SELFTEST PASS default-tuple-available`
+- `SELFTEST PASS stamp-dir-working-dir`
+- `SELFTEST PASS stamp-probe-ran`
+- `SELFTEST PASS stamp-idempotent`
 
-Each scenario writes a summary file inside the workspace container:
-
-- `/tmp/decomk-selftest-results/<scenario>/result.env`
-
-`run.sh` reads that file via DevPod SSH and treats anything except `OUTCOME=PASS` as failure.
+Any `SELFTEST FAIL ...` marker is treated as failure.

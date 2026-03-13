@@ -19,6 +19,71 @@ Constraints: Keep tests non-interactive, preserve current decomk runtime behavio
 Affects: `examples/decomk-selftest/*`, `TODO/007-devpod-gcp-selfhost-migration.md`, `README.md`.
 Supersedes: DI-007-20260309-114541 (validation harness scope only)
 
+ID: DI-007-20260309-180029
+Date: 2026-03-09 18:00:29
+Status: active
+Decision: Refactor the local DevPod self-test harness so `decomk run SELFTEST_*` drives scenario execution from fixture `decomk.conf` + `Makefile` + scripts, while the outer harness only provisions a workspace and reads result files.
+Intent: Move scenario logic to decomk-native config/make layers (isconf-style) so self-test behavior is easier to reason about, easier to extend, and less duplicated across wrapper shell scripts.
+Constraints: Run all selected subtests in one fresh container per harness invocation, preserve targeted subtest selection, keep fixtures deterministic/offline, and keep machine-readable pass/fail outputs for automation.
+Affects: `examples/decomk-selftest/devpod-local/run.sh`, `examples/decomk-selftest/devpod-local/workspace-template/.devcontainer/postCreateCommand.sh`, `examples/decomk-selftest/fixtures/confrepo/*`, `examples/decomk-selftest/README.md`, `README.md`.
+Supersedes: DI-007-20260309-124345 (harness orchestration implementation only)
+
+ID: DI-007-20260309-193525
+Date: 2026-03-09 19:35:25
+Status: active
+Decision: Make self-test selector strings identical across `run.sh --subtests`, `decomk run` action args, and fixture tuple names (with `all` as the aggregate selector).
+Intent: Remove alias-map indirection between harness layers so selector semantics are easier to read, maintain, and extend without drift bugs.
+Constraints: Preserve single-container execution model, keep aggregate + subset selection behavior, and keep result-file validation deterministic.
+Affects: `examples/decomk-selftest/devpod-local/run.sh`, `examples/decomk-selftest/devpod-local/workspace-template/.devcontainer/postCreateCommand.sh`, `examples/decomk-selftest/fixtures/confrepo/decomk.conf`, `examples/decomk-selftest/fixtures/confrepo/Makefile`, `examples/decomk-selftest/README.md`, `README.md`.
+Supersedes: DI-007-20260309-180029 (selector naming only)
+
+ID: DI-007-20260309-222412
+Date: 2026-03-09 22:24:12
+Status: active
+Decision: Make `run.sh` pass raw `decomk run` arguments into the container, use literal Makefile targets as the primary selectors, and validate executed scenarios via an in-container `executed.list` manifest instead of a selector-expansion table.
+Intent: Keep self-test behavior aligned with isconf-style action resolution (literal + tuple + mixed + context tuple) while removing translation-table maintenance between harness layers.
+Constraints: Preserve one-container-per-run execution, keep deterministic machine-readable pass/fail output, and keep temporary fixtures offline.
+Affects: `examples/decomk-selftest/devpod-local/run.sh`, `examples/decomk-selftest/devpod-local/workspace-template/.devcontainer/postCreateCommand.sh`, `examples/decomk-selftest/fixtures/confrepo/decomk.conf`, `examples/decomk-selftest/fixtures/confrepo/Makefile`, `examples/decomk-selftest/fixtures/confrepo/scripts/*`, `examples/decomk-selftest/README.md`, `README.md`, `doc/decomk-design.md`.
+Supersedes: DI-007-20260309-193525 (selector contract details)
+
+ID: DI-007-20260311-101409
+Date: 2026-03-11 10:14:09
+Status: active
+Decision: Remove harness compatibility flags and context overrides; make run.sh publish a temporary fixture config repo over git://, use a minimal production-identical postCreate hook that only sets `DECOMK_CONF_REPO` and runs decomk, and validate results by parsing container make logs for PASS/FAIL markers.
+Intent: Ensure selftest exercises decomk’s real config clone/pull path and isconf-like automatic context selection by workspace identity while keeping lifecycle hooks simple and test logic entirely in config-repo make/scripts.
+Constraints: No `--subtests`/`--scenario`/`-context` in run.sh, no postCreate test validation, no postCreate config-repo mutation beyond URL handoff, and explicit checks that context tuples override DEFAULT while unrelated DEFAULT tuples remain available.
+Affects: `examples/decomk-selftest/devpod-local/run.sh`, `examples/decomk-selftest/devpod-local/workspace-template/.devcontainer/devcontainer.json`, `examples/decomk-selftest/devpod-local/workspace-template/.devcontainer/postCreateCommand.sh`, `examples/devcontainer/postCreateCommand.sh`, `examples/decomk-selftest/fixtures/confrepo/decomk.conf`, `examples/decomk-selftest/fixtures/confrepo/Makefile`, `examples/decomk-selftest/fixtures/confrepo/scripts/*`, `examples/decomk-selftest/README.md`, `README.md`, `doc/decomk-design.md`.
+Supersedes: DI-007-20260309-222412 (selftest execution plumbing)
+
+ID: DI-007-20260311-145221
+Date: 2026-03-11 14:52:21
+Status: active
+Decision: Move decomk tool/config clone-pull responsibilities into generic stage-0 postCreate bootstrap, have run.sh serve both repos over git:// and inject `DECOMK_TOOL_REPO` + `DECOMK_CONF_REPO` directly, and remove decomk core self-update/config-pull side effects from `decomk run`.
+Intent: Resolve the bootstrap chicken-and-egg problem cleanly, keep lifecycle behavior deterministic, and make selftest exercise the same stage-0 path expected in production devcontainers.
+Constraints: postCreate remains generic and production-identical, run.sh keeps automatic context detection (no `-context`), and tuple-precedence checks continue to verify context-overrides-default while unrelated DEFAULT tuples stay available.
+Affects: `cmd/decomk/main.go`, `examples/devcontainer/postCreateCommand.sh`, `examples/decomk-selftest/devpod-local/workspace-template/.devcontainer/postCreateCommand.sh`, `examples/decomk-selftest/devpod-local/workspace-template/.devcontainer/devcontainer.json`, `examples/decomk-selftest/devpod-local/run.sh`, `examples/decomk-selftest/fixtures/confrepo/*`, `examples/decomk-selftest/README.md`, `README.md`, `doc/decomk-design.md`.
+Supersedes: DI-007-20260311-101409 (stage-0 bootstrap mechanics)
+
+ID: DI-007-20260313-101500
+Date: 2026-03-13 10:15:00
+Status: active
+Decision: Remove `.PHONY` from idempotent selftest fixture targets and add explicit stamp regression checks (probe + verify) in the DevPod harness, plus a core `cmdRun` unit test that asserts make runs in `<DECOMK_HOME>/stamps`.
+Intent: Ensure decomk’s stamp semantics are validated end-to-end and in core tests so idempotent targets are skipped on rerun and make working-directory assumptions stay enforced.
+Constraints: Keep stage-0 bootstrap non-interactive and production-identical, keep selftest marker-based pass/fail parsing, and avoid requiring root privileges in unit tests.
+Affects: `examples/decomk-selftest/fixtures/confrepo/Makefile`, `examples/decomk-selftest/fixtures/confrepo/decomk.conf`, `examples/decomk-selftest/devpod-local/run.sh`, `cmd/decomk/main_test.go`, `examples/decomk-selftest/README.md`.
+
+ID: DI-007-20260313-181500
+Date: 2026-03-13 18:15:00
+Status: active
+Decision: Keep the aggregate `all` selftest target explicitly phony and never stamp it, while retaining stamp semantics for idempotent leaf targets.
+Intent: Ensure `all` always orchestrates the full check set and cannot be skipped due to stale aggregate stamp artifacts, without weakening idempotent stamp behavior for real work targets.
+Constraints: Do not reintroduce `.PHONY` on idempotent leaf targets; keep marker-based harness validation unchanged.
+Affects: `examples/decomk-selftest/fixtures/confrepo/Makefile`.
+
+Related design docs:
+- `doc/isconf-design.md`
+- `doc/decomk-design.md`
+
 ## Goal
 
 Define a decision-complete migration plan from GitHub Codespaces to DevPod on GCP so implementation can proceed without architecture ambiguity.
@@ -252,7 +317,7 @@ Mitigation: pin provider and CLI versions in docs and CI checks.
 - [ ] 007.5 Implement `observability` module for logs/metrics/budget labels and alerts.
 - [ ] 007.6 Add `examples/devpod/` reference docs showing provider setup and `devpod up` flow.
 - [ ] 007.7 Add migration runbook covering pilot, dual-run, cutover, and rollback.
-- [x] 007.8 Define and automate local DevPod Docker-provider validation matrix in `examples/decomk-selftest/devpod-local`.
+- [x] 007.8 Define and automate local DevPod Docker-provider validation matrix in `examples/decomk-selftest/devpod-local` with decomk-native subtest orchestration.
 - [ ] 007.9 Execute pilot cohort and capture parity findings vs Codespaces.
 - [ ] 007.10 Perform default switch and keep rollback window open for one stabilization period.
 - [ ] 007.11 Decommission Codespaces dependencies after stabilization and archive fallback documentation.

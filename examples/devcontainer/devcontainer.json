@@ -1,4 +1,18 @@
 {
-  "name": "decomk (example)",
+  "name": "decomk (example; set DECOMK_CONF_REPO)",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": "."
+  },
+  "containerEnv": {
+    "DECOMK_HOME": "/var/decomk",
+    "DECOMK_LOG_DIR": "/var/log/decomk",
+    "DECOMK_TOOL_MODE": "install",
+    "DECOMK_TOOL_INSTALL_PKG": "github.com/stevegt/decomk/cmd/decomk@latest",
+    "DECOMK_TOOL_REPO": "https://github.com/stevegt/decomk",
+    "DECOMK_CONF_REPO": "",
+    "DECOMK_RUN_ARGS": "all"
+  },
+  "remoteUser": "dev",
   "postCreateCommand": "bash .devcontainer/postCreateCommand.sh"
 }

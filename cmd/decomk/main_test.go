@@ -357,3 +357,100 @@ func TestCreateRunLogDir_ExplicitDoesNotFallback(t *testing.T) {
 		t.Fatalf("stderr: got %q want empty", got)
 	}
 }
+
+func TestCmdRun_StampDirAndIdempotentTarget(t *testing.T) {
+	origWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+	origArgs := append([]string(nil), os.Args...)
+	t.Cleanup(func() {
+		_ = os.Chdir(origWD)
+		os.Args = origArgs
+	})
+
+	home := t.TempDir()
+	logRoot := filepath.Join(t.TempDir(), "logs")
+	workspacesDir := t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "decomk.conf")
+	makefilePath := filepath.Join(t.TempDir(), "Makefile")
+
+	if err := os.WriteFile(configPath, []byte("DEFAULT:\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile(configPath): %v", err)
+	}
+
+	makefile := strings.Join([]string{
+		"SHELL := /bin/bash",
+		".ONESHELL:",
+		".SHELLFLAGS := -euo pipefail -c",
+		".RECIPEPREFIX := >",
+		"",
+		"stamp-idempotent:",
+		">count_file=\"$(DECOMK_HOME)/counter\"",
+		">count=0",
+		">if [[ -f \"$$count_file\" ]]; then count=\"$$(cat \"$$count_file\")\"; fi",
+		">count=$$((count + 1))",
+		">echo \"$$count\" > \"$$count_file\"",
+		">touch \"$@\"",
+		"",
+	}, "\n")
+	if err := os.WriteFile(makefilePath, []byte(makefile), 0o600); err != nil {
+		t.Fatalf("WriteFile(makefilePath): %v", err)
+	}
+
+	args := []string{
+		"-C", origWD,
+		"-home", home,
+		"-log-dir", logRoot,
+		"-workspaces", workspacesDir,
+		"-config", configPath,
+		"-makefile", makefilePath,
+		"-make-as-root=false",
+		"stamp-idempotent",
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	// Intent: Ensure decomk runs make in the stamp directory and preserves
+	// idempotent file-target behavior (non-phony targets should not re-run when
+	// their stamp file already exists).
+	// Source: DI-001-20260309-172358 (TODO/001)
+	code, err := cmdRun(args, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("first cmdRun() error: %v (stderr=%q)", err, stderr.String())
+	}
+	if code != 0 {
+		t.Fatalf("first cmdRun() code: got %d want 0 (stderr=%q)", code, stderr.String())
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+
+	code, err = cmdRun(args, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("second cmdRun() error: %v (stderr=%q)", err, stderr.String())
+	}
+	if code != 0 {
+		t.Fatalf("second cmdRun() code: got %d want 0 (stderr=%q)", code, stderr.String())
+	}
+
+	counterPath := filepath.Join(home, "counter")
+	counterRaw, err := os.ReadFile(counterPath)
+	if err != nil {
+		t.Fatalf("ReadFile(counter): %v", err)
+	}
+	if got := strings.TrimSpace(string(counterRaw)); got != "1" {
+		t.Fatalf("counter: got %q want %q", got, "1")
+	}
+
+	stampPath := filepath.Join(state.StampDir(home), "stamp-idempotent")
+	if _, err := os.Stat(stampPath); err != nil {
+		t.Fatalf("Stat(stampPath): %v", err)
+	}
+
+	unexpectedLocalStampPath := filepath.Join(filepath.Dir(makefilePath), "stamp-idempotent")
+	if _, err := os.Stat(unexpectedLocalStampPath); !os.IsNotExist(err) {
+		t.Fatalf("unexpected local stamp path exists: %s (err=%v)", unexpectedLocalStampPath, err)
+	}
+}

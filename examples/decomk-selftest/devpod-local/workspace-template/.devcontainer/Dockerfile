@@ -1,6 +1,6 @@
-# Intent: Build a deterministic local DevPod test image with a non-root developer
-# user and passwordless sudo so decomk privilege-mode scenarios are reproducible.
-# Source: DI-007-20260309-124345 (TODO/007)
+# Intent: Build a deterministic local DevPod test image with a non-root dev user
+# and passwordless sudo so decomk bootstrap behavior is reproducible.
+# Source: DI-007-20260311-101409 (TODO/007)
 FROM golang:1.24-bookworm
 
 RUN apt-get update \

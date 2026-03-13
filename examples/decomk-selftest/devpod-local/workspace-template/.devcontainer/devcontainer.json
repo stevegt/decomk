@@ -4,6 +4,16 @@
     "dockerfile": "Dockerfile",
     "context": ".."
   },
+  "runArgs": ["--add-host=host.docker.internal:host-gateway"],
+  "containerEnv": {
+    "DECOMK_HOME": "/tmp/decomk-selftest/home",
+    "DECOMK_LOG_DIR": "/tmp/decomk-selftest/log",
+    "DECOMK_TOOL_MODE": "clone",
+    "DECOMK_TOOL_INSTALL_PKG": "github.com/stevegt/decomk/cmd/decomk@latest",
+    "DECOMK_TOOL_REPO": "__DECOMK_TOOL_REPO__",
+    "DECOMK_CONF_REPO": "__DECOMK_CONF_REPO__",
+    "DECOMK_RUN_ARGS": "__DECOMK_RUN_ARGS__"
+  },
   "remoteUser": "dev",
   "postCreateCommand": "bash .devcontainer/postCreateCommand.sh"
 }

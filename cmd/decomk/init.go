@@ -1,0 +1,355 @@
+package main
+
+import (
+	"bufio"
+	"bytes"
+	"errors"
+	"flag"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+
+	"github.com/stevegt/decomk/stage0"
+	"github.com/stevegt/decomk/state"
+	"github.com/stevegt/envi"
+)
+
+// initFlags are the user-facing options for "decomk init".
+type initFlags struct {
+	repoRoot string
+	name     string
+	confRepo string
+	toolMode string
+	toolPkg  string
+	toolRepo string
+	home     string
+	logDir   string
+	runArgs  string
+	force    bool
+	noPrompt bool
+}
+
+// initWriteResult reports what happened for one stage-0 file.
+type initWriteResult struct {
+	Path   string
+	Status string
+}
+
+// cmdInit writes stage-0 files .devcontainer/devcontainer.json and
+// .devcontainer/postCreateCommand.sh in the target repo.
+//
+// Intent: Keep stage-0 bootstrap setup reproducible and easy for new repos by
+// generating production-identical lifecycle scaffolding directly from the
+// decomk binary.
+// Source: DI-001-20260311-161825 (TODO/001)
+func cmdInit(args []string, stdout, stderr io.Writer) (int, error) {
+	fs := flag.NewFlagSet("decomk init", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+
+	f := initFlags{
+		repoRoot: "",
+		confRepo: envi.String("DECOMK_CONF_REPO", ""),
+		toolMode: envi.String("DECOMK_TOOL_MODE", "install"),
+		toolPkg:  envi.String("DECOMK_TOOL_INSTALL_PKG", stage0.DefaultToolInstallPkg),
+		toolRepo: envi.String("DECOMK_TOOL_REPO", stage0.DefaultToolRepo),
+		home:     envi.String("DECOMK_HOME", state.DefaultHome),
+		logDir:   envi.String("DECOMK_LOG_DIR", state.DefaultLogDir),
+		runArgs:  envi.String("DECOMK_RUN_ARGS", "all"),
+	}
+	addInitFlags(fs, &f)
+
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0, nil
+		}
+		return 2, err
+	}
+
+	setFlags := map[string]bool{}
+	fs.Visit(func(fl *flag.Flag) {
+		setFlags[fl.Name] = true
+	})
+
+	repoRootInput := f.repoRoot
+	var err error
+	if !setFlags["repo-root"] {
+		// Intent: Default stage-0 file placement to the current git repo toplevel so
+		// running "decomk init" from a nested directory still writes into the
+		// repository root by default.
+		// Source: DI-001-20260311-164841 (TODO/001)
+		repoRootInput, err = gitTopLevelFromDir(".")
+		if err != nil {
+			return 1, fmt.Errorf("resolve default repo root from current git repo: %w (or set -repo-root)", err)
+		}
+	}
+
+	repoRoot, err := filepath.Abs(repoRootInput)
+	if err != nil {
+		return 1, fmt.Errorf("abs repo root %q: %w", repoRootInput, err)
+	}
+	info, err := os.Stat(repoRoot)
+	if err != nil {
+		return 1, fmt.Errorf("stat repo root %q: %w", repoRoot, err)
+	}
+	if !info.IsDir() {
+		return 1, fmt.Errorf("repo root is not a directory: %s", repoRoot)
+	}
+
+	if f.name == "" {
+		f.name = filepath.Base(repoRoot)
+	}
+
+	canPrompt := !f.noPrompt && isInteractiveInput(os.Stdin) && isInteractiveInput(os.Stderr)
+	if canPrompt {
+		if err := promptInitFlags(&f, setFlags, os.Stdin, stderr); err != nil {
+			return 1, err
+		}
+	}
+
+	if f.name == "" {
+		return 1, fmt.Errorf("devcontainer name cannot be empty")
+	}
+	switch f.toolMode {
+	case "install", "clone":
+	default:
+		return 1, fmt.Errorf("tool mode must be install or clone (got %q)", f.toolMode)
+	}
+	// Intent: Validate tool install package only for install mode so clone mode
+	// does not require irrelevant settings.
+	// Source: DI-001-20260311-175002 (TODO/001)
+	if f.toolMode == "install" && strings.TrimSpace(f.toolPkg) == "" {
+		return 1, fmt.Errorf("tool install package cannot be empty when tool mode is install")
+	}
+	if f.home == "" || !filepath.IsAbs(f.home) {
+		return 1, fmt.Errorf("DECOMK_HOME template value must be an absolute path (got %q)", f.home)
+	}
+	if f.logDir == "" || !filepath.IsAbs(f.logDir) {
+		return 1, fmt.Errorf("DECOMK_LOG_DIR template value must be an absolute path (got %q)", f.logDir)
+	}
+
+	// Use the shared stage-0 data model so `decomk init` and generated examples
+	// render from the same template contract.
+	// Intent: Keep stage-0 inputs consistent across init and stage0gen.
+	// Source: DI-001-20260312-141200 (TODO/001)
+	data := stage0.DevcontainerTemplateData{
+		Name:              f.name,
+		ConfRepo:          f.confRepo,
+		ToolMode:          f.toolMode,
+		ToolInstallPkg:    f.toolPkg,
+		ToolRepo:          f.toolRepo,
+		Home:              f.home,
+		LogDir:            f.logDir,
+		DecomkRunArgs:     f.runArgs,
+		PostCreateCommand: stage0.DefaultPostCreateCommand,
+	}
+
+	results, err := writeInitStage0(repoRoot, data, f.force)
+	if err != nil {
+		return 1, err
+	}
+
+	if f.confRepo == "" {
+		fmt.Fprintln(stderr, "decomk init: warning: DECOMK_CONF_REPO is empty; postCreateCommand.sh will fail until conf/decomk.conf exists locally")
+	}
+	for _, result := range results {
+		fmt.Fprintf(stdout, "%s: %s\n", result.Status, result.Path)
+	}
+	return 0, nil
+}
+
+// addInitFlags defines flags for "decomk init".
+func addInitFlags(fs *flag.FlagSet, f *initFlags) {
+	fs.StringVar(&f.repoRoot, "repo-root", f.repoRoot, "target repo root (writes under <repo-root>/.devcontainer; default: current git repo root)")
+	fs.StringVar(&f.name, "name", f.name, "devcontainer name (default: repo basename)")
+	fs.StringVar(&f.confRepo, "conf-repo", f.confRepo, "DECOMK_CONF_REPO value for devcontainer.json")
+	fs.StringVar(&f.toolMode, "tool-mode", f.toolMode, "tool bootstrap mode for postCreateCommand.sh (install or clone)")
+	fs.StringVar(&f.toolPkg, "tool-install-pkg", f.toolPkg, "go install package@version used when -tool-mode=install")
+	fs.StringVar(&f.toolRepo, "tool-repo", f.toolRepo, "DECOMK_TOOL_REPO value for devcontainer.json")
+	fs.StringVar(&f.home, "home", f.home, "DECOMK_HOME value for devcontainer.json")
+	fs.StringVar(&f.logDir, "log-dir", f.logDir, "DECOMK_LOG_DIR value for devcontainer.json")
+	fs.StringVar(&f.runArgs, "run-args", f.runArgs, "DECOMK_RUN_ARGS value for devcontainer.json")
+	fs.BoolVar(&f.force, "force", false, "overwrite existing files when content differs")
+	fs.BoolVar(&f.noPrompt, "no-prompt", false, "disable interactive prompts for unset values")
+}
+
+// promptInitFlags interactively fills unset init values.
+func promptInitFlags(f *initFlags, setFlags map[string]bool, in io.Reader, out io.Writer) error {
+	reader := bufio.NewReader(in)
+	var err error
+	if !setFlags["name"] {
+		f.name, err = promptWithDefault(reader, out, "Devcontainer name", f.name)
+		if err != nil {
+			return err
+		}
+	}
+	if !setFlags["conf-repo"] {
+		f.confRepo, err = promptWithDefault(reader, out, "DECOMK_CONF_REPO", f.confRepo)
+		if err != nil {
+			return err
+		}
+	}
+	if !setFlags["tool-mode"] {
+		f.toolMode, err = promptWithDefault(reader, out, "DECOMK_TOOL_MODE", f.toolMode)
+		if err != nil {
+			return err
+		}
+	}
+	if !setFlags["tool-install-pkg"] {
+		f.toolPkg, err = promptWithDefault(reader, out, "DECOMK_TOOL_INSTALL_PKG", f.toolPkg)
+		if err != nil {
+			return err
+		}
+	}
+	if !setFlags["tool-repo"] {
+		f.toolRepo, err = promptWithDefault(reader, out, "DECOMK_TOOL_REPO", f.toolRepo)
+		if err != nil {
+			return err
+		}
+	}
+	if !setFlags["home"] {
+		f.home, err = promptWithDefault(reader, out, "DECOMK_HOME", f.home)
+		if err != nil {
+			return err
+		}
+	}
+	if !setFlags["log-dir"] {
+		f.logDir, err = promptWithDefault(reader, out, "DECOMK_LOG_DIR", f.logDir)
+		if err != nil {
+			return err
+		}
+	}
+	if !setFlags["run-args"] {
+		f.runArgs, err = promptWithDefault(reader, out, "DECOMK_RUN_ARGS", f.runArgs)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// promptWithDefault reads one line, returning defaultValue when input is empty.
+func promptWithDefault(reader *bufio.Reader, out io.Writer, label, defaultValue string) (string, error) {
+	if defaultValue != "" {
+		fmt.Fprintf(out, "%s [%s]: ", label, defaultValue)
+	} else {
+		fmt.Fprintf(out, "%s: ", label)
+	}
+	line, err := reader.ReadString('\n')
+	if err != nil && !errors.Is(err, io.EOF) {
+		return "", err
+	}
+	value := strings.TrimSpace(line)
+	if value == "" {
+		return defaultValue, nil
+	}
+	return value, nil
+}
+
+// isInteractiveInput reports whether file is connected to a terminal-like input.
+func isInteractiveInput(file *os.File) bool {
+	info, err := file.Stat()
+	if err != nil {
+		return false
+	}
+	return info.Mode()&os.ModeCharDevice != 0
+}
+
+// gitTopLevelFromDir resolves git's toplevel directory for dir.
+func gitTopLevelFromDir(dir string) (string, error) {
+	out, err := exec.Command("git", "-C", dir, "rev-parse", "--show-toplevel").CombinedOutput()
+	if err != nil {
+		msg := strings.TrimSpace(string(out))
+		if msg == "" {
+			return "", err
+		}
+		return "", fmt.Errorf("%w: %s", err, msg)
+	}
+	root := strings.TrimSpace(string(out))
+	if root == "" {
+		return "", fmt.Errorf("git rev-parse --show-toplevel returned empty output")
+	}
+	return root, nil
+}
+
+// writeInitStage0 renders embedded templates and writes them to
+// <repoRoot>/.devcontainer/.
+func writeInitStage0(repoRoot string, data stage0.DevcontainerTemplateData, force bool) ([]initWriteResult, error) {
+	devcontainerDir := filepath.Join(repoRoot, ".devcontainer")
+	if err := os.MkdirAll(devcontainerDir, 0o755); err != nil {
+		return nil, err
+	}
+
+	// Intent: Use the shared stage-0 renderer so decomk init and generated
+	// examples stay in lockstep with one template/data contract.
+	// Source: DI-001-20260312-141200 (TODO/001)
+	devcontainerJSON, err := stage0.RenderDevcontainerJSON(initDevcontainerJSONTemplate, data)
+	if err != nil {
+		return nil, err
+	}
+	postCreateScript, err := stage0.RenderPostCreateScript(initPostCreateTemplate)
+	if err != nil {
+		return nil, err
+	}
+
+	var results []initWriteResult
+	jsonPath := filepath.Join(devcontainerDir, "devcontainer.json")
+	jsonStatus, err := writeInitFile(jsonPath, devcontainerJSON, 0o644, force)
+	if err != nil {
+		return nil, err
+	}
+	results = append(results, initWriteResult{Path: jsonPath, Status: jsonStatus})
+
+	postCreatePath := filepath.Join(devcontainerDir, "postCreateCommand.sh")
+	scriptStatus, err := writeInitFile(postCreatePath, postCreateScript, 0o755, force)
+	if err != nil {
+		return nil, err
+	}
+	results = append(results, initWriteResult{Path: postCreatePath, Status: scriptStatus})
+
+	return results, nil
+}
+
+// writeInitFile writes stage-0 content with a simple overwrite policy.
+//
+// Status values:
+//   - "created": file did not exist
+//   - "updated": file existed and content changed (requires -force)
+//   - "unchanged": file existed with identical content
+func writeInitFile(path string, content []byte, mode os.FileMode, force bool) (status string, err error) {
+	_, statErr := os.Stat(path)
+	existed := statErr == nil
+	if statErr != nil && !os.IsNotExist(statErr) {
+		return "", statErr
+	}
+
+	if existed {
+		existing, err := os.ReadFile(path)
+		if err != nil {
+			return "", err
+		}
+		if bytes.Equal(existing, content) {
+			if err := stage0.EnsureMode(path, mode); err != nil {
+				return "", err
+			}
+			return "unchanged", nil
+		}
+		if !force {
+			return "", fmt.Errorf("file exists with different content: %s (use -force to overwrite)", path)
+		}
+	}
+
+	// Intent: Write stage-0 files atomically (temp file + rename) so
+	// interruptions cannot leave a partially-written devcontainer config/script.
+	// Source: DI-001-20260311-175002 (TODO/001)
+	if err := stage0.WriteFileAtomic(path, content, mode); err != nil {
+		return "", err
+	}
+
+	if existed {
+		return "updated", nil
+	}
+	return "created", nil
+}

@@ -1,0 +1,25 @@
+{
+  "name": {{json .Name}},
+{{- if .BuildDockerfile }}
+  "build": {
+    "dockerfile": {{json .BuildDockerfile}},
+    "context": {{json .BuildContext}}
+  },
+{{- end }}
+{{- if .RunArgs }}
+  "runArgs": {{json .RunArgs}},
+{{- end }}
+  "containerEnv": {
+    "DECOMK_HOME": {{json .Home}},
+    "DECOMK_LOG_DIR": {{json .LogDir}},
+    "DECOMK_TOOL_MODE": {{json .ToolMode}},
+    "DECOMK_TOOL_INSTALL_PKG": {{json .ToolInstallPkg}},
+    "DECOMK_TOOL_REPO": {{json .ToolRepo}},
+    "DECOMK_CONF_REPO": {{json .ConfRepo}},
+    "DECOMK_RUN_ARGS": {{json .DecomkRunArgs}}
+  },
+{{- if .RemoteUser }}
+  "remoteUser": {{json .RemoteUser}},
+{{- end }}
+  "postCreateCommand": {{json .PostCreateCommand}}
+}

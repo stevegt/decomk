@@ -10,6 +10,63 @@ Intent: Keep devcontainer bootstrap non-interactive (no password prompts), avoid
 Constraints: No sudo password prompts; `decomk plan` should work without sudo; stamps must remain writable by the dev user across runs; when running under a root lifecycle hook, user inference must not guess incorrect usernames.
 Affects: `cmd/decomk/main.go`, `makeexec/makeexec.go`, `README.md`, `examples/devcontainer/postCreateCommand.sh`.
 
+ID: DI-001-20260311-161825
+Date: 2026-03-11 16:18:25
+Status: active
+Decision: Add a first-class `decomk init` subcommand that installs `.devcontainer/devcontainer.json` and `.devcontainer/postCreateCommand.sh` from templates embedded in the decomk binary, using CLI flags or interactive prompts to populate workspace-specific values.
+Intent: Make stage-0 bootstrap setup repeatable and low-friction in new repos while keeping the bootstrap script generic and production-identical.
+Constraints: Generated files must land under `.devcontainer/`, template defaults must preserve current stage-0 bootstrap behavior, and users must be able to run non-interactively in automation.
+Affects: `cmd/decomk/main.go`, `cmd/decomk/main_test.go`, `cmd/decomk/templates/*`, `README.md`, `examples/devcontainer/*`.
+
+ID: DI-001-20260311-163942
+Date: 2026-03-11 16:39:42
+Status: active
+Decision: Make stage-0 tool bootstrap install-first by default (`go install`), with optional clone mode that runs `go install ./cmd/decomk` in a pulled repo.
+Intent: Remove unnecessary tool-repo checkout state from the default path while still supporting selftest and local-branch workflows that need git clone/pull semantics.
+Constraints: Do not force a custom install path; let `go install` use standard `GOBIN`/`GOPATH/bin` behavior, keep the bootstrap script production-generic, and preserve config-repo clone/pull behavior.
+Affects: `examples/devcontainer/postCreateCommand.sh`, `examples/decomk-selftest/devpod-local/workspace-template/.devcontainer/postCreateCommand.sh`, `cmd/decomk/templates/postCreateCommand.sh.tmpl`, `cmd/decomk/templates/devcontainer.json.tmpl`, `cmd/decomk/init.go`, `README.md`.
+
+ID: DI-001-20260311-164841
+Date: 2026-03-11 16:48:41
+Status: active
+Decision: When `decomk init` is run without `-repo-root`, resolve the target repo to the git toplevel of the current working directory instead of using `.`.
+Intent: Make default scaffold placement match user expectation in nested paths inside a repo and avoid accidentally scaffolding the wrong directory.
+Constraints: Preserve explicit `-repo-root` override behavior, and return a clear error when the current directory is not inside a git work tree.
+Affects: `cmd/decomk/init.go`, `cmd/decomk/init_test.go`, `README.md`.
+
+ID: DI-001-20260311-175002
+Date: 2026-03-11 17:50:02
+Status: active
+Decision: Make scaffold file writes atomic in `decomk init`, and validate `DECOMK_TOOL_INSTALL_PKG` only when `DECOMK_TOOL_MODE=install`.
+Intent: Prevent partial scaffold files on interruption and avoid unnecessary validation coupling between clone mode and install package settings.
+Constraints: Keep overwrite semantics unchanged (`-force`), preserve file modes, and keep error messages clear for invalid mode-specific inputs.
+Affects: `cmd/decomk/init.go`, `cmd/decomk/init_test.go`.
+
+ID: DI-001-20260312-130300
+Date: 2026-03-12 13:03:00
+Status: active
+Decision: Use one canonical scaffold template contract (`cmd/decomk/templates/*`) for `decomk init` and generated example files, with `go generate` + `scaffoldgen` + tests enforcing drift checks.
+Intent: Keep production and selftest bootstrap files synchronized by construction and remove hand-maintained duplication across examples.
+Constraints: Preserve embedded-template behavior for `decomk init`, keep generated outputs deterministic, and provide both developer and CI entrypoints for regeneration/checking.
+Affects: `scaffold/scaffold.go`, `cmd/decomk/init.go`, `cmd/scaffoldgen/main.go`, `cmd/decomk/generate_scaffolds.go`, `cmd/decomk/scaffold_sync_test.go`, `examples/devcontainer/*`, `examples/decomk-selftest/devpod-local/workspace-template/.devcontainer/*`, `Makefile`, `README.md`, `doc/decomk-design.md`, `examples/decomk-selftest/README.md`.
+
+ID: DI-001-20260312-141200
+Date: 2026-03-12 14:12:00
+Status: active
+Decision: Rename internal generator/renderer naming from `scaffold`/`scaffoldgen` to `stage0`/`stage0gen`.
+Intent: Make names match decomk architecture language (“stage-0 bootstrap”) and reduce ambiguity with runtime `decomk.conf` context config.
+Constraints: No behavior changes; preserve template contract, generation flow (`go generate`), and drift checks.
+Affects: `stage0/stage0.go`, `cmd/stage0gen/main.go`, `cmd/decomk/generate_stage0.go`, `cmd/decomk/stage0_sync_test.go`, `cmd/decomk/init.go`, `cmd/decomk/init_test.go`, `Makefile`, `doc/decomk-design.md`.
+Supersedes: DI-001-20260312-130300
+
+ID: DI-001-20260313-183500
+Date: 2026-03-13 18:35:00
+Status: active
+Decision: Make `examples/devcontainer/devcontainer.json` a standalone runnable example by generating a `build` entry (`Dockerfile`, context `"."`) and `remoteUser: "dev"`, and add a companion `examples/devcontainer/Dockerfile`.
+Intent: Prevent devcontainer startup failures for users who copy the example directly by providing an explicit image build path and a realistic non-root runtime user out of the box.
+Constraints: Keep stage-0 template generation as the source of truth, preserve existing container env defaults, and avoid changing selftest devcontainer behavior.
+Affects: `stage0/stage0.go`, `examples/devcontainer/devcontainer.json`, `examples/devcontainer/Dockerfile`, `README.md`.
+
 ## Goal
 
 Create an isconf-inspired “context -> target groups + vars”
@@ -235,6 +292,9 @@ Pragmatic MVP: define a small set of **capability groups**, then compose per-rep
 - [x] 001.4 Implement macro expansion (isconf `expandmacro` semantics) without Perl.
 - [x] 001.5 Implement env export file generation and decide where it is written.
 - [ ] 001.6 Define initial target groups (BLOCK_XX analogs) and a minimal `DEFAULT` toolset.
-- [ ] 001.7 Define the update/self-update model: pull tool repo into `<DECOMK_HOME>/decomk` (rebuild + re-exec) and pull config repo into `<DECOMK_HOME>/conf`; support a pinned config ref/branch (lunamake test→prod style).
+- [ ] 001.7 Define the update/self-update model: install-first (`go install`) for the tool binary with optional clone mode, plus config repo pull into `<DECOMK_HOME>/conf`; support a pinned config ref/branch (lunamake test→prod style).
 - [ ] 001.8 Pilot in `mob-sandbox` via `devcontainer.json` `postCreateCommand`, then generalize.
-- [x] 001.9 Add a reference `examples/devcontainer/postCreateCommand.sh` that bootstraps decomk into `/var/decomk` and runs it (clone/pull + `go run`), then reuse it in pilots.
+- [x] 001.9 Add a reference `examples/devcontainer/postCreateCommand.sh` that performs stage-0 bootstrap (ensure decomk in `PATH`, sync config repo, run decomk), then reuse it in pilots.
+- [x] 001.10 Add `decomk init` to scaffold `.devcontainer` files from embedded templates with flag/prompt inputs.
+- [x] 001.11 Generate example scaffold files from canonical templates and enforce sync via `go generate`/tests.
+- [x] 001.12 Make the production example devcontainer standalone by including a Dockerfile build entry and companion Dockerfile.

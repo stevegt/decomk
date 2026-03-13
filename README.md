@@ -16,12 +16,31 @@ If you want background on isconf-style bootstraps, see https://infrastructures.o
 ## Status
 
 This repo contains an MVP implementation in Go:
+- `decomk init`: scaffold `.devcontainer/devcontainer.json` + `.devcontainer/postCreateCommand.sh` from embedded templates
 - `decomk plan`: resolve + print the plan; print env exports (dry-run; does **not** write `<DECOMK_HOME>/env.sh`); run `make -n` in the stamp dir
 - `decomk run`: resolve + write env export file; run `make` in the stamp dir
+- `go generate ./...` (or `make generate`): regenerate canonical example scaffold files from those same templates
 
 Planned work lives under `TODO/`.
 
+Design notes:
+- `doc/isconf-design.md` describes the reverse-engineered isconf algorithm and rationale.
+- `doc/decomk-design.md` describes decomk selftest design decisions and selector semantics.
+
 ## Quick start (MVP)
+
+For a new repo, scaffold the lifecycle files first:
+
+```bash
+go run ./cmd/decomk init -conf-repo <git-url>
+```
+
+Regenerate canonical example scaffold files when templates change:
+
+```bash
+make generate
+make check-generated
+```
 
 1) Create `decomk.conf` and a `Makefile`.
 
@@ -29,20 +48,17 @@ For experimentation, you can put both in your workspace repo root and pass them
 explicitly with `-config` and `-makefile` (this avoids depending on any config
 repo clone).
 
-For a typical devcontainer setup, you point decomk at a shared config repo via
-`-conf-repo` (or `DECOMK_CONF_REPO`). decomk clones it into
-`<DECOMK_HOME>/conf` on first run and runs `git pull --ff-only` on each run to
-keep it updated.
+For a typical devcontainer setup, put `DECOMK_CONF_REPO` (and optionally
+`DECOMK_TOOL_REPO`) in `.devcontainer/devcontainer.json`, and run the reference
+`.devcontainer/postCreateCommand.sh` lifecycle hook. That hook performs stage-0
+bootstrap (ensures `decomk` is in `PATH`, syncs config repo, then runs decomk).
+The checked-in `examples/devcontainer/devcontainer.json` is standalone and
+includes a local Dockerfile build definition.
 
 DECOMK_HOME defaults to /var/decomk, so the config repo clone lives under `/var/decomk/conf`. 
 
 By default, decomk writes per-run logs under `/var/log/decomk` (override with
 `-log-dir` / `DECOMK_LOG_DIR`).
-
-Before using the config repo, decomk also self-updates (isconf-style): it keeps
-a canonical clone of its own repo under `<DECOMK_HOME>/decomk`, runs
-`git pull --ff-only`, rebuilds, and re-execs into the updated binary. You can
-override the tool repo source with `-tool-repo` (or `DECOMK_TOOL_REPO`).
 
 `decomk.conf`:
 ```conf
@@ -97,18 +113,16 @@ Example container filesystem tree:
   - WIP repos are under `/workspaces/*`
   - decomk keeps persistent state under `/var/decomk/*`
   - decomk writes per-run logs under `/var/log/decomk/*` by default
-  - the shared config repo is cloned under `/var/decomk/conf` (not under
-    `/workspaces`, to avoid conflicts when you have a WIP clone of the config
-    repo too)
+  - the shared config repo is cloned under `/var/decomk/conf` (not under `/workspaces`)
+  - in `DECOMK_TOOL_MODE=clone`, the tool repo is cloned under `/var/decomk/src/decomk`
 
 ```text
 /
 ├── var
 │   ├── decomk
-│   │   ├── decomk                 (tool repo clone; self-updated)
-│   │   │   └── bin
-│   │   │       └── decomk         (built binary)
-│   │   ├── conf                   (config repo clone; self-updated)
+│   │   ├── src
+│   │   │   └── decomk             (tool repo clone; clone mode only)
+│   │   ├── conf                   (config repo clone; managed by stage-0 hook)
 │   │   │   ├── decomk.conf        (configuration file for all managed repos)
 │   │   │   ├── decomk.d
 │   │   │   │   └── *.conf
@@ -118,8 +132,6 @@ Example container filesystem tree:
 │   │   │   ├── install-codex      (example)
 │   │   │   ├── install-mob-consensus (example)
 │   │   │   └── install-neovim     (example)
-│   │   ├── conf.lock              (lock while pulling config repo)
-│   │   └── decomk.lock            (lock while self-updating tool repo)
 │   └── log
 │       └── decomk
 │           └── <runID>
@@ -164,8 +176,8 @@ Block20_go: Block10_common
 Run:
 ```bash
 export DECOMK_HOME=/var/decomk
-decomk plan -conf-repo <git-url>
-decomk run  -conf-repo <git-url>
+decomk plan
+decomk run
 ```
 
 After `decomk run`, stamp files exist under the printed `stampDir`, e.g.:
@@ -269,24 +281,14 @@ the step has succeeded.
    - env: `DECOMK_WORKSPACES_DIR`
    - default: `/workspaces`
 
-4) Self-update decomk itself (tool repo)
-   - clone/pull the tool repo into `<DECOMK_HOME>/decomk`
-   - `git pull --ff-only` (failure is fatal)
-   - `go build -o <DECOMK_HOME>/decomk/bin/decomk ./cmd/decomk`
-   - re-exec into the updated binary
-   - tool repo URL selection (first match wins):
-     - `-tool-repo <url>` / `DECOMK_TOOL_REPO`
-     - `<workspacesDir>/decomk` (if it exists as a git repo; use its origin URL)
-     - default upstream (`https://github.com/stevegt/decomk`)
+4) Stage-0 bootstrap (outside decomk core)
+   - lifecycle tooling (for example `.devcontainer/postCreateCommand.sh`) ensures a `decomk` binary is available in `PATH`:
+     - default (`DECOMK_TOOL_MODE=install`): `go install ${DECOMK_TOOL_INSTALL_PKG}`
+     - optional (`DECOMK_TOOL_MODE=clone`): clone/pull `DECOMK_TOOL_REPO`, then `go install ./cmd/decomk`
+   - lifecycle tooling syncs `DECOMK_CONF_REPO` into `<DECOMK_HOME>/conf`
+   - `decomk plan/run` consumes this local state and does not clone/pull repos itself.
 
-5) Clone/pull the shared config repo
-   - `-conf-repo <url>` / `DECOMK_CONF_REPO`
-   - clone/pull into `<DECOMK_HOME>/conf`
-   - `git pull --ff-only` (failure is fatal)
-   - if no repo URL is configured, decomk uses any existing config already present
-     under `<DECOMK_HOME>/conf` (if any)
-
-6) Load config definitions (`decomk.conf`)
+5) Load config definitions (`decomk.conf`)
    - **config repo** (optional): `<DECOMK_HOME>/conf/decomk.conf`
    - **explicit override** (optional): `-config <path>` or `DECOMK_CONFIG`
 
@@ -455,6 +457,7 @@ writable and you did not explicitly override the log dir, decomk falls back to
 ## CLI usage
 
 ```text
+decomk init [flags]
 decomk plan [flags] [ARGS...]
 decomk run  [flags] [ARGS...]
 
@@ -463,7 +466,7 @@ ARGS:
   provided, decomk ignores config-derived target tokens and uses ARGS to select
   targets.
 
-  Flags:
+  Common flags for plan/run:
   -home <abs-path>          Override DECOMK_HOME
   -log-dir <abs-path>       Override DECOMK_LOG_DIR (default /var/log/decomk)
   -make-as-root=<bool>      Run make as root (default true; overrides DECOMK_MAKE_AS_ROOT)
@@ -471,11 +474,20 @@ ARGS:
   -workspaces <dir>         Workspaces root directory to scan (default /workspaces; overrides DECOMK_WORKSPACES_DIR)
   -context <key>            Override context selection
   -config <path>            Explicit config file (overrides defaults)
-  -tool-repo <url>          Clone/pull tool repo into <home>/decomk
-  -conf-repo <url>          Clone/pull config repo into <home>/conf
   -makefile <path>          Explicit Makefile path
   -max-expand-depth <n>     Macro expansion depth limit (default 64)
   -v                        Verbose output
+
+  Flags for init:
+  -repo-root <path>         Repo root where .devcontainer files are written (default: current git repo root)
+  -name <string>            devcontainer.json "name" value
+  -conf-repo <url>          DECOMK_CONF_REPO value in devcontainer.json
+  -tool-repo <url>          DECOMK_TOOL_REPO value in devcontainer.json
+  -home <abs-path>          DECOMK_HOME value in devcontainer.json
+  -log-dir <abs-path>       DECOMK_LOG_DIR value in devcontainer.json
+  -run-args <string>        DECOMK_RUN_ARGS value in devcontainer.json
+  -force                    Overwrite existing files when content differs
+  -no-prompt                Do not prompt for unset values
 ```
 
 ## Makefile privilege model
@@ -511,18 +523,33 @@ install-user-stuff:
 - `/var/decomk` (state) and `/var/log/decomk` (logs) should be writable by the dev user (or override with `DECOMK_HOME`/`DECOMK_LOG_DIR`).
   - In a Dockerfile, you typically want:
     - `RUN mkdir -p /var/decomk /var/log/decomk && chown -R $USER:$USER /var/decomk /var/log/decomk`
-  - Alternatively, use a devcontainer lifecycle hook to bootstrap decomk; see `examples/devcontainer/postCreateCommand.sh` in this repo for a reference implementation. That script runs decomk as the dev user and has decomk run `make` as root by default (via passwordless `sudo -n`), so Makefile recipes can install system packages without embedding `sudo` and without password prompts.
-  - Note: some devcontainer hosts run lifecycle hooks as root. The reference script attempts to infer the non-root dev user from common environment variables and the workspace directory ownership; if it cannot, it warns and proceeds as root (rather than guessing a username).
+  - Alternatively, use a minimal lifecycle hook to run decomk directly; see `examples/devcontainer/postCreateCommand.sh`.
+  - That hook performs stage-0 bootstrap by ensuring `decomk` is in `PATH`, syncing `DECOMK_CONF_REPO`, then running `decomk`.
 - The repo’s workspace path is host-dependent; prefer using
   `${containerWorkspaceFolder}` in `devcontainer.json` rather than assuming
   `/workspaces/<repo>`.
+- Canonical scaffold sources are `cmd/decomk/templates/devcontainer.json.tmpl` and `cmd/decomk/templates/postCreateCommand.sh.tmpl`.
+  - Generated files:
+    - `examples/devcontainer/devcontainer.json`
+    - `examples/devcontainer/postCreateCommand.sh`
+    - `examples/decomk-selftest/devpod-local/workspace-template/.devcontainer/devcontainer.json`
+    - `examples/decomk-selftest/devpod-local/workspace-template/.devcontainer/postCreateCommand.sh`
+  - Regenerate with `go generate ./...` (or `make generate`).
+- Companion static example file:
+  - `examples/devcontainer/Dockerfile`
 
 ## Self-test harness
 
 - Local DevPod Docker-provider validation lives under `examples/decomk-selftest/`.
-  - Run all local scenarios with:
-    - `examples/decomk-selftest/devpod-local/run.sh --scenario all`
-  - Scenario details and prerequisites are documented in:
+  - Default tuple-override check:
+    - `examples/decomk-selftest/devpod-local/run.sh`
+  - Explicit tuple-action args:
+    - `examples/decomk-selftest/devpod-local/run.sh TUPLE_VERIFY_TOOL TUPLE_VERIFY_CONF TUPLE_CONTEXT_OVERRIDE TUPLE_DEFAULT_SHARED`
+  - The harness publishes temporary tool+config repos over `git://` and lets postCreate clone/pull them during stage-0 bootstrap.
+  - Context selection is automatic from workspace repo name (`decomk`), with no explicit `-context` in harness calls.
+  - Fixture config/make/scripts live under:
+    - `examples/decomk-selftest/fixtures/confrepo/`
+  - Harness details and prerequisites are documented in:
     - `examples/decomk-selftest/README.md`
 - Codespaces parity checks are planned as the next stage after local DevPod stability.
 - Remote GCP-provider self-tests are intentionally deferred until a separate move-to-GCP decision is approved.
@@ -531,4 +558,4 @@ install-user-stuff:
 
 - No `status` / `clean` commands yet.
 - Config parser is intentionally minimal (single quotes only; whole-line comments only).
-- Requires `git` and `go` in the container for self-update.
+- Stage-0 bootstrap expects `git` and `go` in the container (`postCreateCommand.sh` installs `decomk`, syncs repos, and runs `decomk`).
