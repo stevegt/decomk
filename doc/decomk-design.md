@@ -42,6 +42,20 @@ For `decomk run [ARGS...]`:
 
 This is the same shape documented in `doc/isconf-design.md`, adapted to decomk.
 
+## 2.1) Environment contract (`env.sh` == make env)
+
+- `decomk run` writes `${DECOMK_HOME}/env.sh` and uses the same canonical tuple
+  list to invoke make.
+- Canonical order is:
+  1. incoming `DECOMK_*` passthrough vars,
+  2. resolved config tuples,
+  3. decomk-computed vars (last-wins).
+- Tuple value sentinel `NAME=$` resolves from incoming env; if missing, decomk
+  falls back to an earlier tuple assignment for `NAME`; if no fallback exists,
+  run/plan fails fast.
+- This keeps env exports and runtime make/recipe env behavior consistent even
+  when make runs via sudo.
+
 ---
 
 ## 3) Selftest Design Decisions
