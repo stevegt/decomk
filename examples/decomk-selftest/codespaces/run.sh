@@ -16,12 +16,11 @@ usage() {
 Usage:
   examples/decomk-selftest/codespaces/run.sh [options] [decomk run args...]
 
-Required options:
-  --conf-uri <git:...>       Remote-reachable fixture config repo URI.
-
 Optional options:
   --repo <owner/repo>        GitHub repo slug (default: parsed from origin URL).
   --branch <name>            Branch to test (default: current branch).
+  --conf-uri <git:...>       Optional override for config source URI.
+                             Default: auto-generated fixture repo inside codespace.
   --tool-uri <uri>           Tool source URI (default: git:https://github.com/<repo>.git?ref=<branch>).
   --devcontainer-path <path> Repo-relative devcontainer.json path used for codespace create.
                              (default: examples/decomk-selftest/codespaces/.devcontainer/devcontainer.json)
@@ -34,9 +33,10 @@ Optional options:
   -h, --help                 Show this message.
 
 Examples:
+  examples/decomk-selftest/codespaces/run.sh
+  examples/decomk-selftest/codespaces/run.sh all
+  examples/decomk-selftest/codespaces/run.sh TUPLE_VERIFY_TOOL TUPLE_VERIFY_CONF TUPLE_CONTEXT_OVERRIDE TUPLE_DEFAULT_SHARED
   examples/decomk-selftest/codespaces/run.sh --conf-uri git:https://github.com/example/confrepo.git
-  examples/decomk-selftest/codespaces/run.sh --conf-uri git:https://github.com/example/confrepo.git all
-  examples/decomk-selftest/codespaces/run.sh --conf-uri git:https://github.com/example/confrepo.git TUPLE_VERIFY_TOOL TUPLE_VERIFY_CONF TUPLE_CONTEXT_OVERRIDE TUPLE_DEFAULT_SHARED
 USAGE
 }
 
@@ -279,10 +279,7 @@ for arg in "${decomk_args[@]}"; do
   fi
 done
 
-if [[ -z "$conf_uri" ]]; then
-  fail 2 "--conf-uri is required"
-fi
-if [[ "$conf_uri" != git:* ]]; then
+if [[ -n "$conf_uri" ]] && [[ "$conf_uri" != git:* ]]; then
   fail 2 "--conf-uri must be a git: URI"
 fi
 
@@ -382,7 +379,11 @@ trap cleanup EXIT
 log "repo: $repo_slug"
 log "branch: $branch"
 log "devcontainer path: $devcontainer_path"
-log "conf URI: $conf_uri"
+if [[ -n "$conf_uri" ]]; then
+  log "conf URI override: $conf_uri"
+else
+  log "conf URI: auto-generated fixture repo in codespace"
+fi
 log "tool URI: $tool_uri"
 log "run args: $decomk_run_args"
 log "codespace display name: $display_name"
@@ -406,12 +407,18 @@ if ! wait_for_codespace_ssh "$ssh_timeout"; then
 fi
 codespace_ready="true"
 
+# Intent: Keep the Codespaces harness self-contained by synthesizing the config
+# fixture repo inside the Codespace when no `--conf-uri` override is supplied.
+# This removes external fixture hosting requirements while still forcing stage-0
+# bootstrap to exercise git clone/pull from a URI source.
+# Source: DI-007-20260413-000500 (TODO/007)
 repo_basename="${repo_slug##*/}"
 repo_basename_q="$(printf '%q' "$repo_basename")"
+run_id_q="$(printf '%q' "$run_id")"
 decomk_home_q="$(printf '%q' "/tmp/decomk-selftest/home")"
 decomk_log_dir_q="$(printf '%q' "/tmp/decomk-selftest/log")"
 tool_uri_q="$(printf '%q' "$tool_uri")"
-conf_uri_q="$(printf '%q' "$conf_uri")"
+conf_uri_override_q="$(printf '%q' "$conf_uri")"
 run_args_q="$(printf '%q' "$decomk_run_args")"
 
 remote_stage0_script="$(cat <<EOF
@@ -425,10 +432,28 @@ if [[ -z "\$workspace_dir" ]] || [[ ! -f "\$workspace_dir/examples/devcontainer/
   exit 1
 fi
 cd "\$workspace_dir"
+conf_uri_override=$conf_uri_override_q
+if [[ -n "\$conf_uri_override" ]]; then
+  resolved_conf_uri="\$conf_uri_override"
+else
+  fixture_root="/tmp/decomk-codespaces-fixture/$run_id_q"
+  conf_work="\$fixture_root/confrepo-work"
+  conf_bare="\$fixture_root/confrepo.git"
+  rm -rf "\$fixture_root"
+  mkdir -p "\$conf_work"
+  cp -a examples/decomk-selftest/fixtures/confrepo/. "\$conf_work"
+  git -C "\$conf_work" init -q
+  git -C "\$conf_work" config user.name "decomk selftest"
+  git -C "\$conf_work" config user.email "selftest@example.invalid"
+  git -C "\$conf_work" add .
+  git -C "\$conf_work" commit -q -m "Seed decomk codespaces fixture repo"
+  git clone -q --bare "\$conf_work" "\$conf_bare"
+  resolved_conf_uri="git:file://\$conf_bare"
+fi
 export DECOMK_HOME=$decomk_home_q
 export DECOMK_LOG_DIR=$decomk_log_dir_q
 export DECOMK_TOOL_URI=$tool_uri_q
-export DECOMK_CONF_URI=$conf_uri_q
+export DECOMK_CONF_URI="\$resolved_conf_uri"
 export DECOMK_RUN_ARGS=$run_args_q
 bash examples/devcontainer/postCreateCommand.sh
 EOF

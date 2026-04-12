@@ -564,8 +564,10 @@ install-user-stuff:
     - `examples/decomk-selftest/fixtures/confrepo/`
 - Codespaces parity validation lives under `examples/decomk-selftest/codespaces/`.
   - Run:
+    - `examples/decomk-selftest/codespaces/run.sh`
+  - The harness creates a fresh Codespace from the pushed branch under test, auto-builds a fixture config repo inside the Codespace, exports stage-0 URI vars, runs `examples/devcontainer/postCreateCommand.sh`, validates PASS/FAIL markers, runs stamp regression checks, then deletes the Codespace unless `--keep-on-fail` is set.
+  - Optional override for external fixture config source:
     - `examples/decomk-selftest/codespaces/run.sh --conf-uri git:https://github.com/<owner>/<conf-repo>.git`
-  - The harness creates a fresh Codespace from the pushed branch under test, exports stage-0 URI vars, runs `examples/devcontainer/postCreateCommand.sh`, validates PASS/FAIL markers, runs stamp regression checks, then deletes the Codespace unless `--keep-on-fail` is set.
   - Codespaces parity harness requires local `HEAD` to match `origin/<branch>` (commit + push first).
   - Harness details and prerequisites are documented in:
     - `examples/decomk-selftest/README.md`

@@ -97,6 +97,15 @@ Intent: Prove decomk stage-0 + run behavior parity between local DevPod and GitH
 Constraints: Harness must fail fast when local `HEAD` is not pushed to `origin/<branch>`, use repo-hosted devcontainer config for create-time reproducibility, preserve diagnostics on failure, and support an explicit debug mode that keeps failed Codespaces alive.
 Affects: `examples/decomk-selftest/codespaces/run.sh`, `examples/decomk-selftest/codespaces/.devcontainer/*`, `examples/decomk-selftest/README.md`, `README.md`, `TODO/007-devpod-gcp-selfhost-migration.md`.
 
+ID: DI-007-20260413-000500
+Date: 2026-04-13 00:05:00
+Status: active
+Decision: Make Codespaces parity harness self-contained by defaulting config source to an auto-generated fixture git repo inside the Codespace, while retaining optional `--conf-uri` override for external fixture repos.
+Intent: Remove unnecessary operator-provided fixture URI plumbing for normal runs and keep stage-0 coverage realistic by still cloning config from a URI.
+Constraints: Keep pushed-branch requirement, keep marker/stamp assertions fixture-driven, preserve failure artifact collection, and avoid mutating the repository under test.
+Affects: `examples/decomk-selftest/codespaces/run.sh`, `examples/decomk-selftest/README.md`, `README.md`.
+Supersedes: DI-007-20260412-230000 (config source requirement only)
+
 Related design docs:
 - `doc/isconf-design.md`
 - `doc/decomk-design.md`

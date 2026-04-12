@@ -47,16 +47,22 @@ Literal target run:
 examples/decomk-selftest/devpod-local/run.sh all
 ```
 
-Codespaces parity run (requires local branch pushed and a remote-reachable fixture config repo):
+Codespaces parity run (requires local branch pushed):
 
 ```bash
-examples/decomk-selftest/codespaces/run.sh --conf-uri git:https://github.com/<owner>/<conf-repo>.git
+examples/decomk-selftest/codespaces/run.sh
 ```
 
 Codespaces parity run with explicit action args:
 
 ```bash
-examples/decomk-selftest/codespaces/run.sh --conf-uri git:https://github.com/<owner>/<conf-repo>.git TUPLE_VERIFY_TOOL TUPLE_VERIFY_CONF TUPLE_CONTEXT_OVERRIDE TUPLE_DEFAULT_SHARED
+examples/decomk-selftest/codespaces/run.sh TUPLE_VERIFY_TOOL TUPLE_VERIFY_CONF TUPLE_CONTEXT_OVERRIDE TUPLE_DEFAULT_SHARED
+```
+
+Codespaces parity run with explicit config URI override:
+
+```bash
+examples/decomk-selftest/codespaces/run.sh --conf-uri git:https://github.com/<owner>/<conf-repo>.git
 ```
 
 ## Context and tuple semantics covered
