@@ -553,6 +553,10 @@ install-user-stuff:
 
 ## Self-test harness
 
+- Root convenience targets:
+  - `make selftest-devpod`
+  - `make selftest-codespaces`
+  - `make selftest-codespaces-clean`
 - Local DevPod Docker-provider validation lives under `examples/decomk-selftest/`.
   - Default tuple-override check:
     - `examples/decomk-selftest/devpod-local/run.sh`

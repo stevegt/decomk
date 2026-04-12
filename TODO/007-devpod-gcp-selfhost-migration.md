@@ -165,6 +165,14 @@ Intent: Make successful parity runs inspectable without reruns while preserving 
 Constraints: Do not alter failure artifact retention semantics, keep Codespace lifecycle behavior unchanged, and preserve existing marker/stamp validation flow.
 Affects: `examples/decomk-selftest/codespaces/run.sh`, `examples/decomk-selftest/README.md`, `README.md`, `TODO/007-devpod-gcp-selfhost-migration.md`.
 
+ID: DI-007-20260412-043200
+Date: 2026-04-12 04:32:00
+Status: active
+Decision: Add root `make` wrappers for local DevPod and Codespaces selftests, including an explicit cleanup variant for Codespaces runs.
+Intent: Make selftest execution muscle-memory simple and consistent so operators can run parity checks without remembering script paths and cleanup flags.
+Constraints: Keep wrapper targets phony, preserve existing harness behavior, and keep cleanup optional rather than default.
+Affects: `Makefile`, `README.md`, `examples/decomk-selftest/README.md`, `TODO/007-devpod-gcp-selfhost-migration.md`.
+
 Related design docs:
 - `doc/isconf-design.md`
 - `doc/decomk-design.md`

@@ -29,6 +29,14 @@ Template note:
 
 ## Run
 
+From repo root, convenience wrappers are available:
+
+```bash
+make selftest-devpod
+make selftest-codespaces
+make selftest-codespaces-clean
+```
+
 Default run (tuple checks):
 
 ```bash
