@@ -1,6 +1,6 @@
 # decomk self-test
 
-This directory contains a local DevPod/Docker self-test harness that validates decomk bootstrap behavior end-to-end.
+This directory contains automated self-test harnesses that validate decomk bootstrap behavior end-to-end across local DevPod and GitHub Codespaces.
 
 Template note:
 - `workspace-template/.devcontainer/devcontainer.json` and `workspace-template/.devcontainer/postCreateCommand.sh` are generated from `cmd/decomk/templates/*`.
@@ -9,7 +9,7 @@ Template note:
 ## Current scope
 
 - Local DevPod with Docker provider (automated)
-- Codespaces parity checks (planned next stage)
+- GitHub Codespaces parity harness (automated)
 - Remote GCP provider checks (deferred)
 
 ## Harness model
@@ -45,6 +45,18 @@ Literal target run:
 
 ```bash
 examples/decomk-selftest/devpod-local/run.sh all
+```
+
+Codespaces parity run (requires local branch pushed and a remote-reachable fixture config repo):
+
+```bash
+examples/decomk-selftest/codespaces/run.sh --conf-uri git:https://github.com/<owner>/<conf-repo>.git
+```
+
+Codespaces parity run with explicit action args:
+
+```bash
+examples/decomk-selftest/codespaces/run.sh --conf-uri git:https://github.com/<owner>/<conf-repo>.git TUPLE_VERIFY_TOOL TUPLE_VERIFY_CONF TUPLE_CONTEXT_OVERRIDE TUPLE_DEFAULT_SHARED
 ```
 
 ## Context and tuple semantics covered

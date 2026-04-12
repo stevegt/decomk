@@ -1,0 +1,8 @@
+{
+  "name": "decomk-selftest-codespaces",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "remoteUser": "dev"
+}

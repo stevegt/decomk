@@ -89,6 +89,14 @@ Constraints: `run.sh` remains the only component that publishes fixture repos; p
 Affects: `examples/decomk-selftest/devpod-local/run.sh`, selftest fixture `Makefile` and scripts, generated selftest workspace template files, `examples/decomk-selftest/README.md`, `doc/decomk-design.md`.
 Supersedes: DI-007-20260311-145221
 
+ID: DI-007-20260412-230000
+Date: 2026-04-12 23:00:00
+Status: active
+Decision: Add a Codespaces parity harness (`examples/decomk-selftest/codespaces/run.sh`) that creates a fresh Codespace from the pushed branch under test, injects stage-0 URI env vars, runs production stage-0 bootstrap script, validates fixture PASS/FAIL markers and stamp checks, and then tears down the Codespace by default.
+Intent: Prove decomk stage-0 + run behavior parity between local DevPod and GitHub Codespaces while keeping test assertions fixture-driven and avoiding hidden harness-side scenario logic.
+Constraints: Harness must fail fast when local `HEAD` is not pushed to `origin/<branch>`, use repo-hosted devcontainer config for create-time reproducibility, preserve diagnostics on failure, and support an explicit debug mode that keeps failed Codespaces alive.
+Affects: `examples/decomk-selftest/codespaces/run.sh`, `examples/decomk-selftest/codespaces/.devcontainer/*`, `examples/decomk-selftest/README.md`, `README.md`, `TODO/007-devpod-gcp-selfhost-migration.md`.
+
 Related design docs:
 - `doc/isconf-design.md`
 - `doc/decomk-design.md`
@@ -330,5 +338,5 @@ Mitigation: pin provider and CLI versions in docs and CI checks.
 - [ ] 007.9 Execute pilot cohort and capture parity findings vs Codespaces.
 - [ ] 007.10 Perform default switch and keep rollback window open for one stabilization period.
 - [ ] 007.11 Decommission Codespaces dependencies after stabilization and archive fallback documentation.
-- [ ] 007.12 Add automated Codespaces parity harness under `examples/decomk-selftest/codespaces`.
+- [x] 007.12 Add automated Codespaces parity harness under `examples/decomk-selftest/codespaces`.
 - [ ] 007.13 Revisit remote GCP-provider self-test scope after explicit move-to-GCP decision.

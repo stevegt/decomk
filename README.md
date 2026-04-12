@@ -562,9 +562,13 @@ install-user-stuff:
   - Context selection is automatic from workspace repo name (`decomk`), with no explicit `-context` in harness calls.
   - Fixture config/make/scripts live under:
     - `examples/decomk-selftest/fixtures/confrepo/`
+- Codespaces parity validation lives under `examples/decomk-selftest/codespaces/`.
+  - Run:
+    - `examples/decomk-selftest/codespaces/run.sh --conf-uri git:https://github.com/<owner>/<conf-repo>.git`
+  - The harness creates a fresh Codespace from the pushed branch under test, exports stage-0 URI vars, runs `examples/devcontainer/postCreateCommand.sh`, validates PASS/FAIL markers, runs stamp regression checks, then deletes the Codespace unless `--keep-on-fail` is set.
+  - Codespaces parity harness requires local `HEAD` to match `origin/<branch>` (commit + push first).
   - Harness details and prerequisites are documented in:
     - `examples/decomk-selftest/README.md`
-- Codespaces parity checks are planned as the next stage after local DevPod stability.
 - Remote GCP-provider self-tests are intentionally deferred until a separate move-to-GCP decision is approved.
 
 ## Limitations (current MVP)
