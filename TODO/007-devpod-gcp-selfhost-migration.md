@@ -157,6 +157,14 @@ Intent: Keep stamp verification runs on the same config/stamp/log state initiali
 Constraints: Preserve existing marker-based assertions, keep postCreate behavior unchanged, and avoid harness-side config mutation between runs.
 Affects: `examples/decomk-selftest/codespaces/run.sh`, `TODO/007-devpod-gcp-selfhost-migration.md`.
 
+ID: DI-007-20260412-042700
+Date: 2026-04-12 04:27:00
+Status: active
+Decision: Keep local Codespaces harness artifacts under `/tmp/decomk-codespaces.*` by default after successful runs, with an explicit `--cleanup` flag to opt into removal.
+Intent: Make successful parity runs inspectable without reruns while preserving an explicit cleanup path for operators who prefer ephemeral local artifacts.
+Constraints: Do not alter failure artifact retention semantics, keep Codespace lifecycle behavior unchanged, and preserve existing marker/stamp validation flow.
+Affects: `examples/decomk-selftest/codespaces/run.sh`, `examples/decomk-selftest/README.md`, `README.md`, `TODO/007-devpod-gcp-selfhost-migration.md`.
+
 Related design docs:
 - `doc/isconf-design.md`
 - `doc/decomk-design.md`

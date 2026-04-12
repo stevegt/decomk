@@ -33,6 +33,8 @@ Optional options:
   --ssh-timeout <sec>        Wait timeout for SSH readiness (default: 600).
   --name-prefix <prefix>     Display-name prefix (default: dst-codespaces).
   --keep-on-fail             Keep failed codespace for debugging.
+  --cleanup                  Remove local /tmp harness artifacts on success.
+                             Default keeps artifacts for post-run inspection.
   -h, --help                 Show this message.
 
 Examples:
@@ -289,6 +291,7 @@ create_timeout=900
 ssh_timeout=600
 name_prefix="dst-codespaces"
 keep_on_fail="false"
+cleanup_on_success="false"
 decomk_home="/tmp/decomk-selftest/home"
 decomk_log_dir="/tmp/decomk-selftest/log"
 
@@ -351,6 +354,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --keep-on-fail)
       keep_on_fail="true"
+      shift
+      ;;
+    --cleanup)
+      cleanup_on_success="true"
       shift
       ;;
     -h|--help)
@@ -496,10 +503,16 @@ cleanup() {
     fi
   fi
 
-  if [[ "$exit_code" -eq 0 ]]; then
+  # Intent: Preserve local harness artifacts by default so successful runs are
+  # inspectable after completion; only delete them when operators explicitly
+  # opt into cleanup.
+  # Source: DI-007-20260412-042700 (TODO/007)
+  if [[ "$exit_code" -ne 0 ]]; then
+    log "failure artifacts preserved at: $temp_root"
+  elif [[ "$cleanup_on_success" == "true" ]]; then
     rm -rf "$temp_root"
   else
-    log "failure artifacts preserved at: $temp_root"
+    log "artifacts preserved at: $temp_root"
   fi
 }
 trap cleanup EXIT

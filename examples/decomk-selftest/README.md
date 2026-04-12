@@ -71,8 +71,16 @@ Codespaces parity run with explicit machine override:
 examples/decomk-selftest/codespaces/run.sh --machine <machine-name>
 ```
 
+Codespaces parity run with local artifact cleanup on success:
+
+```bash
+examples/decomk-selftest/codespaces/run.sh --cleanup
+```
+
 By default, the harness resolves machine type from the repository-allowed
 Codespaces machine list (prefers `basicLinux32gb` when available).
+By default, local harness artifacts under `/tmp/decomk-codespaces.*` are kept
+for post-run inspection.
 
 The Codespaces selftest devcontainer enables `ghcr.io/devcontainers/features/sshd:1`
 because the harness runs all remote checks through `gh codespace ssh`.
