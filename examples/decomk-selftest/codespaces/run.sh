@@ -526,8 +526,12 @@ if ! codespace_name="$(resolve_codespace_name "$repo_slug" "$display_name" "$cre
 fi
 log "codespace name: $codespace_name"
 
+# Intent: The harness executes all remote checks via `gh codespace ssh`, so the
+# selftest devcontainer must include an SSH server feature. Keep the failure
+# message explicit so stale codespaces or feature drift are actionable.
+# Source: DI-007-20260413-051500 (TODO/007)
 if ! wait_for_codespace_ssh "$ssh_timeout"; then
-  fail 22 "timed out waiting for SSH readiness on codespace: $codespace_name"
+  fail 22 "timed out waiting for SSH readiness on codespace: $codespace_name (verify selftest devcontainer includes ghcr.io/devcontainers/features/sshd:1 and recreate the codespace)"
 fi
 codespace_ready="true"
 

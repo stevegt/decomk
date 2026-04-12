@@ -74,6 +74,9 @@ examples/decomk-selftest/codespaces/run.sh --machine <machine-name>
 By default, the harness resolves machine type from the repository-allowed
 Codespaces machine list (prefers `basicLinux32gb` when available).
 
+The Codespaces selftest devcontainer enables `ghcr.io/devcontainers/features/sshd:1`
+because the harness runs all remote checks through `gh codespace ssh`.
+
 ## Context and tuple semantics covered
 
 - Workspace repo name `decomk` is auto-detected as context key.

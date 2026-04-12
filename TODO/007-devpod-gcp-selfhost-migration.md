@@ -141,6 +141,14 @@ Intent: Improve operator feedback during slow startup so waits are visibly activ
 Constraints: Keep wait-loop behavior unchanged, avoid contaminating command-substitution outputs, and preserve timeout-based failure semantics.
 Affects: `examples/decomk-selftest/codespaces/run.sh`, `TODO/007-devpod-gcp-selfhost-migration.md`.
 
+ID: DI-007-20260413-051500
+Date: 2026-04-13 05:15:00
+Status: active
+Decision: Require SSH server availability in the Codespaces selftest devcontainer by enabling `ghcr.io/devcontainers/features/sshd:1`, and surface an explicit harness error hint when SSH readiness does not come up.
+Intent: Ensure harness remote execution via `gh codespace ssh` is reliable and failures are actionable when stale/badly configured codespaces are used.
+Constraints: Keep the harness workflow unchanged, preserve timeout semantics, and avoid requiring manual per-run SSH setup.
+Affects: `.devcontainer/codespaces-selftest/devcontainer.json`, `examples/decomk-selftest/codespaces/run.sh`, `TODO/007-devpod-gcp-selfhost-migration.md`.
+
 Related design docs:
 - `doc/isconf-design.md`
 - `doc/decomk-design.md`
