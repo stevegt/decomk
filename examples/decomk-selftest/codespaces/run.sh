@@ -228,6 +228,40 @@ latest_make_log_path() {
   codespace_bash "find $decomk_log_dir_q -type f -name make.log | sort | tail -n1"
 }
 
+sanitize_diag_step_name() {
+  local step_name="$1"
+  step_name="${step_name//[^a-zA-Z0-9._-]/_}"
+  printf '%s' "$step_name"
+}
+
+record_diag_step() {
+  local step_name="$1"
+  shift
+
+  local safe_step_name
+  safe_step_name="$(sanitize_diag_step_name "$step_name")"
+  local stdout_path="$temp_root/diag-${safe_step_name}.stdout.log"
+  local stderr_path="$temp_root/diag-${safe_step_name}.stderr.log"
+  local rc_path="$temp_root/diag-${safe_step_name}.rc"
+
+  local rc=0
+  if "$@" >"$stdout_path" 2>"$stderr_path"; then
+    rc=0
+  else
+    rc=$?
+  fi
+
+  printf '%s\n' "$rc" >"$rc_path"
+  if [[ "$rc" -eq 0 ]]; then
+    printf '%s\tOK\t0\n' "$step_name" >>"$diag_summary_path"
+    return 0
+  fi
+
+  printf '%s\tFAIL\t%s\n' "$step_name" "$rc" >>"$diag_summary_path"
+  log "diagnostics step failed: $step_name (rc=$rc; stderr: $stderr_path)"
+  return "$rc"
+}
+
 load_make_log_or_fail() {
   local exit_code="$1"
   local log_path="$2"
@@ -476,6 +510,7 @@ if [[ -z "$display_name" ]]; then
 fi
 
 temp_root="$(mktemp -d /tmp/decomk-codespaces.XXXXXX)"
+diag_summary_path="$temp_root/diagnostics-summary.txt"
 codespace_name=""
 codespace_ready="false"
 make_log_lines=()
@@ -483,25 +518,62 @@ make_log_lines=()
 cleanup() {
   local exit_code=$?
   set +e
+  local diagnostics_failed="false"
+
+  : >"$diag_summary_path"
+  printf 'run_exit_code\t%s\n' "$exit_code" >>"$diag_summary_path"
+  printf 'codespace_name\t%s\n' "$codespace_name" >>"$diag_summary_path"
 
   if [[ -n "$codespace_name" ]]; then
     log "collecting diagnostics: $temp_root"
-    gh codespace logs -c "$codespace_name" >"$temp_root/codespace.log" 2>&1 || true
+    if ! record_diag_step "codespace-logs" gh codespace logs -c "$codespace_name"; then
+      diagnostics_failed="true"
+    fi
+    if ! cp "$temp_root/diag-codespace-logs.stdout.log" "$temp_root/codespace.log"; then
+      log "diagnostics step failed: persist-codespace-log-copy (stderr: $temp_root/diag-codespace-logs.stderr.log)"
+      diagnostics_failed="true"
+    fi
 
     if [[ "$codespace_ready" == "true" ]]; then
       local decomk_log_dir_q
       decomk_log_dir_q="$(printf '%q' "$decomk_log_dir")"
-      codespace_bash "find $decomk_log_dir_q -type f -name make.log | sort" >"$temp_root/make-log-paths.txt" 2>/dev/null || true
-      gh codespace cp -c "$codespace_name" -r "remote:$decomk_log_dir" "$temp_root/remote-log-dir" >/dev/null 2>&1 || true
+      if record_diag_step "list-make-log-paths" codespace_bash "find $decomk_log_dir_q -type f -name make.log | sort"; then
+        if ! cp "$temp_root/diag-list-make-log-paths.stdout.log" "$temp_root/make-log-paths.txt"; then
+          log "diagnostics step failed: persist-make-log-path-copy"
+          diagnostics_failed="true"
+        fi
+      else
+        : >"$temp_root/make-log-paths.txt"
+        diagnostics_failed="true"
+      fi
+
+      if ! record_diag_step "copy-remote-log-dir" gh codespace cp -c "$codespace_name" -r "remote:$decomk_log_dir" "$temp_root/remote-log-dir"; then
+        diagnostics_failed="true"
+      fi
     fi
 
     if [[ "$exit_code" -ne 0 && "$keep_on_fail" == "true" ]]; then
       log "keeping failed codespace for debugging: $codespace_name"
+      printf 'codespace-cleanup\tSKIPPED\tkeep-on-fail\n' >>"$diag_summary_path"
     else
-      gh codespace stop -c "$codespace_name" >/dev/null 2>&1 || true
-      gh codespace delete -c "$codespace_name" -f >/dev/null 2>&1 || true
+      if ! record_diag_step "codespace-stop" gh codespace stop -c "$codespace_name"; then
+        diagnostics_failed="true"
+      fi
+      if ! record_diag_step "codespace-delete" gh codespace delete -c "$codespace_name" -f; then
+        diagnostics_failed="true"
+      fi
     fi
+  else
+    printf 'codespace\tSKIPPED\tmissing-name\n' >>"$diag_summary_path"
   fi
+
+  # Intent: Record teardown command status in explicit diagnostics files so
+  # selftest runs never hide cleanup or artifact-capture failures.
+  # Source: DI-008-20260412-122157 (TODO/008)
+  if [[ "$diagnostics_failed" == "true" ]]; then
+    log "diagnostics capture had failures; see $diag_summary_path"
+  fi
+  printf 'complete\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$temp_root/diagnostics.complete"
 
   # Intent: Preserve local harness artifacts by default so successful runs are
   # inspectable after completion; only delete them when operators explicitly
@@ -510,7 +582,10 @@ cleanup() {
   if [[ "$exit_code" -ne 0 ]]; then
     log "failure artifacts preserved at: $temp_root"
   elif [[ "$cleanup_on_success" == "true" ]]; then
-    rm -rf "$temp_root"
+    if ! rm -rf "$temp_root"; then
+      log "cleanup warning: failed to remove $temp_root"
+      log "artifacts preserved at: $temp_root"
+    fi
   else
     log "artifacts preserved at: $temp_root"
   fi
@@ -572,7 +647,10 @@ remote_stage0_script="$(cat <<EOF
 set -euo pipefail
 workspace_dir="/workspaces/$repo_basename"
 if [[ ! -f "\$workspace_dir/examples/devcontainer/postCreateCommand.sh" ]]; then
-  workspace_dir="\$(find /workspaces -mindepth 1 -maxdepth 2 -type d -name $repo_basename_q | head -n1 || true)"
+  if ! workspace_dir="\$(find /workspaces -mindepth 1 -maxdepth 2 -type d -name $repo_basename_q | head -n1)"; then
+    echo "failed searching /workspaces for repo $repo_basename" >&2
+    exit 1
+  fi
 fi
 if [[ -z "\$workspace_dir" ]] || [[ ! -f "\$workspace_dir/examples/devcontainer/postCreateCommand.sh" ]]; then
   echo "unable to locate workspace root containing examples/devcontainer/postCreateCommand.sh" >&2
@@ -634,7 +712,10 @@ run_decomk_with_stage0_env() {
 set -euo pipefail
 workspace_dir="/workspaces/$repo_basename"
 if [[ ! -d "\$workspace_dir" ]]; then
-  workspace_dir="\$(find /workspaces -mindepth 1 -maxdepth 2 -type d -name $repo_basename_q | head -n1 || true)"
+  if ! workspace_dir="\$(find /workspaces -mindepth 1 -maxdepth 2 -type d -name $repo_basename_q | head -n1)"; then
+    echo "failed searching /workspaces for repo $repo_basename" >&2
+    exit 1
+  fi
 fi
 if [[ -z "\$workspace_dir" ]]; then
   echo "unable to locate workspace root containing repo $repo_basename" >&2

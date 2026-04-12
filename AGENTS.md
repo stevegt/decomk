@@ -66,6 +66,15 @@
 - Add and maintain explanatory comments for non-obvious logic.
 - Use `git mv` for file moves/renames to preserve history.
 
+## Error Handling Policy (Required)
+- Never use `|| true` in scripts, templates, or make recipes. Always inspect
+  command exit codes explicitly with `if/else` branches and handle each outcome.
+- For non-fatal cleanup/diagnostics steps, record command status (exit code and
+  logs) explicitly; do not fail silently.
+- In Go code, never ignore errors with `_ = ...`; handle, propagate, or report
+  errors explicitly.
+- Run `errcheck ./...` and keep it passing for Go changes.
+
 ## Comment Preservation Protocol (Required)
 - Never remove existing code comments unless they are replaced in the same patch by equal-or-better explanatory comments near the same logic.
 - When rewriting or refactoring code, port old explanatory intent first, then improve wording.

@@ -571,6 +571,10 @@ install-user-stuff:
     - `examples/decomk-selftest/codespaces/run.sh`
   - The harness creates a fresh Codespace from the pushed branch under test, auto-builds a fixture config repo inside the Codespace, exports stage-0 URI vars, runs `examples/devcontainer/postCreateCommand.sh`, validates PASS/FAIL markers, runs stamp regression checks, then deletes the Codespace unless `--keep-on-fail` is set.
   - Local harness artifacts under `/tmp/decomk-codespaces.*` are preserved by default for inspection; pass `--cleanup` to remove them on success.
+  - Diagnostics artifacts are explicit and completion-marked:
+    - `diagnostics-summary.txt` (step-by-step status)
+    - `diag-<step>.rc`, `diag-<step>.stdout.log`, `diag-<step>.stderr.log`
+    - `diagnostics.complete` (written when artifact collection is finished)
   - The selftest devcontainer enables `ghcr.io/devcontainers/features/sshd:1` because harness execution depends on `gh codespace ssh`.
   - Machine selection auto-resolves from the repository-allowed Codespaces machine list (prefers `basicLinux32gb` when available); override with:
     - `examples/decomk-selftest/codespaces/run.sh --machine <machine-name>`

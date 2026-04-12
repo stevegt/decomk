@@ -24,6 +24,7 @@ package contexts
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -95,14 +96,26 @@ func LoadTree(path string) (Defs, error) {
 }
 
 // LoadFile loads and parses a single config file.
-func LoadFile(path string) (Defs, error) {
+func LoadFile(path string) (defs Defs, err error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("open %q: %w", path, err)
 	}
-	defer f.Close()
+	// Intent: Preserve file close failures while parsing decomk.conf so I/O errors
+	// are never dropped during context resolution.
+	// Source: DI-008-20260412-122157 (TODO/008)
+	defer func() {
+		if closeErr := f.Close(); closeErr != nil {
+			wrapped := fmt.Errorf("close %q: %w", path, closeErr)
+			if err == nil {
+				err = wrapped
+				return
+			}
+			err = errors.Join(err, wrapped)
+		}
+	}()
 
-	defs, err := Parse(f)
+	defs, err = Parse(f)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}

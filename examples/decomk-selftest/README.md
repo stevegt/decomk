@@ -89,6 +89,9 @@ By default, the harness resolves machine type from the repository-allowed
 Codespaces machine list (prefers `basicLinux32gb` when available).
 By default, local harness artifacts under `/tmp/decomk-codespaces.*` are kept
 for post-run inspection.
+Artifact collection is explicit: inspect `diagnostics-summary.txt`,
+`diag-<step>.rc`, `diag-<step>.stdout.log`, and `diag-<step>.stderr.log`.
+Wait for `diagnostics.complete` before assuming artifact capture is finished.
 
 The Codespaces selftest devcontainer enables `ghcr.io/devcontainers/features/sshd:1`
 because the harness runs all remote checks through `gh codespace ssh`.

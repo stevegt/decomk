@@ -16,6 +16,7 @@ package state
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -221,7 +222,12 @@ func LockFile(lockPath string) (*Lock, error) {
 		return nil, err
 	}
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
-		_ = f.Close()
+		// Intent: Never drop lock-acquire cleanup failures; preserve both lock and
+		// close errors so lockfile issues are diagnosable instead of silent.
+		// Source: DI-008-20260412-122157 (TODO/008)
+		if closeErr := f.Close(); closeErr != nil {
+			return nil, errors.Join(err, fmt.Errorf("close lock file after flock failure: %w", closeErr))
+		}
 		return nil, err
 	}
 	return &Lock{f: f}, nil
@@ -232,8 +238,26 @@ func (l *Lock) Close() error {
 	if l == nil || l.f == nil {
 		return nil
 	}
-	_ = syscall.Flock(int(l.f.Fd()), syscall.LOCK_UN)
-	return l.f.Close()
+	// Intent: Return both unlock and close failures so lock lifecycle errors are
+	// explicit and never dropped.
+	// Source: DI-008-20260412-122157 (TODO/008)
+	unlockErr := syscall.Flock(int(l.f.Fd()), syscall.LOCK_UN)
+	closeErr := l.f.Close()
+	l.f = nil
+
+	if unlockErr != nil && closeErr != nil {
+		return errors.Join(
+			fmt.Errorf("unlock lock file: %w", unlockErr),
+			fmt.Errorf("close lock file: %w", closeErr),
+		)
+	}
+	if unlockErr != nil {
+		return fmt.Errorf("unlock lock file: %w", unlockErr)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("close lock file: %w", closeErr)
+	}
+	return nil
 }
 
 // TouchExistingStamps updates the mtime of existing, non-hidden files in stampDir.

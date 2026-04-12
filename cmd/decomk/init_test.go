@@ -161,7 +161,9 @@ func TestCmdInit_DefaultRepoRootUsesGitToplevel(t *testing.T) {
 		t.Fatalf("Getwd: %v", err)
 	}
 	t.Cleanup(func() {
-		_ = os.Chdir(origWD)
+		if cleanupErr := os.Chdir(origWD); cleanupErr != nil {
+			t.Errorf("cleanup Chdir(origWD): %v", cleanupErr)
+		}
 	})
 	if err := os.Chdir(nested); err != nil {
 		t.Fatalf("Chdir(nested): %v", err)
@@ -200,7 +202,9 @@ func TestCmdInit_DefaultRepoRootErrorsOutsideGitRepo(t *testing.T) {
 		t.Fatalf("Getwd: %v", err)
 	}
 	t.Cleanup(func() {
-		_ = os.Chdir(origWD)
+		if cleanupErr := os.Chdir(origWD); cleanupErr != nil {
+			t.Errorf("cleanup Chdir(origWD): %v", cleanupErr)
+		}
 	})
 	if err := os.Chdir(nonRepo); err != nil {
 		t.Fatalf("Chdir(nonRepo): %v", err)

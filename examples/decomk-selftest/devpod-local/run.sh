@@ -81,22 +81,56 @@ runtime_conf_bare="$temp_root/confrepo.git"
 runtime_tool_bare="$temp_root/toolrepo.git"
 
 cleanup() {
+  local exit_code=$?
+  set +e
+  local cleanup_failed="false"
   local workspace_name
   for workspace_name in "${active_workspaces[@]:-}"; do
-    cleanup_workspace "$workspace_name"
+    if ! cleanup_workspace "$workspace_name"; then
+      cleanup_failed="true"
+    fi
   done
 
   if [[ -n "${git_server_pid:-}" ]]; then
-    kill "$git_server_pid" >/dev/null 2>&1 || true
-    wait "$git_server_pid" >/dev/null 2>&1 || true
+    local kill_sent="false"
+    if kill -0 "$git_server_pid" >/dev/null 2>&1; then
+      if ! kill "$git_server_pid" >/dev/null 2>&1; then
+        log "cleanup warning: failed to signal git daemon pid $git_server_pid"
+        cleanup_failed="true"
+      else
+        kill_sent="true"
+      fi
+    fi
+    local wait_rc=0
+    if ! wait "$git_server_pid" >/dev/null 2>&1; then
+      wait_rc=$?
+      if [[ "$kill_sent" == "true" ]] && [[ "$wait_rc" -eq 143 ]]; then
+        :
+      else
+        log "cleanup warning: failed waiting for git daemon pid $git_server_pid (rc=$wait_rc)"
+        cleanup_failed="true"
+      fi
+    fi
   fi
 
   if ! rm -rf "$temp_root"; then
     # Intent: Keep reruns ergonomic by attempting privileged cleanup when prior
     # container operations leave root-owned files in the temporary workspace.
     # Source: DI-007-20260309-124345 (TODO/007)
-    sudo -n rm -rf "$temp_root" 2>/dev/null || true
+    if ! sudo -n rm -rf "$temp_root" 2>/dev/null; then
+      log "cleanup warning: failed to remove temp workspace $temp_root"
+      cleanup_failed="true"
+    fi
   fi
+
+  # Intent: Report non-fatal cleanup failures explicitly so harness runs never
+  # hide command errors behind silent best-effort teardown.
+  # Source: DI-008-20260412-122157 (TODO/008)
+  if [[ "$cleanup_failed" == "true" ]]; then
+    log "cleanup completed with warnings"
+  fi
+
+  return "$exit_code"
 }
 trap cleanup EXIT
 
@@ -138,7 +172,9 @@ start_git_server() {
       log "fixture git server ready on port $git_server_port"
       return 0
     fi
-    wait "$git_server_pid" >/dev/null 2>&1 || true
+    if ! wait "$git_server_pid" >/dev/null 2>&1; then
+      log "git daemon start attempt failed on port $port"
+    fi
     git_server_pid=""
   done
   die "failed to start fixture git server; see $git_server_log"

@@ -110,11 +110,17 @@ sync_git_repo() {
       return 0
     fi
 
-    local current_branch
-    current_branch="$(git -C "$repo_dir" symbolic-ref --quiet --short HEAD 2>/dev/null || true)"
-    if [[ -n "$current_branch" ]]; then
-      git -C "$repo_dir" pull --ff-only origin "$current_branch"
-      return 0
+    # Intent: Handle detached-head lookups explicitly instead of suppressing
+    # symbolic-ref errors, so branch-resolution fallbacks are observable.
+    # Source: DI-008-20260412-122157 (TODO/008)
+    local current_branch=""
+    if current_branch="$(git -C "$repo_dir" symbolic-ref --quiet --short HEAD 2>/dev/null)"; then
+      if [[ -n "$current_branch" ]]; then
+        git -C "$repo_dir" pull --ff-only origin "$current_branch"
+        return 0
+      fi
+    else
+      echo "decomk bootstrap: detached HEAD in $repo_dir; trying origin default branch" >&2
     fi
 
     local origin_head

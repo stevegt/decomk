@@ -148,10 +148,14 @@ func cmdInit(args []string, stdout, stderr io.Writer) (int, error) {
 	}
 
 	if f.confURI == "" {
-		fmt.Fprintln(stderr, "decomk init: warning: DECOMK_CONF_URI is empty; postCreateCommand.sh will fail until conf/decomk.conf exists locally")
+		if err := writeLine(stderr, "decomk init: warning: DECOMK_CONF_URI is empty; postCreateCommand.sh will fail until conf/decomk.conf exists locally"); err != nil {
+			return 1, err
+		}
 	}
 	for _, result := range results {
-		fmt.Fprintf(stdout, "%s: %s\n", result.Status, result.Path)
+		if err := writeFormat(stdout, "%s: %s\n", result.Status, result.Path); err != nil {
+			return 1, err
+		}
 	}
 	return 0, nil
 }
@@ -215,9 +219,13 @@ func promptInitFlags(f *initFlags, setFlags map[string]bool, in io.Reader, out i
 // promptWithDefault reads one line, returning defaultValue when input is empty.
 func promptWithDefault(reader *bufio.Reader, out io.Writer, label, defaultValue string) (string, error) {
 	if defaultValue != "" {
-		fmt.Fprintf(out, "%s [%s]: ", label, defaultValue)
+		if err := writeFormat(out, "%s [%s]: ", label, defaultValue); err != nil {
+			return "", err
+		}
 	} else {
-		fmt.Fprintf(out, "%s: ", label)
+		if err := writeFormat(out, "%s: ", label); err != nil {
+			return "", err
+		}
 	}
 	line, err := reader.ReadString('\n')
 	if err != nil && !errors.Is(err, io.EOF) {

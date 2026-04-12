@@ -18,7 +18,12 @@ if [[ ! -d "$tool_repo_dir/.git" ]]; then
   selftest_fail "tool-repo-missing-git-dir"
 fi
 
-origin_url="$(git -C "$tool_repo_dir" config --get remote.origin.url || true)"
+# Intent: Treat origin lookup failures as explicit selftest failures so
+# repository-origin validation never silently passes.
+# Source: DI-008-20260412-122157 (TODO/008)
+if ! origin_url="$(git -C "$tool_repo_dir" config --get remote.origin.url 2>/dev/null)"; then
+  selftest_fail "tool-repo-missing-origin"
+fi
 if [[ -z "$origin_url" ]]; then
   selftest_fail "tool-repo-missing-origin"
 fi

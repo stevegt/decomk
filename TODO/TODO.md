@@ -3,6 +3,7 @@
 This list is sorted by priority (not number). TODO numbers are stable; do not renumber.
 
 - [x] 005 - decomk: log dir override + naming cleanup (`TODO/005-decomk-log-dir-and-terminology.md`)
+- [x] 008 - decomk: no silent failures + explicit error handling (`TODO/008-no-silent-failures.md`)
 - [ ] 001 - decomk: isconf-like devcontainer tool bootstrap (`TODO/001-decomk-devcontainer-tool-bootstrap.md`)
 - [ ] 007 - decomk: migrate from Codespaces to DevPod on self-hosted GCP (`TODO/007-devpod-gcp-selfhost-migration.md`)
 - [ ] 006 - decomk: user customization via GITHUB_USER (`TODO/006-decomk-user-customization-via-github-user.md`)

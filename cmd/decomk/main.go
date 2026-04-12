@@ -38,13 +38,17 @@ func main() {
 // calling os.Exit directly, which makes it easy to test in the future.
 func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) < 2 {
-		fmt.Fprintln(stderr, usage())
+		if err := writeLine(stderr, usage()); err != nil {
+			return 1
+		}
 		return 2
 	}
 
 	switch args[1] {
 	case "-h", "-help", "--help", "help":
-		fmt.Fprintln(stdout, usage())
+		if err := writeLine(stdout, usage()); err != nil {
+			return 1
+		}
 		return 0
 	case "init":
 		// Intent: Make stage-0 devcontainer bootstrap scaffolding first-class in
@@ -53,29 +57,55 @@ func run(args []string, stdout, stderr io.Writer) int {
 		// Source: DI-001-20260311-161825 (TODO/001)
 		code, err := cmdInit(args[2:], stdout, stderr)
 		if err != nil {
-			fmt.Fprintln(stderr, err.Error())
+			if printErr := writeLine(stderr, err.Error()); printErr != nil {
+				return 1
+			}
 			return code
 		}
 		return code
 	case "plan":
 		code, err := cmdPlan(args[2:], stdout, stderr)
 		if err != nil {
-			fmt.Fprintln(stderr, err.Error())
+			if printErr := writeLine(stderr, err.Error()); printErr != nil {
+				return 1
+			}
 			return code
 		}
 		return code
 	case "run":
 		code, err := cmdRun(args[2:], stdout, stderr)
 		if err != nil {
-			fmt.Fprintln(stderr, err.Error())
+			if printErr := writeLine(stderr, err.Error()); printErr != nil {
+				return 1
+			}
 			return code
 		}
 		return code
 	default:
-		fmt.Fprintln(stderr, "unknown command:", args[1])
-		fmt.Fprintln(stderr, usage())
+		if err := writeLine(stderr, "unknown command:", args[1]); err != nil {
+			return 1
+		}
+		if err := writeLine(stderr, usage()); err != nil {
+			return 1
+		}
 		return 2
 	}
+}
+
+// writeLine writes one line to w and reports any write failure.
+//
+// Intent: Route all user-facing writes through checked helpers so decomk never
+// silently drops output errors and continues on a broken stream.
+// Source: DI-008-20260412-122157 (TODO/008)
+func writeLine(w io.Writer, values ...any) error {
+	_, err := fmt.Fprintln(w, values...)
+	return err
+}
+
+// writeFormat writes formatted output to w and reports any write failure.
+func writeFormat(w io.Writer, format string, values ...any) error {
+	_, err := fmt.Fprintf(w, format, values...)
+	return err
 }
 
 // usage returns the top-level help text.
@@ -269,7 +299,7 @@ var (
 //
 // The executionMode controls whether env.sh is written, whether stamp state is
 // locked/touched, and whether output is captured to a per-run log file.
-func cmdExecute(args []string, stdout, stderr io.Writer, mode executionMode) (int, error) {
+func cmdExecute(args []string, stdout, stderr io.Writer, mode executionMode) (exitCode int, retErr error) {
 	fs := flag.NewFlagSet("decomk "+mode.Name, flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var f commonFlags
@@ -329,7 +359,9 @@ func cmdExecute(args []string, stdout, stderr io.Writer, mode executionMode) (in
 	cookedTuples := canonicalEnvTuples(plan, targets, makeAsRoot, incomingEnv)
 
 	if mode.DryRun {
-		warnIfRunRequiresPasswordlessSudo(makeAsRoot, stderr)
+		if err := warnIfRunRequiresPasswordlessSudo(makeAsRoot, stderr); err != nil {
+			return 1, err
+		}
 	}
 
 	makeCmd, makeUsesSudo, err := resolveMakeCommand(makeAsRoot, mode.DryRun)
@@ -338,9 +370,15 @@ func cmdExecute(args []string, stdout, stderr io.Writer, mode executionMode) (in
 	}
 
 	if mode.DryRun {
-		printPlan(stdout, plan, actionArgs, targets, targetSource)
-		fmt.Fprintln(stdout)
-		fmt.Fprintln(stdout, "env exports (dry-run; not written):")
+		if err := printPlan(stdout, plan, actionArgs, targets, targetSource); err != nil {
+			return 1, err
+		}
+		if err := writeLine(stdout); err != nil {
+			return 1, err
+		}
+		if err := writeLine(stdout, "env exports (dry-run; not written):"); err != nil {
+			return 1, err
+		}
 		if err := writeEnvExport(stdout, plan, cookedTuples); err != nil {
 			return 1, err
 		}
@@ -359,7 +397,25 @@ func cmdExecute(args []string, stdout, stderr io.Writer, mode executionMode) (in
 		if err != nil {
 			return 1, fmt.Errorf("lock stamps: %w", err)
 		}
-		defer lock.Close()
+		// Intent: Preserve close errors from deferred lock release so decomk never
+		// drops lock lifecycle failures.
+		// Source: DI-008-20260412-122157 (TODO/008)
+		defer func() {
+			if lock == nil {
+				return
+			}
+			if closeErr := lock.Close(); closeErr != nil {
+				wrapped := fmt.Errorf("close stamps lock: %w", closeErr)
+				if retErr == nil {
+					retErr = wrapped
+					if exitCode == 0 {
+						exitCode = 1
+					}
+					return
+				}
+				retErr = errors.Join(retErr, wrapped)
+			}
+		}()
 
 		// When make runs as root via sudo, it may leave root-owned stamps behind.
 		// Fix that before touching stamps so subsequent runs stay idempotent.
@@ -388,6 +444,7 @@ func cmdExecute(args []string, stdout, stderr io.Writer, mode executionMode) (in
 	out := stdout
 	errOut := stderr
 	var runLogPath string
+	var logFile *os.File
 	if mode.Log {
 		// Include sub-second resolution and pid to avoid collisions when two runs start
 		// close together (otherwise one run can clobber the other's log output).
@@ -397,11 +454,29 @@ func cmdExecute(args []string, stdout, stderr io.Writer, mode executionMode) (in
 			return 1, err
 		}
 		runLogPath = filepath.Join(runLogDir, "make.log")
-		logFile, err := os.OpenFile(runLogPath, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o600)
+		logFile, err = os.OpenFile(runLogPath, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o600)
 		if err != nil {
 			return 1, err
 		}
-		defer logFile.Close()
+		// Intent: Preserve deferred log close failures so successful runs don't hide
+		// file descriptor or fs-sync problems in audit logs.
+		// Source: DI-008-20260412-122157 (TODO/008)
+		defer func() {
+			if logFile == nil {
+				return
+			}
+			if closeErr := logFile.Close(); closeErr != nil {
+				wrapped := fmt.Errorf("close run log file %s: %w", runLogPath, closeErr)
+				if retErr == nil {
+					retErr = wrapped
+					if exitCode == 0 {
+						exitCode = 1
+					}
+					return
+				}
+				retErr = errors.Join(retErr, wrapped)
+			}
+		}()
 
 		out = io.MultiWriter(stdout, logFile)
 		errOut = io.MultiWriter(stderr, logFile)
@@ -417,12 +492,18 @@ func cmdExecute(args []string, stdout, stderr io.Writer, mode executionMode) (in
 	devUser := resolveDevUser()
 	makeUser := resolveMakeUser(makeAsRoot, devUser)
 	if makeUser == "root" && devUser == "" {
-		fmt.Fprintln(errOut, "decomk: warning: DECOMK_DEV_USER is empty; Makefile recipes that drop privileges (runuser/su) may fail")
+		if err := writeLine(errOut, "decomk: warning: DECOMK_DEV_USER is empty; Makefile recipes that drop privileges (runuser/su) may fail"); err != nil {
+			return 1, err
+		}
 	}
 
 	if mode.DryRun {
-		fmt.Fprintln(stdout)
-		fmt.Fprintln(stdout, "make -n output:")
+		if err := writeLine(stdout); err != nil {
+			return 1, err
+		}
+		if err := writeLine(stdout, "make -n output:"); err != nil {
+			return 1, err
+		}
 	}
 
 	exitCode, runErr := makeexec.RunWithFlagsCommand(plan.StampDir, plan.Makefile, makeCmd, mode.MakeFlags, makeTuples, targets, makeEnv, out, errOut)
@@ -451,41 +532,72 @@ func cmdExecute(args []string, stdout, stderr io.Writer, mode executionMode) (in
 }
 
 // printPlan prints the human-readable plan header and resolved argv pieces.
-func printPlan(w io.Writer, plan *resolvedPlan, actionArgs, targets []string, targetSource string) {
-	fmt.Fprintf(w, "home: %s\n", plan.Home)
+func printPlan(w io.Writer, plan *resolvedPlan, actionArgs, targets []string, targetSource string) error {
+	if err := writeFormat(w, "home: %s\n", plan.Home); err != nil {
+		return err
+	}
 	if len(plan.WorkspaceRepos) > 0 {
 		var names []string
 		for _, repo := range plan.WorkspaceRepos {
 			names = append(names, repo.Name)
 		}
-		fmt.Fprintf(w, "workspaces: %s\n", strings.Join(names, " "))
+		if err := writeFormat(w, "workspaces: %s\n", strings.Join(names, " ")); err != nil {
+			return err
+		}
 	}
 	if len(plan.ContextKeys) > 0 {
-		fmt.Fprintf(w, "contexts: %s\n", strings.Join(plan.ContextKeys, " "))
+		if err := writeFormat(w, "contexts: %s\n", strings.Join(plan.ContextKeys, " ")); err != nil {
+			return err
+		}
 	}
-	fmt.Fprintf(w, "config: %s\n", strings.Join(plan.ConfigPaths, ", "))
-	fmt.Fprintf(w, "env: %s\n", plan.EnvFile)
-	fmt.Fprintf(w, "stampDir: %s\n", plan.StampDir)
+	if err := writeFormat(w, "config: %s\n", strings.Join(plan.ConfigPaths, ", ")); err != nil {
+		return err
+	}
+	if err := writeFormat(w, "env: %s\n", plan.EnvFile); err != nil {
+		return err
+	}
+	if err := writeFormat(w, "stampDir: %s\n", plan.StampDir); err != nil {
+		return err
+	}
 	if len(actionArgs) > 0 {
-		fmt.Fprintf(w, "actionArgs: %s\n", strings.Join(actionArgs, " "))
+		if err := writeFormat(w, "actionArgs: %s\n", strings.Join(actionArgs, " ")); err != nil {
+			return err
+		}
 	}
-	fmt.Fprintf(w, "targetSource: %s\n", targetSource)
+	if err := writeFormat(w, "targetSource: %s\n", targetSource); err != nil {
+		return err
+	}
 	if plan.Makefile != "" {
-		fmt.Fprintf(w, "makefile: %s\n", plan.Makefile)
+		if err := writeFormat(w, "makefile: %s\n", plan.Makefile); err != nil {
+			return err
+		}
 	}
-	fmt.Fprintln(w)
+	if err := writeLine(w); err != nil {
+		return err
+	}
 
-	fmt.Fprintln(w, "tuples:")
-	for _, t := range plan.Tuples {
-		fmt.Fprintf(w, "  %s\n", t)
+	if err := writeLine(w, "tuples:"); err != nil {
+		return err
 	}
-	fmt.Fprintln(w, "targets:")
+	for _, t := range plan.Tuples {
+		if err := writeFormat(w, "  %s\n", t); err != nil {
+			return err
+		}
+	}
+	if err := writeLine(w, "targets:"); err != nil {
+		return err
+	}
 	if len(targets) == 0 {
-		fmt.Fprintln(w, "  (none; make will use its default goal)")
+		if err := writeLine(w, "  (none; make will use its default goal)"); err != nil {
+			return err
+		}
 	}
 	for _, t := range targets {
-		fmt.Fprintf(w, "  %s\n", t)
+		if err := writeFormat(w, "  %s\n", t); err != nil {
+			return err
+		}
 	}
+	return nil
 }
 
 // createUniqueDir creates a directory at base, adding a numeric suffix when the
@@ -532,7 +644,9 @@ func createRunLogDir(plan *resolvedPlan, runID string, stderr io.Writer) (string
 	fallbackBase := filepath.Join(fallbackRoot, runID)
 	fallbackDir, fallbackErr := createUniqueDir(fallbackBase)
 	if fallbackErr == nil {
-		fmt.Fprintf(stderr, "decomk: log dir %s not writable; falling back to %s (set -log-dir or DECOMK_LOG_DIR to override)\n", plan.LogRoot, fallbackRoot)
+		if warnErr := writeFormat(stderr, "decomk: log dir %s not writable; falling back to %s (set -log-dir or DECOMK_LOG_DIR to override)\n", plan.LogRoot, fallbackRoot); warnErr != nil {
+			return "", warnErr
+		}
 		return fallbackDir, nil
 	}
 
@@ -670,18 +784,18 @@ func resolveWorkspacesDir(flagOverride string) string {
 // Intent: Keep "decomk plan" usable without sudo while still surfacing that
 // "decomk run" will require passwordless sudo in root-make mode.
 // Source: DI-001-20260309-172358 (TODO/001)
-func warnIfRunRequiresPasswordlessSudo(makeAsRoot bool, stderr io.Writer) {
+func warnIfRunRequiresPasswordlessSudo(makeAsRoot bool, stderr io.Writer) error {
 	if !makeAsRoot || os.Geteuid() == 0 {
-		return
+		return nil
 	}
 	if _, err := exec.LookPath("sudo"); err != nil {
-		fmt.Fprintln(stderr, "decomk: warning: make will run as root by default but sudo is not in PATH; decomk run will fail unless you set -make-as-root=false")
-		return
+		return writeLine(stderr, "decomk: warning: make will run as root by default but sudo is not in PATH; decomk run will fail unless you set -make-as-root=false")
 	}
 	cmd := exec.Command("sudo", "-n", "true")
 	if err := cmd.Run(); err != nil {
-		fmt.Fprintln(stderr, "decomk: warning: make will run as root by default but passwordless sudo is not available (sudo -n failed); decomk run will fail unless you set -make-as-root=false")
+		return writeLine(stderr, "decomk: warning: make will run as root by default but passwordless sudo is not available (sudo -n failed); decomk run will fail unless you set -make-as-root=false")
 	}
+	return nil
 }
 
 // resolveMakeCommand returns the argv-style command prefix to execute make.
@@ -1539,7 +1653,12 @@ func writeEnvFile(path string, plan *resolvedPlan, cookedTuples []string) error 
 	}
 
 	if err := writeEnvExport(f, plan, cookedTuples); err != nil {
-		_ = f.Close()
+		// Intent: Preserve temp-file close failures alongside export failures so
+		// env export write errors are never silently dropped.
+		// Source: DI-008-20260412-122157 (TODO/008)
+		if closeErr := f.Close(); closeErr != nil {
+			return errors.Join(err, fmt.Errorf("close env export temp file after write failure: %w", closeErr))
+		}
 		return err
 	}
 	if err := f.Close(); err != nil {
@@ -1555,20 +1674,32 @@ func writeEnvFile(path string, plan *resolvedPlan, cookedTuples []string) error 
 // in a shell or make recipe.
 func writeEnvExport(w io.Writer, plan *resolvedPlan, cookedTuples []string) error {
 	now := time.Now().UTC().Format(time.RFC3339)
-	fmt.Fprintf(w, "# generated by decomk; do not edit\n")
-	fmt.Fprintf(w, "# time: %s\n", now)
+	if err := writeFormat(w, "# generated by decomk; do not edit\n"); err != nil {
+		return err
+	}
+	if err := writeFormat(w, "# time: %s\n", now); err != nil {
+		return err
+	}
 	if len(plan.ContextKeys) > 0 {
-		fmt.Fprintf(w, "# contexts: %s\n", strings.Join(plan.ContextKeys, " "))
+		if err := writeFormat(w, "# contexts: %s\n", strings.Join(plan.ContextKeys, " ")); err != nil {
+			return err
+		}
 	}
 	if len(plan.WorkspaceRepos) > 0 {
 		var names []string
 		for _, repo := range plan.WorkspaceRepos {
 			names = append(names, repo.Name)
 		}
-		fmt.Fprintf(w, "# workspaces: %s\n", strings.Join(names, " "))
+		if err := writeFormat(w, "# workspaces: %s\n", strings.Join(names, " ")); err != nil {
+			return err
+		}
 	}
-	fmt.Fprintf(w, "# config: %s\n", strings.Join(plan.ConfigPaths, ", "))
-	fmt.Fprintln(w)
+	if err := writeFormat(w, "# config: %s\n", strings.Join(plan.ConfigPaths, ", ")); err != nil {
+		return err
+	}
+	if err := writeLine(w); err != nil {
+		return err
+	}
 
 	// Intent: Export the same tuple sequence used for make invocation so env.sh is
 	// the exact contract for what make and child processes receive.
@@ -1578,14 +1709,16 @@ func writeEnvExport(w io.Writer, plan *resolvedPlan, cookedTuples []string) erro
 		if !ok {
 			continue
 		}
-		writeExport(w, k, v)
+		if err := writeExport(w, k, v); err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
 // writeExport emits one export line using conservative shell quoting.
-func writeExport(w io.Writer, name, value string) {
-	fmt.Fprintf(w, "export %s=%s\n", name, shellQuote(value))
+func writeExport(w io.Writer, name, value string) error {
+	return writeFormat(w, "export %s=%s\n", name, shellQuote(value))
 }
 
 // shellQuote produces a POSIX-shell-safe single-quoted string.

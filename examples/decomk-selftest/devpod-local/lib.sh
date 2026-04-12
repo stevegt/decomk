@@ -52,5 +52,12 @@ cleanup_workspace() {
   if [[ -z "$workspace_name" ]]; then
     return 0
   fi
-  devpod delete "$workspace_name" >/dev/null 2>&1 || true
+  # Intent: Report workspace cleanup failures explicitly so harness teardown
+  # never drops command errors silently.
+  # Source: DI-008-20260412-122157 (TODO/008)
+  if ! devpod delete "$workspace_name" >/dev/null 2>&1; then
+    log "cleanup warning: failed to delete DevPod workspace $workspace_name"
+    return 1
+  fi
+  return 0
 }

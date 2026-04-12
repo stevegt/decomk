@@ -13,6 +13,7 @@ package stage0
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -158,16 +159,25 @@ func WriteFileAtomic(path string, content []byte, mode os.FileMode) (err error) 
 	tmpPath := tmp.Name()
 	defer func() {
 		if err != nil {
-			_ = os.Remove(tmpPath)
+			// Intent: Never hide temp-file cleanup failures during atomic writes;
+			// preserve all error causes for debuggable write failures.
+			// Source: DI-008-20260412-122157 (TODO/008)
+			if removeErr := os.Remove(tmpPath); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+				err = errors.Join(err, fmt.Errorf("remove temp file %s: %w", tmpPath, removeErr))
+			}
 		}
 	}()
 
 	if _, err = tmp.Write(content); err != nil {
-		_ = tmp.Close()
+		if closeErr := tmp.Close(); closeErr != nil {
+			err = errors.Join(err, fmt.Errorf("close temp file after write failure: %w", closeErr))
+		}
 		return err
 	}
 	if err = tmp.Chmod(mode); err != nil {
-		_ = tmp.Close()
+		if closeErr := tmp.Close(); closeErr != nil {
+			err = errors.Join(err, fmt.Errorf("close temp file after chmod failure: %w", closeErr))
+		}
 		return err
 	}
 	if err = tmp.Close(); err != nil {

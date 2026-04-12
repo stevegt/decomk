@@ -269,10 +269,14 @@ func TestResolveWorkspacesDir_Precedence(t *testing.T) {
 	old, had := os.LookupEnv(envKey)
 	t.Cleanup(func() {
 		if had {
-			_ = os.Setenv(envKey, old)
+			if cleanupErr := os.Setenv(envKey, old); cleanupErr != nil {
+				t.Errorf("cleanup Setenv(%s): %v", envKey, cleanupErr)
+			}
 			return
 		}
-		_ = os.Unsetenv(envKey)
+		if cleanupErr := os.Unsetenv(envKey); cleanupErr != nil {
+			t.Errorf("cleanup Unsetenv(%s): %v", envKey, cleanupErr)
+		}
 	})
 
 	// Flag overrides env.
@@ -499,7 +503,9 @@ func TestCmdRun_StampDirAndIdempotentTarget(t *testing.T) {
 	}
 	origArgs := append([]string(nil), os.Args...)
 	t.Cleanup(func() {
-		_ = os.Chdir(origWD)
+		if cleanupErr := os.Chdir(origWD); cleanupErr != nil {
+			t.Errorf("cleanup Chdir(origWD): %v", cleanupErr)
+		}
 		os.Args = origArgs
 	})
 
