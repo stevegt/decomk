@@ -64,7 +64,7 @@ Push this repo somewhere reachable by your devcontainers and keep its clone URI 
 
 ### 2) Run `decomk init` in each repo you want managed
 
-Install decomk:
+Install decomk on your own machine:
 
 ```bash
 go install github.com/stevegt/decomk/cmd/decomk@stable
