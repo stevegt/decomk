@@ -550,6 +550,8 @@ install-user-stuff:
   - Harness details and prerequisites are documented in:
     - `examples/decomk-selftest/README.md`
 - Remote GCP-provider self-tests are intentionally deferred until a separate move-to-GCP decision is approved.
+- Experimental lifecycle-evidence spike (POC, not a canonical decomk example):
+  - `examples/phase-eval/README.md`
 
 ## Limitations (current MVP)
 

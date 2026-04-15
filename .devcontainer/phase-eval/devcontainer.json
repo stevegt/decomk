@@ -1,0 +1,15 @@
+{
+  "name": "decomk-phase-eval",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "features": {
+    "ghcr.io/devcontainers/features/sshd:1": {
+      "version": "latest"
+    }
+  },
+  "remoteUser": "dev",
+  "updateContentCommand": "bash examples/phase-eval/hook_probe.sh updateContent",
+  "postCreateCommand": "bash examples/phase-eval/hook_probe.sh postCreate"
+}
