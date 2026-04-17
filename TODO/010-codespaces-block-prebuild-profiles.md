@@ -10,6 +10,14 @@ Intent: Make profile selection explicit and operationally simple (path selection
 Constraints: Keep each profile runnable directly, keep profile naming stable (`BlockNN`), and document exact prebuild path mapping so CI/Codespaces behavior is deterministic.
 Affects: `.devcontainer/Block*/devcontainer.json`, `.devcontainer/Block*/Dockerfile`, Codespaces prebuild configuration settings, selftest/docs that reference devcontainer paths.
 
+ID: DI-010-20260417-135400
+Date: 2026-04-17 13:54:00
+Status: active
+Decision: Track block profile/path selection in TODO 010, while moving freeze/parity implementation and acceptance-gate details to TODO 011 and `doc/image-management.md`.
+Intent: Keep TODO 010 focused on profile structure and Codespaces path selection, and avoid mixing it with parity pipeline implementation details.
+Constraints: Preserve existing BlockNN path model; keep prebuild profile decisions compatible with TODO 011 parity requirements.
+Affects: `TODO/010-codespaces-block-prebuild-profiles.md`, `TODO/011-local-freeze-prebuild-parity.md`, `doc/image-management.md`, `TODO/TODO.md`.
+
 ## Goal
 
 Allow selecting which container block/profile is prebuilt by choosing a devcontainer path in Codespaces settings, instead of mutating one shared Dockerfile reference.
@@ -61,6 +69,7 @@ This path becomes the profile selector for prebuild.
 - Keep block naming stable to avoid breaking prebuild settings references.
 - If multiple blocks share logic, use shared `ARG`/`FROM` patterns or include scripts, not manual copy/paste drift.
 - Ensure any harness/CLI commands that create codespaces pass the matching `--devcontainer-path`.
+- Freeze/parity workflow and acceptance gates are tracked in `TODO/011-local-freeze-prebuild-parity.md` and `doc/image-management.md`.
 
 ## Subtasks
 

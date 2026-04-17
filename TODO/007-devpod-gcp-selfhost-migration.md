@@ -181,9 +181,19 @@ Intent: Avoid expanding immediate migration risk while preserving a tracked path
 Constraints: No immediate runtime forks; keep current phase focused on evidence gathering and baseline migration readiness.
 Affects: `TODO/007-devpod-gcp-selfhost-migration.md`, `TODO/009-phase-eval-lifecycle-spike.md`, future `examples/phase-eval/*`.
 
+ID: DI-007-20260417-135300
+Date: 2026-04-17 13:53:00
+Status: active
+Decision: Track image freeze/parity implementation in dedicated TODO 011 and `doc/image-management.md`, while keeping TODO 007 focused on migration sequencing and provider/platform operations.
+Intent: Separate migration orchestration from image-parity implementation details so each workstream has clear scope and acceptance gates.
+Constraints: Preserve TODO 007 migration phases and deferred GCP decisions; reference TODO 011 as the source of truth for freeze/parity mechanics.
+Affects: `TODO/007-devpod-gcp-selfhost-migration.md`, `TODO/011-local-freeze-prebuild-parity.md`, `doc/image-management.md`, `TODO/TODO.md`.
+
 Related design docs:
 - `doc/isconf-design.md`
 - `doc/decomk-design.md`
+- `doc/image-management.md`
+- `TODO/011-local-freeze-prebuild-parity.md`
 
 ## Goal
 
@@ -411,6 +421,7 @@ Mitigation: pin provider and CLI versions in docs and CI checks.
 
 Risk: Local self-hosted prebuild semantics diverge from Codespaces (`updateContentCommand` not run during local image build path).
 Mitigation: Track deferred runtime-adaptation option (DevPod/reference-CLI wrapper or fork) and evaluate only after baseline self-hosting decision gates are met.
+Implementation detail ownership: local freeze/parity mechanics, gates, and acceptance artifacts are tracked in TODO 011.
 
 ## Subtasks
 
