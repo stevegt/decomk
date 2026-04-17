@@ -192,7 +192,7 @@ event_has_phase_hook() {
   if [[ ! -f "$events_path" ]]; then
     return 1
   fi
-  rg -q "\|hook=${hook_name}\|.*\|phase_bucket=${phase_bucket}\|" "$events_path"
+  rg -q "\|hook=${hook_name}\|.*phase_bucket=${phase_bucket}\|" "$events_path"
 }
 
 marker_list_has_marker() {
