@@ -8,18 +8,68 @@ if [[ -z "$hook_name" ]]; then
   exit 2
 fi
 
-run_id="${PHASE_EVAL_RUN_ID:-${CODESPACE_NAME:-manual}}"
+if [[ -n "${PHASE_EVAL_RUN_ID:-}" ]]; then
+  run_id="${PHASE_EVAL_RUN_ID}"
+elif [[ -n "${CODESPACE_NAME:-}" ]]; then
+  run_id="${CODESPACE_NAME}"
+else
+  run_id="$(date -u '+%Y%m%dT%H%M%SZ')-$$"
+fi
 scenario="${PHASE_EVAL_SCENARIO:-unknown}"
 
-# Intent: Persist hook observations in a stable in-container location so both
-# build logs and post-start SSH probes can verify lifecycle behavior empirically.
-# Source: DI-009-20260413-232813 (TODO/009)
-root_dir="/tmp/decomk-phase-eval-hooks"
-mkdir -p "$root_dir/env" "$root_dir/markers"
+# Intent: Persist hook observations to both volatile (`/tmp`) and durable
+# (`$HOME`) locations so phase-eval can prove whether hooks executed during
+# prebuild (baked into snapshot) or during first boot/runtime.
+# Source: DI-009-20260417-030759 (TODO/009)
+volatile_root="/tmp/decomk-phase-eval-hooks"
+persistent_root="${HOME:-/home/dev}/.decomk-phase-eval-hooks"
+
+resolve_phase_bucket() {
+  if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
+    printf 'prebuild'
+    return
+  fi
+  if [[ -n "${CODESPACES:-}" ]]; then
+    printf 'runtime'
+    return
+  fi
+  printf 'local'
+}
+
+resolve_phase_detail() {
+  if [[ "${GITHUB_ACTIONS:-}" == "true" ]]; then
+    printf 'github-actions'
+    return
+  fi
+  if [[ -n "${CODESPACES:-}" ]]; then
+    printf 'codespaces'
+    return
+  fi
+  if [[ -n "${DEVPOD_WORKSPACE_ID:-}" ]]; then
+    printf 'devpod'
+    return
+  fi
+  printf 'local'
+}
+
+phase_bucket="$(resolve_phase_bucket)"
+phase_detail="$(resolve_phase_detail)"
+
+mkdir -p \
+  "$volatile_root/env" \
+  "$volatile_root/markers" \
+  "$persistent_root/history" \
+  "$persistent_root/env" \
+  "$persistent_root/markers/$phase_bucket"
 
 timestamp="$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-env_path="$root_dir/env/${hook_name}-${run_id}.env"
-marker_path="$root_dir/markers/${hook_name}-${run_id}.marker"
+volatile_env_path="$volatile_root/env/${hook_name}-${run_id}.env"
+volatile_marker_path="$volatile_root/markers/${hook_name}-${run_id}.marker"
+persistent_env_path="$persistent_root/env/${hook_name}-${run_id}.env"
+persistent_marker_path="$persistent_root/markers/$phase_bucket/${hook_name}.marker"
+persistent_run_marker_path="$persistent_root/markers/$phase_bucket/${hook_name}-${run_id}.marker"
+prebuild_update_marker_path="$persistent_root/markers/prebuild/updateContent.marker"
+persistent_history_path="$persistent_root/history/events.log"
 
 github_user="${GITHUB_USER:-}"
 github_actor="${GITHUB_ACTOR:-}"
@@ -54,9 +104,16 @@ print_selected_env() {
   done
 }
 
-print_selected_env >"$env_path"
-touch "$marker_path"
+prebuild_update_marker_before_call="false"
+if [[ -f "$prebuild_update_marker_path" ]]; then
+  prebuild_update_marker_before_call="true"
+fi
 
-event_line="PHASE_EVAL_EVENT|hook=$(sanitize_field "$hook_name")|run_id=$(sanitize_field "$run_id")|scenario=$(sanitize_field "$scenario")|timestamp=$timestamp|github_user=$(sanitize_field "$github_user")|github_actor=$(sanitize_field "$github_actor")|github_repository=$(sanitize_field "$github_repository")|codespaces=$(sanitize_field "$codespaces_flag")|user=$(sanitize_field "$user_value")|logname=$(sanitize_field "$logname_value")"
+print_selected_env >"$volatile_env_path"
+print_selected_env >"$persistent_env_path"
+touch "$volatile_marker_path" "$persistent_marker_path" "$persistent_run_marker_path"
 
-printf '%s\n' "$event_line" | tee -a "$root_dir/events.log"
+event_line="PHASE_EVAL_EVENT|hook=$(sanitize_field "$hook_name")|phase_bucket=$(sanitize_field "$phase_bucket")|phase_detail=$(sanitize_field "$phase_detail")|run_id=$(sanitize_field "$run_id")|scenario=$(sanitize_field "$scenario")|timestamp=$timestamp|prebuild_update_marker_before_call=$(sanitize_field "$prebuild_update_marker_before_call")|github_user=$(sanitize_field "$github_user")|github_actor=$(sanitize_field "$github_actor")|github_repository=$(sanitize_field "$github_repository")|codespaces=$(sanitize_field "$codespaces_flag")|user=$(sanitize_field "$user_value")|logname=$(sanitize_field "$logname_value")"
+
+printf '%s\n' "$event_line" | tee -a "$volatile_root/events.log"
+printf '%s\n' "$event_line" >>"$persistent_history_path"

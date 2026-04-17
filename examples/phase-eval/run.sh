@@ -185,6 +185,31 @@ event_has_nonempty_field() {
   rg -q "\|${field_name}=[^|[:space:]][^|]*" "$events_path"
 }
 
+event_has_phase_hook() {
+  local events_path="$1"
+  local phase_bucket="$2"
+  local hook_name="$3"
+  if [[ ! -f "$events_path" ]]; then
+    return 1
+  fi
+  rg -q "\|hook=${hook_name}\|.*\|phase_bucket=${phase_bucket}\|" "$events_path"
+}
+
+marker_list_has_marker() {
+  local marker_list_path="$1"
+  local marker_relpath="$2"
+  if [[ ! -f "$marker_list_path" ]]; then
+    return 1
+  fi
+  rg -q "^${marker_relpath}$" "$marker_list_path"
+}
+
+resolve_remote_branch_head_sha() {
+  local repo="$1"
+  local branch_name="$2"
+  gh api "repos/$repo/branches/$branch_name" --jq '.commit.sha'
+}
+
 resolve_machine_name() {
   local requested_machine="$1"
   local repo="$2"
@@ -364,10 +389,16 @@ devpod_up_github_user="false"
 devpod_cleanup_rc=0
 
 codespaces_auth_rc=-1
+codespaces_push_check_rc=-1
+codespaces_local_head_sha=""
+codespaces_remote_head_sha=""
+codespaces_head_match_remote="false"
 codespaces_prebuild_list_rc=-1
 codespaces_prebuild_trigger_rc=-1
 codespaces_prebuild_watch_rc=-1
 codespaces_prebuild_logs_rc=-1
+codespaces_prebuild_head_sha=""
+codespaces_prebuild_head_match_remote="false"
 codespaces_prebuild_workflow_id=""
 codespaces_prebuild_workflow_name=""
 codespaces_prebuild_run_id=""
@@ -379,6 +410,12 @@ codespaces_update_content="false"
 codespaces_post_create="false"
 codespaces_github_user="false"
 codespaces_logs_prebuild_hint="false"
+codespaces_artifacts_fetch_rc=-1
+codespaces_prebuild_marker_present="false"
+codespaces_runtime_update_marker_present="false"
+codespaces_runtime_postcreate_marker_present="false"
+codespaces_persistent_prebuild_update_event="false"
+codespaces_persistent_runtime_postcreate_event="false"
 codespaces_cleanup_rc=0
 codespace_name=""
 
@@ -485,11 +522,13 @@ if [[ "$platform" == "codespaces" || "$platform" == "both" ]]; then
   if [[ -z "$repo_slug" ]]; then
     append_scenario_note "$out_dir" "codespaces" "repo slug unavailable; codespaces scenarios not evaluated"
     codespaces_auth_rc=99
+    codespaces_push_check_rc=99
     codespaces_prebuild_list_rc=99
     codespaces_prebuild_trigger_rc=99
     codespaces_prebuild_watch_rc=99
     codespaces_prebuild_logs_rc=99
     codespaces_create_rc=99
+    codespaces_artifacts_fetch_rc=99
   else
     if run_capture "$out_dir" "codespaces_auth" gh auth status -t; then
       codespaces_auth_rc=0
@@ -498,13 +537,56 @@ if [[ "$platform" == "codespaces" || "$platform" == "both" ]]; then
     fi
 
     if [[ "$codespaces_auth_rc" -eq 0 ]]; then
-      if run_capture "$out_dir" "codespaces_prebuild_list" gh api "repos/$repo_slug/codespaces/prebuilds"; then
-        codespaces_prebuild_list_rc=0
+      # Intent: Require local branch state to be pushed before prebuild/create
+      # evaluation so all remote lifecycle checks run against the intended
+      # commit and devcontainer path.
+      # Source: DI-009-20260417-030759 (TODO/009)
+      if run_capture "$out_dir" "codespaces_local_head" git -C "$repo_root" rev-parse HEAD; then
+        codespaces_local_head_sha="$(cat "$out_dir/raw/codespaces_local_head.stdout.log")"
+        codespaces_local_head_sha="${codespaces_local_head_sha//$'\n'/}"
       else
-        codespaces_prebuild_list_rc=$?
-        append_scenario_note "$out_dir" "codespaces_prebuild" "prebuild list API unavailable; marking prebuild check inconclusive"
+        codespaces_push_check_rc=$?
+        append_scenario_note "$out_dir" "codespaces_push" "failed to resolve local HEAD"
       fi
 
+      if [[ "$codespaces_push_check_rc" -eq -1 ]]; then
+        if run_capture "$out_dir" "codespaces_remote_head" resolve_remote_branch_head_sha "$repo_slug" "$branch"; then
+          codespaces_remote_head_sha="$(cat "$out_dir/raw/codespaces_remote_head.stdout.log")"
+          codespaces_remote_head_sha="${codespaces_remote_head_sha//$'\n'/}"
+        else
+          codespaces_push_check_rc=$?
+          append_scenario_note "$out_dir" "codespaces_push" "failed to resolve remote HEAD for $branch"
+        fi
+      fi
+
+      if [[ "$codespaces_push_check_rc" -eq -1 ]]; then
+        if [[ -n "$codespaces_local_head_sha" && -n "$codespaces_remote_head_sha" && "$codespaces_local_head_sha" == "$codespaces_remote_head_sha" ]]; then
+          codespaces_push_check_rc=0
+          codespaces_head_match_remote="true"
+          append_scenario_note "$out_dir" "codespaces_push" "local HEAD matches origin/$branch ($codespaces_remote_head_sha)"
+        else
+          codespaces_push_check_rc=89
+          append_scenario_note "$out_dir" "codespaces_push" "local HEAD does not match origin/$branch; commit+push required before evaluation"
+        fi
+      fi
+
+      if [[ "$codespaces_push_check_rc" -eq 0 ]]; then
+        if run_capture "$out_dir" "codespaces_prebuild_list" gh api "repos/$repo_slug/codespaces/prebuilds"; then
+          codespaces_prebuild_list_rc=0
+        else
+          codespaces_prebuild_list_rc=$?
+          append_scenario_note "$out_dir" "codespaces_prebuild" "prebuild list API unavailable; marking prebuild check inconclusive"
+        fi
+      else
+        codespaces_prebuild_list_rc="$codespaces_push_check_rc"
+        codespaces_prebuild_trigger_rc="$codespaces_push_check_rc"
+        codespaces_prebuild_watch_rc="$codespaces_push_check_rc"
+        codespaces_prebuild_logs_rc="$codespaces_push_check_rc"
+        codespaces_create_rc="$codespaces_push_check_rc"
+        codespaces_artifacts_fetch_rc="$codespaces_push_check_rc"
+      fi
+
+      if [[ "$codespaces_push_check_rc" -eq 0 ]]; then
       # Intent: Explicitly trigger and wait on a Codespaces prebuild workflow so
       # phase-eval can confirm hook execution during the prebuild lifecycle
       # instead of inferring behavior from docs or workspace startup side effects.
@@ -536,6 +618,17 @@ if [[ "$platform" == "codespaces" || "$platform" == "both" ]]; then
             if run_capture "$out_dir" "codespaces_prebuild_trigger" gh workflow run "$codespaces_prebuild_workflow_id" -R "$repo_slug" -r "$branch"; then
               if codespaces_prebuild_run_id="$(resolve_workflow_run_id_since "$repo_slug" "$codespaces_prebuild_workflow_id" "$branch" "$trigger_started_epoch" 900)"; then
                 append_scenario_note "$out_dir" "codespaces_prebuild" "run_id=$codespaces_prebuild_run_id"
+
+                if run_capture "$out_dir" "codespaces_prebuild_meta" gh run view "$codespaces_prebuild_run_id" -R "$repo_slug" --json headSha,status,conclusion --jq '[.headSha, .status, .conclusion] | @tsv'; then
+                  prebuild_meta_row="$(cat "$out_dir/raw/codespaces_prebuild_meta.stdout.log")"
+                  prebuild_meta_row="${prebuild_meta_row//$'\n'/}"
+                  prebuild_status=""
+                  prebuild_conclusion=""
+                  IFS=$'\t' read -r codespaces_prebuild_head_sha prebuild_status prebuild_conclusion <<<"$prebuild_meta_row"
+                  append_scenario_note "$out_dir" "codespaces_prebuild" "run_head_sha=${codespaces_prebuild_head_sha:-unknown} status=${prebuild_status:-unknown} conclusion=${prebuild_conclusion:-unknown}"
+                else
+                  append_scenario_note "$out_dir" "codespaces_prebuild" "failed to resolve workflow run metadata"
+                fi
 
                 if run_capture "$out_dir" "codespaces_prebuild_watch" gh run watch "$codespaces_prebuild_run_id" -R "$repo_slug" --interval 15 --exit-status; then
                   codespaces_prebuild_watch_rc=0
@@ -571,6 +664,15 @@ if [[ "$platform" == "codespaces" || "$platform" == "both" ]]; then
                   codespaces_prebuild_trigger_rc="$codespaces_prebuild_watch_rc"
                 else
                   codespaces_prebuild_trigger_rc="$codespaces_prebuild_logs_rc"
+                fi
+
+                if [[ -n "$codespaces_remote_head_sha" && -n "$codespaces_prebuild_head_sha" && "$codespaces_remote_head_sha" == "$codespaces_prebuild_head_sha" ]]; then
+                  codespaces_prebuild_head_match_remote="true"
+                else
+                  append_scenario_note "$out_dir" "codespaces_prebuild" "prebuild run head sha does not match origin/$branch"
+                  if [[ "$codespaces_prebuild_trigger_rc" -eq 0 ]]; then
+                    codespaces_prebuild_trigger_rc=90
+                  fi
                 fi
               else
                 codespaces_prebuild_trigger_rc=94
@@ -669,6 +771,58 @@ if [[ "$platform" == "codespaces" || "$platform" == "both" ]]; then
           if event_has_nonempty_field "$out_dir/codespaces.events.log" "github_user"; then
             codespaces_github_user="true"
           fi
+
+          # Intent: Verify durable in-container artifacts written by hook probes
+          # so we can differentiate prebuild execution from runtime execution
+          # even after the prebuild log stream has finished.
+          # Source: DI-009-20260417-030759 (TODO/009)
+          if run_capture "$out_dir" "codespaces_fetch_persistent_events" gh codespace ssh -c "$codespace_name" -- "bash -lc 'cat \"\$HOME/.decomk-phase-eval-hooks/history/events.log\"'"; then
+            :
+          else
+            codespaces_artifacts_fetch_rc=$?
+            append_scenario_note "$out_dir" "codespaces_artifacts" "failed to fetch persistent hook events"
+          fi
+
+          if run_capture "$out_dir" "codespaces_fetch_persistent_markers" gh codespace ssh -c "$codespace_name" -- "bash -lc 'marker_root=\"\$HOME/.decomk-phase-eval-hooks/markers\"; if [[ -d \"\$marker_root\" ]]; then find \"\$marker_root\" -type f -print | sed \"s#^\$marker_root/##\" | sort; fi'"; then
+            :
+          else
+            fetch_markers_rc=$?
+            if [[ "$codespaces_artifacts_fetch_rc" -eq -1 ]]; then
+              codespaces_artifacts_fetch_rc="$fetch_markers_rc"
+            fi
+            append_scenario_note "$out_dir" "codespaces_artifacts" "failed to fetch persistent marker paths"
+          fi
+
+          if collect_events_from_logs "$out_dir/codespaces-persistent.events.log" "$out_dir/raw/codespaces_fetch_persistent_events.stdout.log" "$out_dir/raw/codespaces_fetch_persistent_events.stderr.log"; then
+            :
+          else
+            collect_persistent_rc=$?
+            if [[ "$codespaces_artifacts_fetch_rc" -eq -1 ]]; then
+              codespaces_artifacts_fetch_rc="$collect_persistent_rc"
+            fi
+            append_scenario_note "$out_dir" "codespaces_artifacts" "failed to parse persistent events"
+          fi
+
+          if [[ "$codespaces_artifacts_fetch_rc" -eq -1 ]]; then
+            codespaces_artifacts_fetch_rc=0
+          fi
+
+          if event_has_phase_hook "$out_dir/codespaces-persistent.events.log" "prebuild" "updateContent"; then
+            codespaces_persistent_prebuild_update_event="true"
+          fi
+          if event_has_phase_hook "$out_dir/codespaces-persistent.events.log" "runtime" "postCreate"; then
+            codespaces_persistent_runtime_postcreate_event="true"
+          fi
+
+          if marker_list_has_marker "$out_dir/raw/codespaces_fetch_persistent_markers.stdout.log" "prebuild/updateContent.marker"; then
+            codespaces_prebuild_marker_present="true"
+          fi
+          if marker_list_has_marker "$out_dir/raw/codespaces_fetch_persistent_markers.stdout.log" "runtime/updateContent.marker"; then
+            codespaces_runtime_update_marker_present="true"
+          fi
+          if marker_list_has_marker "$out_dir/raw/codespaces_fetch_persistent_markers.stdout.log" "runtime/postCreate.marker"; then
+            codespaces_runtime_postcreate_marker_present="true"
+          fi
         fi
 
         if [[ -n "$codespace_name" ]]; then
@@ -684,13 +838,16 @@ if [[ "$platform" == "codespaces" || "$platform" == "both" ]]; then
           fi
         fi
       fi
+      fi
     else
       append_scenario_note "$out_dir" "codespaces" "gh auth unavailable; codespaces scenarios not evaluated"
+      codespaces_push_check_rc=98
       codespaces_prebuild_list_rc=98
       codespaces_prebuild_trigger_rc=98
       codespaces_prebuild_watch_rc=98
       codespaces_prebuild_logs_rc=98
       codespaces_create_rc=98
+      codespaces_artifacts_fetch_rc=98
     fi
   fi
 fi
@@ -721,11 +878,19 @@ cat >"$summary_path" <<JSON
     "codespaces_prebuild_list": {
       "rc": $codespaces_prebuild_list_rc
     },
+    "codespaces_push": {
+      "rc": $codespaces_push_check_rc,
+      "local_head_sha": "$(json_string "$codespaces_local_head_sha")",
+      "remote_head_sha": "$(json_string "$codespaces_remote_head_sha")",
+      "head_match_remote": $(bool_json "$codespaces_head_match_remote")
+    },
     "codespaces_prebuild_run": {
       "rc": $codespaces_prebuild_trigger_rc,
       "workflow_id": "$(json_string "$codespaces_prebuild_workflow_id")",
       "workflow_name": "$(json_string "$codespaces_prebuild_workflow_name")",
       "run_id": "$(json_string "$codespaces_prebuild_run_id")",
+      "run_head_sha": "$(json_string "$codespaces_prebuild_head_sha")",
+      "run_head_match_remote": $(bool_json "$codespaces_prebuild_head_match_remote"),
       "updateContent_seen": $(bool_json "$codespaces_prebuild_update_content"),
       "postCreate_seen": $(bool_json "$codespaces_prebuild_post_create"),
       "github_user_nonempty": $(bool_json "$codespaces_prebuild_github_user"),
@@ -739,6 +904,12 @@ cat >"$summary_path" <<JSON
       "postCreate_seen": $(bool_json "$codespaces_post_create"),
       "github_user_nonempty": $(bool_json "$codespaces_github_user"),
       "logs_contain_prebuild_hint": $(bool_json "$codespaces_logs_prebuild_hint"),
+      "artifacts_fetch_rc": $codespaces_artifacts_fetch_rc,
+      "persistent_prebuild_update_marker_present": $(bool_json "$codespaces_prebuild_marker_present"),
+      "persistent_runtime_update_marker_present": $(bool_json "$codespaces_runtime_update_marker_present"),
+      "persistent_runtime_postcreate_marker_present": $(bool_json "$codespaces_runtime_postcreate_marker_present"),
+      "persistent_prebuild_update_event_seen": $(bool_json "$codespaces_persistent_prebuild_update_event"),
+      "persistent_runtime_postcreate_event_seen": $(bool_json "$codespaces_persistent_runtime_postcreate_event"),
       "cleanup_rc": $codespaces_cleanup_rc,
       "auth_rc": $codespaces_auth_rc
     }
@@ -750,8 +921,9 @@ touch "$out_dir/diagnostics.complete"
 log "summary written: $summary_path"
 
 # Intent: Treat requested-platform gaps as failures so phase-eval cannot report
-# success when lifecycle evidence is missing (for example auth or API skips).
-# Source: DI-009-20260415-182045 (TODO/009)
+# success when lifecycle evidence is missing (for example auth/API skips or
+# missing durable phase markers proving prebuild-vs-runtime hook execution).
+# Source: DI-009-20260417-030759 (TODO/009)
 overall_rc=0
 if [[ "$platform" == "devpod" || "$platform" == "both" ]]; then
   if [[ "$devpod_build_rc" -ne 0 || "$devpod_up_rc" -ne 0 ]]; then
@@ -759,7 +931,7 @@ if [[ "$platform" == "devpod" || "$platform" == "both" ]]; then
   fi
 fi
 if [[ "$platform" == "codespaces" || "$platform" == "both" ]]; then
-  if [[ "$codespaces_auth_rc" -ne 0 || "$codespaces_prebuild_trigger_rc" -ne 0 || "$codespaces_create_rc" -ne 0 ]]; then
+  if [[ "$codespaces_auth_rc" -ne 0 || "$codespaces_push_check_rc" -ne 0 || "$codespaces_prebuild_trigger_rc" -ne 0 || "$codespaces_create_rc" -ne 0 || "$codespaces_artifacts_fetch_rc" -ne 0 || "$codespaces_prebuild_marker_present" != "true" || "$codespaces_runtime_postcreate_marker_present" != "true" || "$codespaces_persistent_prebuild_update_event" != "true" || "$codespaces_persistent_runtime_postcreate_event" != "true" ]]; then
     overall_rc=1
   fi
 fi

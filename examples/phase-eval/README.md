@@ -43,6 +43,7 @@ Key files:
 - `summary.json`
 - `raw/*.stdout.log`, `raw/*.stderr.log`, `raw/*.rc`
 - `codespaces-prebuild.events.log` (when Codespaces prebuild logs contain hook markers)
+- `codespaces-persistent.events.log` (durable in-container event history fetched after codespace start)
 - `scenario-notes.tsv`
 - `diagnostics.complete`
 
@@ -79,6 +80,20 @@ examples/phase-eval/run.sh --keep-on-fail
 - Repository branch pushed for Codespaces create checks.
 - Codespaces prebuilds configured for the repo (the harness triggers the prebuild workflow and waits for completion).
 - `.devcontainer/phase-eval/devcontainer.json` committed on the evaluated branch (Codespaces resolves this path from remote repo contents).
+
+## Codespaces sequencing used by the harness
+
+For `--platform codespaces`, the harness enforces this order:
+
+1. Verify local `HEAD` equals `origin/<branch>` (prevents stale unpushed evaluation).
+2. Trigger Codespaces prebuild workflow and wait for completion.
+3. Create/start a Codespace from the same branch.
+4. Fetch durable hook artifacts from `$HOME/.decomk-phase-eval-hooks` inside the Codespace.
+
+The run fails if durable evidence does not show:
+
+- `updateContent` recorded in `phase_bucket=prebuild`
+- `postCreate` recorded in `phase_bucket=runtime`
 
 ## Interpretation
 

@@ -58,6 +58,14 @@ Intent: Ensure lifecycle evidence from this spike directly informs later decisio
 Constraints: Keep TODO 009 focused on evidence collection; keep runtime-adaptation implementation work deferred to TODO 007.
 Affects: `TODO/009-phase-eval-lifecycle-spike.md`, `TODO/007-devpod-gcp-selfhost-migration.md`.
 
+ID: DI-009-20260417-030759
+Date: 2026-04-17 03:07:59
+Status: active
+Decision: Add phase-persistent hook artifacts and strict Codespaces sequencing checks in the phase-eval harness so we can prove prebuild hook execution separately from first-boot hook execution.
+Intent: Ensure evaluation conclusions come from durable in-container evidence tied to specific phases (prebuild vs runtime), with explicit push/prebuild/create ordering checks.
+Constraints: Keep no-silent-failure behavior, preserve machine-readable summary output, and avoid relying on docs-only assumptions about hook timing.
+Affects: `examples/phase-eval/hook_probe.sh`, `examples/phase-eval/run.sh`, `examples/phase-eval/README.md`, `TODO/009-phase-eval-lifecycle-spike.md`.
+
 ## Goal
 
 Produce reproducible evidence for lifecycle behavior so design decisions about
@@ -85,5 +93,6 @@ Out of scope:
 - [x] 009.5 Add `examples/phase-eval/README.md` describing POC-spike status and usage.
 - [x] 009.8 Add explicit Codespaces prebuild workflow trigger/wait/log capture path.
 - [x] 009.9 Link deferred self-hosting runtime-adaptation follow-up to `TODO/007.14`.
+- [x] 009.10 Add durable phase markers to distinguish prebuild hook execution from first-boot hook execution.
 - [ ] 009.6 Run phase-eval scenarios and record observed behavior summary in this TODO.
 - [ ] 009.7 Use observed results to drive decomk lifecycle redesign decisions (selector mapping + context axes).
