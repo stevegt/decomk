@@ -86,7 +86,7 @@ examples/phase-eval/run.sh --keep-on-fail
 For `--platform codespaces`, the harness enforces this order:
 
 1. Verify local `HEAD` equals `origin/<branch>` (prevents stale unpushed evaluation).
-2. Trigger Codespaces prebuild workflow and wait for completion.
+2. Find the push-triggered Codespaces prebuild workflow run for `origin/<branch>` HEAD and wait for completion.
 3. Create/start a Codespace from the same branch.
 4. Fetch durable hook artifacts from `$HOME/.decomk-phase-eval-hooks` inside the Codespace.
 

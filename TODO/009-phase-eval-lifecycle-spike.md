@@ -66,6 +66,14 @@ Intent: Ensure evaluation conclusions come from durable in-container evidence ti
 Constraints: Keep no-silent-failure behavior, preserve machine-readable summary output, and avoid relying on docs-only assumptions about hook timing.
 Affects: `examples/phase-eval/hook_probe.sh`, `examples/phase-eval/run.sh`, `examples/phase-eval/README.md`, `TODO/009-phase-eval-lifecycle-spike.md`.
 
+ID: DI-009-20260417-031847
+Date: 2026-04-17 03:18:47
+Status: active
+Decision: Replace explicit `gh workflow run` dispatch for Codespaces prebuilds with polling/watching the push-triggered prebuild workflow run for `origin/<branch>` head SHA, and fix remote devcontainer existence checks to use GET semantics.
+Intent: Prevent false early failures when the built-in Codespaces prebuild workflow is not dispatchable via `workflow_dispatch`, while preserving strict push→prebuild→codespace sequencing guarantees.
+Constraints: Keep explicit non-zero failures when matching prebuild run cannot be found/completed; keep artifact evidence and scenario notes actionable.
+Affects: `examples/phase-eval/run.sh`, `examples/phase-eval/README.md`, `TODO/009-phase-eval-lifecycle-spike.md`.
+
 ## Goal
 
 Produce reproducible evidence for lifecycle behavior so design decisions about

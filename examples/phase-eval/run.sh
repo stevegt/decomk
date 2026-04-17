@@ -283,7 +283,7 @@ remote_repo_file_exists() {
   local repo="$1"
   local branch_name="$2"
   local repo_path="$3"
-  gh api "repos/$repo/contents/$repo_path" --raw-field "ref=$branch_name" >/dev/null 2>&1
+  gh api --method GET "repos/$repo/contents/$repo_path" -f "ref=$branch_name" >/dev/null 2>&1
 }
 
 wait_for_codespace_ssh() {
@@ -307,29 +307,29 @@ resolve_prebuild_workflows() {
     --jq '.workflows[] | select(.name | test("codespaces prebuild"; "i")) | [.id, .name, .path] | @tsv'
 }
 
-resolve_workflow_run_id_since() {
+resolve_workflow_run_for_head() {
   local repo="$1"
   local workflow_id="$2"
   local branch_name="$3"
-  local earliest_epoch="$4"
+  local target_head_sha="$4"
   local timeout_seconds="$5"
   local deadline=$((SECONDS + timeout_seconds))
 
   while ((SECONDS < deadline)); do
     local run_rows=""
-    if run_rows="$(gh run list -R "$repo" -w "$workflow_id" -b "$branch_name" --limit 20 --json databaseId,createdAt --jq '.[] | [.databaseId, .createdAt] | @tsv' 2>/dev/null)"; then
+    if run_rows="$(gh run list -R "$repo" -w "$workflow_id" -b "$branch_name" --limit 50 --json databaseId,headSha,status,conclusion,createdAt --jq '.[] | [.databaseId, .headSha, .status, .conclusion, .createdAt] | @tsv' 2>/dev/null)"; then
       local run_id=""
+      local head_sha=""
+      local status=""
+      local conclusion=""
       local created_at=""
-      local run_epoch=""
-      while IFS=$'\t' read -r run_id created_at; do
-        if [[ -z "$run_id" || -z "$created_at" ]]; then
+      while IFS=$'\t' read -r run_id head_sha status conclusion created_at; do
+        if [[ -z "$run_id" || -z "$head_sha" ]]; then
           continue
         fi
-        if run_epoch="$(date -u -d "$created_at" +%s 2>/dev/null)"; then
-          if [[ "$run_epoch" -ge "$earliest_epoch" ]]; then
-            printf '%s\n' "$run_id"
-            return 0
-          fi
+        if [[ "$head_sha" == "$target_head_sha" ]]; then
+          printf '%s\t%s\t%s\t%s\n' "$run_id" "$status" "$conclusion" "$created_at"
+          return 0
         fi
       done <<<"$run_rows"
     fi
@@ -614,72 +614,67 @@ if [[ "$platform" == "codespaces" || "$platform" == "both" ]]; then
             codespaces_prebuild_trigger_rc=92
             append_scenario_note "$out_dir" "codespaces_prebuild" "selected prebuild workflow row had no workflow id"
           else
-            trigger_started_epoch="$(date -u +%s)"
-            if run_capture "$out_dir" "codespaces_prebuild_trigger" gh workflow run "$codespaces_prebuild_workflow_id" -R "$repo_slug" -r "$branch"; then
-              if codespaces_prebuild_run_id="$(resolve_workflow_run_id_since "$repo_slug" "$codespaces_prebuild_workflow_id" "$branch" "$trigger_started_epoch" 900)"; then
-                append_scenario_note "$out_dir" "codespaces_prebuild" "run_id=$codespaces_prebuild_run_id"
+            # Intent: Use the push-triggered Codespaces prebuild run for the
+            # current remote HEAD instead of attempting workflow_dispatch, since
+            # the built-in prebuild workflow is not dispatchable.
+            # Source: DI-009-20260417-031847 (TODO/009)
+            if run_capture "$out_dir" "codespaces_prebuild_find_run" resolve_workflow_run_for_head "$repo_slug" "$codespaces_prebuild_workflow_id" "$branch" "$codespaces_remote_head_sha" 1200; then
+              prebuild_run_row="$(cat "$out_dir/raw/codespaces_prebuild_find_run.stdout.log")"
+              prebuild_run_row="${prebuild_run_row//$'\n'/}"
+              prebuild_status=""
+              prebuild_conclusion=""
+              prebuild_created_at=""
+              IFS=$'\t' read -r codespaces_prebuild_run_id prebuild_status prebuild_conclusion prebuild_created_at <<<"$prebuild_run_row"
+              codespaces_prebuild_head_sha="$codespaces_remote_head_sha"
+              append_scenario_note "$out_dir" "codespaces_prebuild" "run_id=${codespaces_prebuild_run_id:-unknown} status=${prebuild_status:-unknown} conclusion=${prebuild_conclusion:-unknown} created_at=${prebuild_created_at:-unknown}"
 
-                if run_capture "$out_dir" "codespaces_prebuild_meta" gh run view "$codespaces_prebuild_run_id" -R "$repo_slug" --json headSha,status,conclusion --jq '[.headSha, .status, .conclusion] | @tsv'; then
-                  prebuild_meta_row="$(cat "$out_dir/raw/codespaces_prebuild_meta.stdout.log")"
-                  prebuild_meta_row="${prebuild_meta_row//$'\n'/}"
-                  prebuild_status=""
-                  prebuild_conclusion=""
-                  IFS=$'\t' read -r codespaces_prebuild_head_sha prebuild_status prebuild_conclusion <<<"$prebuild_meta_row"
-                  append_scenario_note "$out_dir" "codespaces_prebuild" "run_head_sha=${codespaces_prebuild_head_sha:-unknown} status=${prebuild_status:-unknown} conclusion=${prebuild_conclusion:-unknown}"
-                else
-                  append_scenario_note "$out_dir" "codespaces_prebuild" "failed to resolve workflow run metadata"
-                fi
-
-                if run_capture "$out_dir" "codespaces_prebuild_watch" gh run watch "$codespaces_prebuild_run_id" -R "$repo_slug" --interval 15 --exit-status; then
-                  codespaces_prebuild_watch_rc=0
-                else
-                  codespaces_prebuild_watch_rc=$?
-                fi
-
-                if run_capture "$out_dir" "codespaces_prebuild_logs" gh run view "$codespaces_prebuild_run_id" -R "$repo_slug" --log; then
-                  codespaces_prebuild_logs_rc=0
-                else
-                  codespaces_prebuild_logs_rc=$?
-                fi
-
-                if collect_events_from_logs "$out_dir/codespaces-prebuild.events.log" "$out_dir/raw/codespaces_prebuild_logs.stdout.log" "$out_dir/raw/codespaces_prebuild_logs.stderr.log"; then
-                  :
-                else
-                  die "failed to extract codespaces prebuild events"
-                fi
-
-                if event_has_hook "$out_dir/codespaces-prebuild.events.log" "updateContent"; then
-                  codespaces_prebuild_update_content="true"
-                fi
-                if event_has_hook "$out_dir/codespaces-prebuild.events.log" "postCreate"; then
-                  codespaces_prebuild_post_create="true"
-                fi
-                if event_has_nonempty_field "$out_dir/codespaces-prebuild.events.log" "github_user"; then
-                  codespaces_prebuild_github_user="true"
-                fi
-
-                if [[ "$codespaces_prebuild_watch_rc" -eq 0 && "$codespaces_prebuild_logs_rc" -eq 0 ]]; then
-                  codespaces_prebuild_trigger_rc=0
-                elif [[ "$codespaces_prebuild_watch_rc" -ne 0 ]]; then
-                  codespaces_prebuild_trigger_rc="$codespaces_prebuild_watch_rc"
-                else
-                  codespaces_prebuild_trigger_rc="$codespaces_prebuild_logs_rc"
-                fi
-
-                if [[ -n "$codespaces_remote_head_sha" && -n "$codespaces_prebuild_head_sha" && "$codespaces_remote_head_sha" == "$codespaces_prebuild_head_sha" ]]; then
-                  codespaces_prebuild_head_match_remote="true"
-                else
-                  append_scenario_note "$out_dir" "codespaces_prebuild" "prebuild run head sha does not match origin/$branch"
-                  if [[ "$codespaces_prebuild_trigger_rc" -eq 0 ]]; then
-                    codespaces_prebuild_trigger_rc=90
-                  fi
-                fi
+              if run_capture "$out_dir" "codespaces_prebuild_watch" gh run watch "$codespaces_prebuild_run_id" -R "$repo_slug" --interval 15 --exit-status; then
+                codespaces_prebuild_watch_rc=0
               else
-                codespaces_prebuild_trigger_rc=94
-                append_scenario_note "$out_dir" "codespaces_prebuild" "failed to resolve triggered workflow run id within timeout"
+                codespaces_prebuild_watch_rc=$?
+              fi
+
+              if run_capture "$out_dir" "codespaces_prebuild_logs" gh run view "$codespaces_prebuild_run_id" -R "$repo_slug" --log; then
+                codespaces_prebuild_logs_rc=0
+              else
+                codespaces_prebuild_logs_rc=$?
+              fi
+
+              if collect_events_from_logs "$out_dir/codespaces-prebuild.events.log" "$out_dir/raw/codespaces_prebuild_logs.stdout.log" "$out_dir/raw/codespaces_prebuild_logs.stderr.log"; then
+                :
+              else
+                die "failed to extract codespaces prebuild events"
+              fi
+
+              if event_has_hook "$out_dir/codespaces-prebuild.events.log" "updateContent"; then
+                codespaces_prebuild_update_content="true"
+              fi
+              if event_has_hook "$out_dir/codespaces-prebuild.events.log" "postCreate"; then
+                codespaces_prebuild_post_create="true"
+              fi
+              if event_has_nonempty_field "$out_dir/codespaces-prebuild.events.log" "github_user"; then
+                codespaces_prebuild_github_user="true"
+              fi
+
+              if [[ "$codespaces_prebuild_watch_rc" -eq 0 && "$codespaces_prebuild_logs_rc" -eq 0 ]]; then
+                codespaces_prebuild_trigger_rc=0
+              elif [[ "$codespaces_prebuild_watch_rc" -ne 0 ]]; then
+                codespaces_prebuild_trigger_rc="$codespaces_prebuild_watch_rc"
+              else
+                codespaces_prebuild_trigger_rc="$codespaces_prebuild_logs_rc"
+              fi
+
+              if [[ -n "$codespaces_remote_head_sha" && -n "$codespaces_prebuild_head_sha" && "$codespaces_remote_head_sha" == "$codespaces_prebuild_head_sha" ]]; then
+                codespaces_prebuild_head_match_remote="true"
+              else
+                append_scenario_note "$out_dir" "codespaces_prebuild" "prebuild run head sha does not match origin/$branch"
+                if [[ "$codespaces_prebuild_trigger_rc" -eq 0 ]]; then
+                  codespaces_prebuild_trigger_rc=90
+                fi
               fi
             else
               codespaces_prebuild_trigger_rc=$?
+              append_scenario_note "$out_dir" "codespaces_prebuild" "failed to resolve push-triggered prebuild workflow run for origin/$branch head"
             fi
           fi
         else
