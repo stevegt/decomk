@@ -50,6 +50,14 @@ Intent: Remove opaque harness failures where `codespace create` fails because th
 Constraints: Keep non-zero failure semantics; avoid hidden command failures; preserve evidence in `raw/*` logs and `scenario-notes.tsv`.
 Affects: `examples/phase-eval/run.sh`, `examples/phase-eval/README.md`, `TODO/009-phase-eval-lifecycle-spike.md`.
 
+ID: DI-009-20260416-154702
+Date: 2026-04-16 15:47:02
+Status: active
+Decision: Cross-link phase-eval findings to the deferred self-hosting runtime-adaptation decision tracked in TODO 007.14.
+Intent: Ensure lifecycle evidence from this spike directly informs later decisions about hook-inclusive self-hosted prebuild behavior.
+Constraints: Keep TODO 009 focused on evidence collection; keep runtime-adaptation implementation work deferred to TODO 007.
+Affects: `TODO/009-phase-eval-lifecycle-spike.md`, `TODO/007-devpod-gcp-selfhost-migration.md`.
+
 ## Goal
 
 Produce reproducible evidence for lifecycle behavior so design decisions about
@@ -66,6 +74,7 @@ In scope:
 Out of scope:
 - Changing decomk core lifecycle behavior in this TODO.
 - Adding permanent GitHub workflow automation.
+- Implementing runtime-adaptation/fork work for hook-inclusive self-hosted prebuilds (tracked as `TODO/007.14`).
 
 ## Subtasks
 
@@ -75,5 +84,6 @@ Out of scope:
 - [x] 009.4 Add `.devcontainer/phase-eval/devcontainer.json` and companion `Dockerfile` for evaluation runs.
 - [x] 009.5 Add `examples/phase-eval/README.md` describing POC-spike status and usage.
 - [x] 009.8 Add explicit Codespaces prebuild workflow trigger/wait/log capture path.
+- [x] 009.9 Link deferred self-hosting runtime-adaptation follow-up to `TODO/007.14`.
 - [ ] 009.6 Run phase-eval scenarios and record observed behavior summary in this TODO.
 - [ ] 009.7 Use observed results to drive decomk lifecycle redesign decisions (selector mapping + context axes).

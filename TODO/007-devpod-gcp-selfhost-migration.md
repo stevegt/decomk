@@ -173,6 +173,14 @@ Intent: Make selftest execution muscle-memory simple and consistent so operators
 Constraints: Keep wrapper targets phony, preserve existing harness behavior, and keep cleanup optional rather than default.
 Affects: `Makefile`, `README.md`, `examples/decomk-selftest/README.md`, `TODO/007-devpod-gcp-selfhost-migration.md`.
 
+ID: DI-007-20260416-031409
+Date: 2026-04-16 03:14:09
+Status: active
+Decision: Keep the near-term self-hosting plan on stock DevPod/Codespaces behavior, and defer any fork/wrapper work (DevPod or devcontainer reference CLI adaptation to emulate prebuild lifecycle hooks via build+up+snapshot) to a later migration phase.
+Intent: Avoid expanding immediate migration risk while preserving a tracked path to evaluate custom runtime behavior only if hosted/self-hosted parity requires it.
+Constraints: No immediate runtime forks; keep current phase focused on evidence gathering and baseline migration readiness.
+Affects: `TODO/007-devpod-gcp-selfhost-migration.md`, `TODO/009-phase-eval-lifecycle-spike.md`, future `examples/phase-eval/*`.
+
 Related design docs:
 - `doc/isconf-design.md`
 - `doc/decomk-design.md`
@@ -401,6 +409,9 @@ Mitigation: run decomk with documented user/privilege model and explicit invaria
 Risk: Provider/version drift across teams.
 Mitigation: pin provider and CLI versions in docs and CI checks.
 
+Risk: Local self-hosted prebuild semantics diverge from Codespaces (`updateContentCommand` not run during local image build path).
+Mitigation: Track deferred runtime-adaptation option (DevPod/reference-CLI wrapper or fork) and evaluate only after baseline self-hosting decision gates are met.
+
 ## Subtasks
 
 - [ ] 007.1 Define Terraform root/module structure and environment variable contract.
@@ -416,3 +427,4 @@ Mitigation: pin provider and CLI versions in docs and CI checks.
 - [ ] 007.11 Decommission Codespaces dependencies after stabilization and archive fallback documentation.
 - [x] 007.12 Add automated Codespaces parity harness under `examples/decomk-selftest/codespaces`.
 - [ ] 007.13 Revisit remote GCP-provider self-test scope after explicit move-to-GCP decision.
+- [ ] 007.14 Evaluate deferred runtime-adaptation options for hook-inclusive prebuild snapshots (DevPod wrapper/fork vs reference-CLI wrapper) after baseline self-hosting cutover criteria are satisfied.
