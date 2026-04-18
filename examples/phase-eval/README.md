@@ -17,6 +17,7 @@ The spike captures evidence for:
 - whether `updateContentCommand` runs,
 - whether `postCreateCommand` runs,
 - whether `GITHUB_USER` is populated,
+- whether `USER` is populated,
 
 across:
 
@@ -45,6 +46,7 @@ Key files:
 
 - `summary.json`
 - `summary.json` scenario fields now include `onCreate_seen` (informational)
+- `summary.json` scenario fields include `github_user_nonempty` and `user_nonempty`
 - `raw/*.stdout.log`, `raw/*.stderr.log`, `raw/*.rc`
 - `devcontainer-prebuild.events.log`
 - `devcontainer-up.events.log`
@@ -116,6 +118,10 @@ For `--platform devcontainer`, the harness enforces:
 For all platforms, the harness records `onCreate_seen` in `summary.json` for
 each scenario. `onCreate_seen` is currently evidence-only (informational) and
 is not yet part of pass/fail gating.
+
+For all platforms/scenarios, the harness also records both
+`github_user_nonempty` and `user_nonempty` so runtime identity environment can
+be compared directly across prebuild and first-boot phases.
 
 ## Interpretation
 

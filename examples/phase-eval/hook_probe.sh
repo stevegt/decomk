@@ -38,11 +38,23 @@ resolve_phase_bucket() {
     return
   fi
   if [[ -n "${CODESPACES:-}" ]]; then
-    if [[ "$hook" == "updateContent" && "$history_exists" == "false" && "$prebuild_marker_seen" == "false" ]]; then
-      printf 'prebuild'
+    # Intent: Keep Codespaces prebuild classification stable now that
+    # `onCreateCommand` can run before `updateContentCommand`; treat onCreate
+    # and updateContent as prebuild until the prebuild update marker exists.
+    # Source: DI-009-20260418-140800 (TODO/009)
+    if [[ "$prebuild_marker_seen" == "true" ]]; then
+      printf 'runtime'
       return
     fi
-    printf 'runtime'
+    if [[ "$hook" == "postCreate" ]]; then
+      printf 'runtime'
+      return
+    fi
+    if [[ "$history_exists" == "true" && "$hook" == "onCreate" ]]; then
+      printf 'runtime'
+      return
+    fi
+    printf 'prebuild'
     return
   fi
   printf 'local'

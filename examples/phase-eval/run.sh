@@ -152,7 +152,11 @@ collect_events_from_logs() {
     fi
   done
 
-  if rg '^PHASE_EVAL_EVENT\|' "$aggregate_path" >"$events_path"; then
+  # Intent: Extract hook events even when runtime loggers prefix each line
+  # (for example Codespaces prebuild logs), by capturing the event token and
+  # the remainder of the line instead of requiring a start-of-line match.
+  # Source: DI-009-20260418-140800 (TODO/009)
+  if rg -o 'PHASE_EVAL_EVENT\|.*' "$aggregate_path" >"$events_path"; then
     :
   else
     local rg_rc=$?
@@ -404,6 +408,7 @@ devcontainer_prebuild_on_create="false"
 devcontainer_prebuild_update_content="false"
 devcontainer_prebuild_post_create="false"
 devcontainer_prebuild_github_user="false"
+devcontainer_prebuild_user="false"
 devcontainer_prebuild_cleanup_rc=-1
 
 devcontainer_up_rc=-1
@@ -412,6 +417,7 @@ devcontainer_up_on_create="false"
 devcontainer_up_update_content="false"
 devcontainer_up_post_create="false"
 devcontainer_up_github_user="false"
+devcontainer_up_user="false"
 devcontainer_up_cleanup_rc=-1
 
 devpod_build_rc=-1
@@ -419,12 +425,14 @@ devpod_build_on_create="false"
 devpod_build_update_content="false"
 devpod_build_post_create="false"
 devpod_build_github_user="false"
+devpod_build_user="false"
 
 devpod_up_rc=-1
 devpod_up_on_create="false"
 devpod_up_update_content="false"
 devpod_up_post_create="false"
 devpod_up_github_user="false"
+devpod_up_user="false"
 
 devpod_cleanup_rc=0
 
@@ -446,11 +454,13 @@ codespaces_prebuild_on_create="false"
 codespaces_prebuild_update_content="false"
 codespaces_prebuild_post_create="false"
 codespaces_prebuild_github_user="false"
+codespaces_prebuild_user="false"
 codespaces_create_rc=-1
 codespaces_create_on_create="false"
 codespaces_update_content="false"
 codespaces_post_create="false"
 codespaces_github_user="false"
+codespaces_user="false"
 codespaces_logs_prebuild_hint="false"
 codespaces_artifacts_fetch_rc=-1
 codespaces_prebuild_marker_present="false"
@@ -517,6 +527,9 @@ if [[ "$platform" == "devcontainer" || "$platform" == "all" ]]; then
     if event_has_nonempty_field "$out_dir/devcontainer-prebuild.events.log" "github_user"; then
       devcontainer_prebuild_github_user="true"
     fi
+    if event_has_nonempty_field "$out_dir/devcontainer-prebuild.events.log" "user"; then
+      devcontainer_prebuild_user="true"
+    fi
   fi
 
   if [[ -n "$devcontainer_prebuild_container_id" ]]; then
@@ -575,6 +588,9 @@ if [[ "$platform" == "devcontainer" || "$platform" == "all" ]]; then
     fi
     if event_has_nonempty_field "$out_dir/devcontainer-up.events.log" "github_user"; then
       devcontainer_up_github_user="true"
+    fi
+    if event_has_nonempty_field "$out_dir/devcontainer-up.events.log" "user"; then
+      devcontainer_up_user="true"
     fi
   fi
 
@@ -636,6 +652,9 @@ if [[ "$platform" == "devpod" || "$platform" == "all" ]]; then
   if event_has_nonempty_field "$devpod_build_events" "github_user"; then
     devpod_build_github_user="true"
   fi
+  if event_has_nonempty_field "$devpod_build_events" "user"; then
+    devpod_build_user="true"
+  fi
 
   workspace_up="$out_dir/workspace-devpod-up"
   mkdir -p "$workspace_up"
@@ -682,6 +701,9 @@ if [[ "$platform" == "devpod" || "$platform" == "all" ]]; then
     fi
     if event_has_nonempty_field "$out_dir/devpod-up.events.log" "github_user"; then
       devpod_up_github_user="true"
+    fi
+    if event_has_nonempty_field "$out_dir/devpod-up.events.log" "user"; then
+      devpod_up_user="true"
     fi
   fi
 
@@ -840,6 +862,9 @@ if [[ "$platform" == "codespaces" || "$platform" == "all" ]]; then
               if event_has_nonempty_field "$out_dir/codespaces-prebuild.events.log" "github_user"; then
                 codespaces_prebuild_github_user="true"
               fi
+              if event_has_nonempty_field "$out_dir/codespaces-prebuild.events.log" "user"; then
+                codespaces_prebuild_user="true"
+              fi
 
               if [[ "$codespaces_prebuild_watch_rc" -eq 0 && "$codespaces_prebuild_logs_rc" -eq 0 ]]; then
                 codespaces_prebuild_trigger_rc=0
@@ -954,6 +979,9 @@ if [[ "$platform" == "codespaces" || "$platform" == "all" ]]; then
           if event_has_nonempty_field "$out_dir/codespaces.events.log" "github_user"; then
             codespaces_github_user="true"
           fi
+          if event_has_nonempty_field "$out_dir/codespaces.events.log" "user"; then
+            codespaces_user="true"
+          fi
 
           # Intent: Verify durable in-container artifacts written by hook probes
           # so we can differentiate prebuild execution from runtime execution
@@ -1052,6 +1080,7 @@ cat >"$summary_path" <<JSON
       "updateContent_seen": $(bool_json "$devcontainer_prebuild_update_content"),
       "postCreate_seen": $(bool_json "$devcontainer_prebuild_post_create"),
       "github_user_nonempty": $(bool_json "$devcontainer_prebuild_github_user"),
+      "user_nonempty": $(bool_json "$devcontainer_prebuild_user"),
       "cleanup_rc": $devcontainer_prebuild_cleanup_rc
     },
     "devcontainer_up": {
@@ -1061,6 +1090,7 @@ cat >"$summary_path" <<JSON
       "updateContent_seen": $(bool_json "$devcontainer_up_update_content"),
       "postCreate_seen": $(bool_json "$devcontainer_up_post_create"),
       "github_user_nonempty": $(bool_json "$devcontainer_up_github_user"),
+      "user_nonempty": $(bool_json "$devcontainer_up_user"),
       "cleanup_rc": $devcontainer_up_cleanup_rc
     },
     "devpod_build": {
@@ -1068,7 +1098,8 @@ cat >"$summary_path" <<JSON
       "onCreate_seen": $(bool_json "$devpod_build_on_create"),
       "updateContent_seen": $(bool_json "$devpod_build_update_content"),
       "postCreate_seen": $(bool_json "$devpod_build_post_create"),
-      "github_user_nonempty": $(bool_json "$devpod_build_github_user")
+      "github_user_nonempty": $(bool_json "$devpod_build_github_user"),
+      "user_nonempty": $(bool_json "$devpod_build_user")
     },
     "devpod_up": {
       "rc": $devpod_up_rc,
@@ -1076,6 +1107,7 @@ cat >"$summary_path" <<JSON
       "updateContent_seen": $(bool_json "$devpod_up_update_content"),
       "postCreate_seen": $(bool_json "$devpod_up_post_create"),
       "github_user_nonempty": $(bool_json "$devpod_up_github_user"),
+      "user_nonempty": $(bool_json "$devpod_up_user"),
       "cleanup_rc": $devpod_cleanup_rc
     },
     "codespaces_prebuild_list": {
@@ -1098,6 +1130,7 @@ cat >"$summary_path" <<JSON
       "updateContent_seen": $(bool_json "$codespaces_prebuild_update_content"),
       "postCreate_seen": $(bool_json "$codespaces_prebuild_post_create"),
       "github_user_nonempty": $(bool_json "$codespaces_prebuild_github_user"),
+      "user_nonempty": $(bool_json "$codespaces_prebuild_user"),
       "watch_rc": $codespaces_prebuild_watch_rc,
       "logs_rc": $codespaces_prebuild_logs_rc
     },
@@ -1108,6 +1141,7 @@ cat >"$summary_path" <<JSON
       "updateContent_seen": $(bool_json "$codespaces_update_content"),
       "postCreate_seen": $(bool_json "$codespaces_post_create"),
       "github_user_nonempty": $(bool_json "$codespaces_github_user"),
+      "user_nonempty": $(bool_json "$codespaces_user"),
       "logs_contain_prebuild_hint": $(bool_json "$codespaces_logs_prebuild_hint"),
       "artifacts_fetch_rc": $codespaces_artifacts_fetch_rc,
       "persistent_prebuild_update_marker_present": $(bool_json "$codespaces_prebuild_marker_present"),

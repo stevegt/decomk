@@ -99,6 +99,14 @@ Intent: Expand lifecycle observability to all standard devcontainer hooks while 
 Constraints: Preserve existing failure gates; avoid introducing ordering assertions until platform behavior is validated over more runs.
 Affects: `.devcontainer/phase-eval/devcontainer.json`, `examples/phase-eval/run.sh`, `examples/phase-eval/README.md`, `TODO/009-phase-eval-lifecycle-spike.md`.
 
+ID: DI-009-20260418-140800
+Date: 2026-04-18 14:08:00
+Status: active
+Decision: Fix phase-eval hook extraction to capture embedded `PHASE_EVAL_EVENT|...` payloads from prefixed logs, update Codespaces phase bucketing so `onCreate`+`updateContent` remain classified as prebuild before the prebuild marker exists, and emit `user_nonempty` alongside `github_user_nonempty` for each scenario.
+Intent: Eliminate false negatives in Codespaces prebuild evidence after enabling `onCreateCommand`, and explicitly surface whether `USER` is populated during each evaluated lifecycle path.
+Constraints: Preserve existing pass/fail gates and keep `onCreate` evidence informational; avoid silent parsing failures.
+Affects: `examples/phase-eval/run.sh`, `examples/phase-eval/hook_probe.sh`, `examples/phase-eval/README.md`, `TODO/009-phase-eval-lifecycle-spike.md`.
+
 ## Goal
 
 Produce reproducible evidence for lifecycle behavior so design decisions about
@@ -129,6 +137,7 @@ Out of scope:
 - [x] 009.10 Add durable phase markers to distinguish prebuild hook execution from first-boot hook execution.
 - [x] 009.11 Add devcontainer CLI platform evaluation path (`--platform devcontainer`) and rename aggregate selector to `all`.
 - [x] 009.12 Add `onCreate` hook evidence checks for all phase-eval platforms and expose `onCreate_seen` in run summary output.
+- [x] 009.13 Fix prefixed log extraction and Codespaces phase bucketing for `onCreate` + add `user_nonempty` evidence fields.
 - [x] 009.6 Run phase-eval scenarios and record observed behavior summary in this TODO.
 - [x] 009.7 Use observed results to drive decomk lifecycle redesign decisions (selector mapping + context axes).
 
