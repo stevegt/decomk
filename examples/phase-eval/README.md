@@ -13,6 +13,7 @@ stage-0 lifecycle design.
 
 The spike captures evidence for:
 
+- whether `onCreateCommand` runs,
 - whether `updateContentCommand` runs,
 - whether `postCreateCommand` runs,
 - whether `GITHUB_USER` is populated,
@@ -43,6 +44,7 @@ By default, output is written under:
 Key files:
 
 - `summary.json`
+- `summary.json` scenario fields now include `onCreate_seen` (informational)
 - `raw/*.stdout.log`, `raw/*.stderr.log`, `raw/*.rc`
 - `devcontainer-prebuild.events.log`
 - `devcontainer-up.events.log`
@@ -110,6 +112,10 @@ For `--platform devcontainer`, the harness enforces:
 
 1. A prebuild run (`devcontainer up --prebuild`) where hook evidence must include `updateContent` and must not include `postCreate`.
 2. A runtime run (`devcontainer up`) where hook evidence must include `postCreate`.
+
+For all platforms, the harness records `onCreate_seen` in `summary.json` for
+each scenario. `onCreate_seen` is currently evidence-only (informational) and
+is not yet part of pass/fail gating.
 
 ## Interpretation
 

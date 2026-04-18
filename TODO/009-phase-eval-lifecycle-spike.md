@@ -91,6 +91,14 @@ Constraints: Keep no-silent-failure behavior; gate `devcontainer` success on hoo
 Affects: `examples/phase-eval/run.sh`, `examples/phase-eval/README.md`, `TODO/009-phase-eval-lifecycle-spike.md`.
 Supersedes: DI-009-20260413-232813
 
+ID: DI-009-20260418-135200
+Date: 2026-04-18 13:52:00
+Status: active
+Decision: Add `onCreate` lifecycle evidence capture to phase-eval across devcontainer, DevPod, and Codespaces by wiring `onCreateCommand` in the eval devcontainer config and emitting per-scenario `onCreate_seen` fields in `summary.json`.
+Intent: Expand lifecycle observability to all standard devcontainer hooks while keeping current stability by reporting `onCreate` as informational evidence instead of a pass/fail gate.
+Constraints: Preserve existing failure gates; avoid introducing ordering assertions until platform behavior is validated over more runs.
+Affects: `.devcontainer/phase-eval/devcontainer.json`, `examples/phase-eval/run.sh`, `examples/phase-eval/README.md`, `TODO/009-phase-eval-lifecycle-spike.md`.
+
 ## Goal
 
 Produce reproducible evidence for lifecycle behavior so design decisions about
@@ -120,6 +128,7 @@ Out of scope:
 - [x] 009.9 Link deferred self-hosting runtime-adaptation follow-up to `TODO/007.14`.
 - [x] 009.10 Add durable phase markers to distinguish prebuild hook execution from first-boot hook execution.
 - [x] 009.11 Add devcontainer CLI platform evaluation path (`--platform devcontainer`) and rename aggregate selector to `all`.
+- [x] 009.12 Add `onCreate` hook evidence checks for all phase-eval platforms and expose `onCreate_seen` in run summary output.
 - [x] 009.6 Run phase-eval scenarios and record observed behavior summary in this TODO.
 - [x] 009.7 Use observed results to drive decomk lifecycle redesign decisions (selector mapping + context axes).
 
