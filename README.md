@@ -1,13 +1,13 @@
 # decomk
 
-`decomk` is an isconf-inspired bootstrap wrapper for devcontainers.
+`decomk` is an [isconf](https://en.wikipedia.org/wiki/ISconf)-inspired bootstrap wrapper for devcontainers.
 
 ## Philosophy
 
 `decomk` separates concerns:
 
 - **Policy** lives in shared config (`decomk.conf`): context expansion, tuple values, and default target composition.
-- **Execution graph** lives in a shared `Makefile`: file targets in the stamp directory define idempotent, dependency-ordered work.
+- **Execution graph** lives in a `Makefile` that is shared across multiple devcontainer repos: file targets in the stamp directory define idempotent, dependency-ordered work.
 - **Stage-0 lifecycle files** (`.devcontainer/devcontainer.json`, `.devcontainer/decomk-stage0.sh`) are generated scaffolding and should be treated as managed bootstrap wrappers, not as the place to encode per-repo tool policy.
 
 For deeper design background, see:
