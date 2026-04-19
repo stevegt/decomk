@@ -10,8 +10,17 @@ Intent: Prevent user customization logic from depending on prebuild-time identit
 Constraints: Maintain repo/context resolution behavior for shared policy, avoid password prompts, and keep per-user customization optional.
 Affects: `TODO/006-decomk-user-customization-via-github-user.md`, stage-0 lifecycle templates, selftest lifecycle assertions.
 
+ID: DI-006-20260419-114524
+Date: 2026-04-19 11:45:24
+Status: active
+Decision: Use platform-native dotfiles support as the default path for personal user setup; keep decomk focused on deterministic repo/org policy and optional user-phase make targets.
+Intent: Avoid rebuilding per-platform dotfiles behavior in decomk, reduce user handholding, and preserve a single decomk execution model with stamps/logs for policy actions.
+Constraints: Keep `updateContent` prebuild-safe and shared-only, keep runtime user actions in `postCreate`, avoid interactive sudo/password prompts, and defer `GITHUB_USER -> USER` fallback for now.
+Affects: `TODO/006-decomk-user-customization-via-github-user.md`, stage-0 templates, selftests, README lifecycle guidance.
+Supersedes: DI-006-20260416-222900
+
 Goal: allow per-user customization in devcontainers without requiring every user
-to add stanzas to the shared decomk config repo.
+to add stanzas to the shared decomk config repo, while minimizing setup friction.
 
 Problem statement:
 - In many devcontainer images (including Codespaces), the in-container Unix user
@@ -26,39 +35,48 @@ Problem statement:
 
 ## Proposed design (recommended)
 
-Add a **user-local overlay config** that is loaded automatically and can define
-contexts keyed by `GITHUB_USER`.
+Use a **platform-first** model:
+- Let the platform handle personal dotfiles bootstrap (Codespaces/DevPod/devcontainer dotfiles support).
+- Keep decomk responsible for deterministic shared policy and repeatable make execution.
+- Keep user-specific decomk actions as normal make targets in runtime phase (`postCreate`) rather than adding a decomk-internal dotfiles subsystem.
 
-Layering / precedence ("last wins"):
-1. config repo `<DECOMK_HOME>/conf/decomk.conf` (lowest)
-2. user overlay `<DECOMK_HOME>/user/decomk.conf` (and sibling `decomk.d/*.conf`)
-3. explicit `-config` / `DECOMK_CONFIG` (highest)
+Lifecycle contract:
+1. `updateContent`: shared and prebuild-safe actions only; no user-personal logic.
+2. `postCreate`: runtime user-phase actions; may depend on user identity/runtime state.
+3. All decomk-managed actions continue to run through make targets so stamps/logging remain consistent.
 
-Context selection behavior (workspace scan mode):
-- Keep current repo-driven key selection.
-- Additionally, if `GITHUB_USER` is set and a matching context exists, append a
-  `user/<GITHUB_USER>` context key at the highest precedence for the run.
+### Optional helper target (future extension)
 
-This keeps per-user policy in the container (or bind-mounted volume), not in the
-shared config repo.
+If needed, add an optional helper target/script invoked by the main Makefile to
+perform per-user bootstrap behavior. This is outside decomk core and still
+executed via normal make invocation/stamps/logging.
 
 ## Alternative designs to consider
 
-1. Add `GITHUB_USER` as a primary context key in the shared config repo
-   (`<GITHUB_USER>:` stanzas).
-   - Requires per-user edits to shared repo; conflicts with the goal above.
+1. Decomk-managed dotfiles clone/script execution in core stage-0.
+   - Rejected as default due to platform drift and extra support burden.
 
-2. Add a separate "user stage" that runs after the main make run (e.g. a second
-   make invocation or a dedicated `USER_INSTALL` variable/target).
-   - Pros: explicit separation between shared and personal installs.
-   - Cons: more moving parts; harder to reason about precedence; may duplicate
-     stamp/log handling.
+2. User-local overlay config under `<DECOMK_HOME>/user/decomk.conf`.
+   - Deferred as optional future path; no longer the primary recommendation.
 
-## Subtasks
+## Deferred / out of scope
 
-- [ ] 006.1 Add a user config search path (`<DECOMK_HOME>/user/decomk.conf`).
-- [ ] 006.2 Add `-user-config` flag + `DECOMK_USER_CONFIG` env override.
-- [ ] 006.3 Update `loadDefs` to merge config repo + user overlay + explicit config.
-- [ ] 006.4 Extend workspace context selection to optionally include `user/<GITHUB_USER>`.
-- [ ] 006.5 Document the feature in `README.md` (layout, precedence, examples).
-- [ ] 006.6 Add unit tests for layering + key selection (no sudo/network).
+- `GITHUB_USER -> USER` fallback is deferred and is not part of TODO 006 implementation.
+- A decomk-owned dotfiles engine (clone + script dispatch) is out of scope for this TODO.
+
+## Superseded subtasks (overlay track)
+
+- [x] 006.1 Add a user config search path (`<DECOMK_HOME>/user/decomk.conf`). (Superseded by DI-006-20260419-114524; not implemented)
+- [x] 006.2 Add `-user-config` flag + `DECOMK_USER_CONFIG` env override. (Superseded by DI-006-20260419-114524; not implemented)
+- [x] 006.3 Update `loadDefs` to merge config repo + user overlay + explicit config. (Superseded by DI-006-20260419-114524; not implemented)
+- [x] 006.4 Extend workspace context selection to optionally include `user/<GITHUB_USER>`. (Superseded by DI-006-20260419-114524; not implemented)
+- [x] 006.5 Document the feature in `README.md` (layout, precedence, examples). (Superseded by DI-006-20260419-114524; not implemented)
+- [x] 006.6 Add unit tests for layering + key selection (no sudo/network). (Superseded by DI-006-20260419-114524; not implemented)
+
+## Active subtasks
+
+- [ ] 006.7 Document the platform-first boundary in `README.md` and `doc/decomk-design.md` (platform dotfiles for personal setup; decomk for policy/make orchestration).
+- [ ] 006.8 Document phase responsibilities for user customization (`updateContent` shared/prebuild-safe; `postCreate` runtime/user-phase).
+- [ ] 006.9 Add/adjust selftests to assert phase separation and that user-phase targets run only in `postCreate`.
+- [ ] 006.10 Define the optional make-invoked helper target contract for per-user bootstrap behavior (inputs, outputs, stamps, logs, failure handling).
+- [ ] 006.11 Cross-link this TODO from `TODO/001-decomk-devcontainer-tool-bootstrap.md` and related lifecycle TODOs as the user-customization contract.
