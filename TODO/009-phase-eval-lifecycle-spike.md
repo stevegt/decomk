@@ -107,6 +107,15 @@ Intent: Eliminate false negatives in Codespaces prebuild evidence after enabling
 Constraints: Preserve existing pass/fail gates and keep `onCreate` evidence informational; avoid silent parsing failures.
 Affects: `examples/phase-eval/run.sh`, `examples/phase-eval/hook_probe.sh`, `examples/phase-eval/README.md`, `TODO/009-phase-eval-lifecycle-spike.md`.
 
+ID: DI-009-20260419-100900
+Date: 2026-04-19 10:09:00
+Status: active
+Decision: Promote `/tmp/decomk-phase-eval.20260419T014758Z-3468588/summary.json` as canonical lifecycle evidence and update TODO 009 conclusions to include `onCreate` coverage plus dual identity signals (`GITHUB_USER`, `USER`) per phase/platform.
+Intent: Keep lifecycle and identity contracts anchored to the latest full-platform empirical run, including the post-`onCreate` extraction/bucketing fixes.
+Constraints: Keep evidence statements traceable to concrete artifact paths; avoid introducing new runtime behavior changes in this TODO-only update.
+Affects: `TODO/009-phase-eval-lifecycle-spike.md`.
+Supersedes: DI-009-20260416-222400
+
 ## Goal
 
 Produce reproducible evidence for lifecycle behavior so design decisions about
@@ -138,25 +147,35 @@ Out of scope:
 - [x] 009.11 Add devcontainer CLI platform evaluation path (`--platform devcontainer`) and rename aggregate selector to `all`.
 - [x] 009.12 Add `onCreate` hook evidence checks for all phase-eval platforms and expose `onCreate_seen` in run summary output.
 - [x] 009.13 Fix prefixed log extraction and Codespaces phase bucketing for `onCreate` + add `user_nonempty` evidence fields.
+- [x] 009.14 Promote `20260419T014758Z-3468588` as canonical evidence and refresh TODO 009 lifecycle/identity conclusions.
 - [x] 009.6 Run phase-eval scenarios and record observed behavior summary in this TODO.
 - [x] 009.7 Use observed results to drive decomk lifecycle redesign decisions (selector mapping + context axes).
 
 ## Observed behavior summary
 
 Evidence run:
-- `summary.json`: `/tmp/decomk-phase-eval.20260417T043559Z-3106986/summary.json`
-- persistent hook events: `/tmp/decomk-phase-eval.20260417T043559Z-3106986/codespaces-persistent.events.log`
+- `summary.json`: `/tmp/decomk-phase-eval.20260419T014758Z-3468588/summary.json`
+- `scenario-notes.tsv`: `/tmp/decomk-phase-eval.20260419T014758Z-3468588/scenario-notes.tsv`
+- persistent hook events: `/tmp/decomk-phase-eval.20260419T014758Z-3468588/codespaces-persistent.events.log`
 
 Observed facts:
-- Prebuild phase emitted `hook=updateContent`, `phase_bucket=prebuild`, and empty `github_user=`.
-- Runtime phase emitted `hook=postCreate`, `phase_bucket=runtime`, and populated `github_user=stevegt`.
-- Summary cross-check shows:
-  - `codespaces_prebuild_run.github_user_nonempty=false`
-  - `codespaces_create.github_user_nonempty=true`
+- devcontainer prebuild (`devcontainer up --prebuild`) emitted `onCreate` + `updateContent`, and did not emit `postCreate`.
+- devcontainer runtime (`devcontainer up`) emitted `onCreate` + `updateContent` + `postCreate`.
+- DevPod build emitted no lifecycle hook events; DevPod runtime (`devpod up`) emitted all three hooks (`onCreate`, `updateContent`, `postCreate`).
+- Codespaces prebuild run emitted `onCreate` + `updateContent` and did not emit `postCreate`.
+- Codespaces runtime/create emitted `onCreate` + `updateContent` + `postCreate`.
+- Codespaces persistent evidence confirms prebuild/runtime split:
   - `persistent_prebuild_update_event_seen=true`
   - `persistent_runtime_postcreate_event_seen=true`
+  - `persistent_prebuild_update_marker_present=true`
+  - `persistent_runtime_postcreate_marker_present=true`
+- Identity signal cross-check:
+  - Codespaces prebuild: `github_user_nonempty=false`, `user_nonempty=false`
+  - Codespaces runtime/create: `github_user_nonempty=true`, `user_nonempty=false`
+  - DevPod runtime: `github_user_nonempty=false`, `user_nonempty=true`
 
 Design conclusion:
-- `updateContentCommand` is the prebuild/common stage.
-- `postCreateCommand` is the runtime/user stage.
-- `GITHUB_USER` is runtime/user-phase identity data and must not be assumed in prebuild.
+- `onCreateCommand` + `updateContentCommand` are prebuild/common lifecycle signals.
+- `postCreateCommand` is the runtime/user phase signal.
+- Runtime identity should resolve as `GITHUB_USER` first, with `USER` as a fallback when `GITHUB_USER` is unset.
+- In Codespaces specifically, `USER` may remain empty even at runtime; `GITHUB_USER` is the reliable user-phase identity signal.
