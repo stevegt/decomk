@@ -19,6 +19,15 @@ Constraints: Keep `updateContent` prebuild-safe and shared-only, keep runtime us
 Affects: `TODO/006-decomk-user-customization-via-github-user.md`, stage-0 templates, selftests, README lifecycle guidance.
 Supersedes: DI-006-20260416-222900
 
+ID: DI-006-20260419-115209
+Date: 2026-04-19 11:52:09
+Status: active
+Decision: Make the per-user bootstrap helper non-optional for TODO 006 and explicitly choose its placement as a required design decision.
+Intent: Ensure there is one clear, testable mechanism for repo/user policy handoff instead of leaving helper behavior as a future optional extension.
+Constraints: Keep platform dotfiles as the default for personal dotfiles, keep decomk core free of a generic dotfiles engine, run helper logic through make/stamps/logs, and lock helper placement (decomk subcommand vs separate decomk-repo binary vs conf-repo artifact vs other) before implementation.
+Affects: `TODO/006-decomk-user-customization-via-github-user.md`, TODO 006 subtasks, user customization design docs.
+Supersedes: DI-006-20260419-114524
+
 Goal: allow per-user customization in devcontainers without requiring every user
 to add stanzas to the shared decomk config repo, while minimizing setup friction.
 
@@ -39,17 +48,25 @@ Use a **platform-first** model:
 - Let the platform handle personal dotfiles bootstrap (Codespaces/DevPod/devcontainer dotfiles support).
 - Keep decomk responsible for deterministic shared policy and repeatable make execution.
 - Keep user-specific decomk actions as normal make targets in runtime phase (`postCreate`) rather than adding a decomk-internal dotfiles subsystem.
+- Require a helper path for per-user bootstrap orchestration, with placement explicitly decided and documented.
 
 Lifecycle contract:
 1. `updateContent`: shared and prebuild-safe actions only; no user-personal logic.
 2. `postCreate`: runtime user-phase actions; may depend on user identity/runtime state.
 3. All decomk-managed actions continue to run through make targets so stamps/logging remain consistent.
 
-### Optional helper target (future extension)
+### Required helper placement decision
 
-If needed, add an optional helper target/script invoked by the main Makefile to
-perform per-user bootstrap behavior. This is outside decomk core and still
-executed via normal make invocation/stamps/logging.
+TODO 006 requires a helper mechanism for per-user bootstrap behavior, executed
+via the main Makefile so it stays inside decomk stamps/logging semantics.
+Before implementation, choose and lock one placement:
+- decomk subcommand
+- separate binary built from the decomk repo
+- helper artifact/script sourced from the conf repo
+- another location with explicit rationale
+
+The chosen placement must be documented with invocation contract (inputs,
+outputs, error handling, and stamp interactions).
 
 ## Alternative designs to consider
 
@@ -78,5 +95,6 @@ executed via normal make invocation/stamps/logging.
 - [ ] 006.7 Document the platform-first boundary in `README.md` and `doc/decomk-design.md` (platform dotfiles for personal setup; decomk for policy/make orchestration).
 - [ ] 006.8 Document phase responsibilities for user customization (`updateContent` shared/prebuild-safe; `postCreate` runtime/user-phase).
 - [ ] 006.9 Add/adjust selftests to assert phase separation and that user-phase targets run only in `postCreate`.
-- [ ] 006.10 Define the optional make-invoked helper target contract for per-user bootstrap behavior (inputs, outputs, stamps, logs, failure handling).
-- [ ] 006.11 Cross-link this TODO from `TODO/001-decomk-devcontainer-tool-bootstrap.md` and related lifecycle TODOs as the user-customization contract.
+- [ ] 006.10 Decide helper placement (decomk subcommand vs separate decomk-repo binary vs conf-repo artifact vs other) and lock the decision in a DI entry with rationale.
+- [ ] 006.11 Define the non-optional make-invoked helper contract for per-user bootstrap behavior (inputs, outputs, stamps, logs, failure handling).
+- [ ] 006.12 Cross-link this TODO from `TODO/001-decomk-devcontainer-tool-bootstrap.md` and related lifecycle TODOs as the user-customization contract.
