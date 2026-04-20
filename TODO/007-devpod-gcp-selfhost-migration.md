@@ -187,13 +187,13 @@ Status: active
 Decision: Track image freeze/parity implementation in dedicated TODO 011 and `doc/image-management.md`, while keeping TODO 007 focused on migration sequencing and provider/platform operations.
 Intent: Separate migration orchestration from image-parity implementation details so each workstream has clear scope and acceptance gates.
 Constraints: Preserve TODO 007 migration phases and deferred GCP decisions; reference TODO 011 as the source of truth for freeze/parity mechanics.
-Affects: `TODO/007-devpod-gcp-selfhost-migration.md`, `TODO/011-local-freeze-prebuild-parity.md`, `doc/image-management.md`, `TODO/TODO.md`.
+Affects: `TODO/007-devpod-gcp-selfhost-migration.md`, `TODO/011-single-path-checkpoints.md`, `doc/image-management.md`, `TODO/TODO.md`.
 
 Related design docs:
 - `doc/isconf-design.md`
 - `doc/decomk-design.md`
 - `doc/image-management.md`
-- `TODO/011-local-freeze-prebuild-parity.md`
+- `TODO/011-single-path-checkpoints.md`
 
 ## Goal
 

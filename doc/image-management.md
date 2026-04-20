@@ -1,114 +1,92 @@
-# Image Management for Decomk Block Freezes
+# Image Management for Decomk: Single-Path Checkpoints
 
 ## Purpose
 
-This document records why decomk is choosing a local freeze pipeline
-(Option 2) for managed container images, and how that choice connects
-to deterministic builds and long-term operations.
+This document records why decomk uses single-path checkpoints for shared
+block images and how that design reduces prebuild and first-boot time.
 
 This is a background/design document. Implementation work is tracked in
-`TODO/011-local-freeze-prebuild-parity.md`.
+`TODO/011-single-path-checkpoints.md`.
 
-## Why this matters
+## Primary objective
 
-For decomk-managed environments, the effective image state is not just
-the Dockerfile output. The final state also includes stage-0 lifecycle
-execution and Makefile-driven changes during `updateContentCommand`.
+The objective is speed: reduce repeated setup work during prebuild and
+first boot by freezing shared setup into checkpoint images at block
+boundaries.
 
-That means a Dockerfile-only freeze is incomplete for decomk, and any
-image-management strategy must account for:
+No separate performance-metric framework is defined here. The design
+goal is architectural: shift repeated work into earlier checkpoint
+layers so later runs do less setup.
 
-1. Dockerfile layer changes, and
-2. `updateContent` → `decomk-stage0.sh updateContent` → `decomk run` →
+## Why Dockerfile-only freeze is insufficient
+
+For decomk-managed environments, effective shared state comes from both:
+
+1. Dockerfile layer execution, and
+2. decomk flow:
+   `updateContent` → `decomk-stage0.sh updateContent` → `decomk run` →
    config-repo Makefile effects.
 
-## Why bit-for-bit parity is important
+A Dockerfile-only freeze misses decomk-managed setup and therefore
+cannot be the canonical block-freeze path.
 
-Bit-for-bit identical artifacts are a high-value goal because they give:
+## Single-path checkpoint design
 
-- **Deterministic debugging:** a digest mismatch immediately proves the
-  runtime is not the same environment.
-- **Reliable promotion/rollback:** exact artifact identity supports
-  confident rollout gates and rollback targeting.
-- **Supply-chain clarity:** attestations and provenance remain tied to a
-  stable artifact identity.
-- **Cross-project consistency:** shared platform blocks behave
-  identically across many repositories and teams.
+The key design rule is image equivalence by path construction:
 
-## Lifecycle facts we are designing around
+- Prebuild path and checkpoint-build path both execute the same
+  `updateContent -> decomk run` flow.
+- User/runtime path (`postCreate`) is intentionally excluded from frozen
+  shared block images.
 
-Empirical results captured in `TODO/009-phase-eval-lifecycle-spike.md`
-and its evidence files show:
+This gives reasonable behavioral equivalence without requiring a
+separate comparator-heavy parity model as a primary requirement.
 
-- `updateContentCommand` is the prebuild/common phase.
-- `postCreateCommand` is the runtime/user phase.
+## Lifecycle facts this design depends on
+
+Empirical results in `TODO/009-phase-eval-lifecycle-spike.md` show:
+
+- `updateContentCommand` is prebuild/common phase.
+- `postCreateCommand` is runtime/user phase.
 - `GITHUB_USER` is runtime/user-phase data.
 
-Therefore, frozen shared block images must be based on prebuild/common
-phase behavior, not user-phase behavior.
+Therefore, shared checkpoint images are built from `updateContent` only.
 
 ## Options considered
 
-### Option 1: Promote GitHub prebuild artifact directly to GHCR
+### Option 1: Promote GitHub prebuild artifact directly
 
-**Idea:** run Codespaces prebuild, then export/promote that exact
-artifact to GHCR as the frozen block image.
+**Idea:** export/promote the opaque prebuild snapshot directly.
 
-**Result:** rejected for now. Current supported/public interfaces do not
-provide a direct export/promotion path for the opaque prebuild snapshot.
+**Result:** impossible with current supported github API and UI interfaces.
 
-### Option 2: Controlled local/CI freeze pipeline (selected)
+### Option 2: Local/CI single-path checkpoint pipeline (selected)
 
-**Idea:** run a controlled pipeline that executes the same intended
-build phases (Dockerfile + `updateContent`) and then snapshots the
-resulting image under deterministic constraints.
+**Idea:** run Dockerfile + `updateContent` in a controlled flow, then
+commit the resulting container as the next block checkpoint image.
 
-**Result:** selected as the practical path available now.
+**Result:** selected as the viable path available now.
 
-### Dockerfile-only freeze
+### Option 3: Dockerfile-only freeze
 
-**Idea:** treat Dockerfile output as the block image and skip decomk
-phase execution.
+**Idea:** freeze only Dockerfile layers.
 
-**Result:** rejected. This does not represent decomk’s actual managed
-state model.
+**Result:** rejected; incomplete for decomk-managed shared setup.
 
-## Decision
+## Operational model
 
-Use **Option 2** as the active path: controlled local/CI freeze with
-strict determinism controls and parity verification.
+1. Choose block profile path (`.devcontainer/BlockNN/devcontainer.json`).
+2. Run prebuild/common flow through `updateContent`.
+3. Run `decomk checkpoint --tag <image:tag>` to snapshot that state.
+4. Use checkpoint image as base (`FROM`) for later block progression.
+5. Keep runtime/user setup in `postCreate`, outside shared checkpoints.
 
-Because Option 1 is unavailable today, Option 2 is the only viable path
-to produce promotable images that include decomk-managed state.
+## Relationship to planning artifacts
 
-## Determinism and parity strategy (Option 2)
-
-The implementation target is to maximize parity with Codespaces
-prebuild outputs while preserving decomk semantics.
-
-Core controls:
-
-1. Pin base images by digest.
-2. Pin tool/package versions and source refs.
-3. Run stage-0 prebuild phase explicitly via
-   `.devcontainer/decomk-stage0.sh updateContent`.
-4. Exclude user-phase (`postCreate`) side effects from frozen blocks.
-5. Capture and compare canonical parity artifacts (digests/manifests,
-   plus decomk lifecycle markers).
-6. Fail fast on drift outside approved categories.
-
-## Known constraint and deferred choice
-
-The exact parity proof model is deferred to the implementation bakeoff
-in TODO 011. We are not locking that proof model in this background
-document.
-
-## Relationship to other planning artifacts
-
-- `TODO/011-local-freeze-prebuild-parity.md`: implementation plan for
-  Option 2.
-- `TODO/010-codespaces-block-prebuild-profiles.md`: profile/path
-  selection for block-specific prebuild configs.
+- `TODO/011-single-path-checkpoints.md`: single-path checkpoint
+  implementation plan.
+- `TODO/010-codespaces-block-prebuild-profiles.md`: block profile/path
+  selection.
 - `TODO/007-devpod-gcp-selfhost-migration.md`: broader self-hosting
   migration context.
 - `TODO/009-phase-eval-lifecycle-spike.md`: lifecycle evidence baseline.
