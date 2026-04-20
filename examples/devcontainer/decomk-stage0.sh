@@ -29,6 +29,21 @@ case "$stage0_phase" in
     ;;
 esac
 
+# Intent: Fail loudly when the runtime OS is not Ubuntu. GitHub Codespaces
+# silently drops into a default fallback container (Alpine-based) when a
+# devcontainer's Docker build fails. The Codespace comes up, the shell works,
+# and decomk's apt-pinned workflow quietly runs against the wrong base.
+# Catch the fallback here, before any pins are consumed.
+# Source: (proposed; see issue filed against stevegt/decomk by JJ 2026-04-19)
+if [[ ! -r /etc/os-release ]]; then
+  die "cannot read /etc/os-release; decomk stage-0 requires Ubuntu but the OS cannot be identified. This usually means the devcontainer build failed and the platform dropped into a non-Ubuntu fallback image."
+fi
+# shellcheck source=/dev/null
+. /etc/os-release
+if [[ "${ID:-}" != "ubuntu" ]]; then
+  die "decomk stage-0 requires Ubuntu (ID=ubuntu in /etc/os-release); got ID='${ID:-<unset>}' NAME='${NAME:-<unset>}'. This usually means the devcontainer's Docker build failed and the platform (e.g. GitHub Codespaces) dropped into its default fallback image. Fix the devcontainer build; do not treat this as a transient error."
+fi
+
 # Intent: Implement generic stage-0 bootstrap with URI-based source expressions
 # so tool/config acquisition is explicit, deterministic, and shared between
 # generated examples and `decomk init` scaffolds.
