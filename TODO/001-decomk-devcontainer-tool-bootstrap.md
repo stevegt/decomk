@@ -118,6 +118,14 @@ Constraints: Preserve two-phase lifecycle behavior, keep `DECOMK_STAGE0_PHASE` v
 Affects: `stage0/stage0.go`, `cmd/decomk/templates/*`, generated `examples/devcontainer/*`, generated selftest workspace templates, `examples/decomk-selftest/*`, `README.md`, `doc/decomk-design.md`.
 Supersedes: DI-001-20260416-222700
 
+ID: DI-001-20260420-161700
+Date: 2026-04-20 16:17:00
+Status: active
+Decision: Remove TODO subtasks `001.6` and `001.7` from TODO 001 because they are no longer valid work items.
+Intent: Keep TODO 001 aligned with current scope and avoid carrying obsolete planning items that create false backlog.
+Constraints: Preserve stable TODO numbering for remaining items and avoid renumbering other TODO entries.
+Affects: `TODO/001-decomk-devcontainer-tool-bootstrap.md`.
+
 ## Goal
 
 Create an isconf-inspired “context -> target groups + vars”
@@ -342,8 +350,6 @@ Pragmatic MVP: define a small set of **capability groups**, then compose per-rep
 - [x] 001.3 Choose wrapper language (Go vs Bash) and document the tradeoffs/decision.
 - [x] 001.4 Implement macro expansion (isconf `expandmacro` semantics) without Perl.
 - [x] 001.5 Implement env export file generation and decide where it is written.
-- [ ] 001.6 Define initial target groups (BLOCK_XX analogs) and a minimal `DEFAULT` toolset.
-- [ ] 001.7 Define the update/self-update model: install-first (`go install`) for the tool binary with optional clone mode, plus config repo pull into `<DECOMK_HOME>/conf`; support a pinned config ref/branch (lunamake test→prod style).
 - [ ] 001.8 Pilot in `mob-sandbox` via `devcontainer.json` `postCreateCommand`, then generalize.
 - [x] 001.9 Add a reference `examples/devcontainer/postCreateCommand.sh` that performs stage-0 bootstrap (ensure decomk in `PATH`, sync config repo, run decomk), then reuse it in pilots.
 - [x] 001.10 Add `decomk init` to scaffold `.devcontainer` files from embedded templates with flag/prompt inputs.
