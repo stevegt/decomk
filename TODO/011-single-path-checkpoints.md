@@ -53,6 +53,14 @@ Constraints: Keep single-path guarantee (`updateContent -> decomk run`) for chec
 Affects: `TODO/011-single-path-checkpoints.md`, `TODO/010-codespaces-block-prebuild-profiles.md`, `doc/image-management.md`, `README.md`.
 Supersedes: DI-011-20260419-141822
 
+ID: DI-011-20260420-162554
+Date: 2026-04-20 16:25:54
+Status: active
+Decision: Implement `decomk checkpoint build|push|tag` as first-class CLI subcommands with JSON output, default fail-on-existing-tag semantics, explicit `-m` tag-move override, source resolution via inspect-then-pull fallback, and default checkpoint-container cleanup with `--keep-container` diagnostics escape hatch.
+Intent: Deliver TODO 011.3 as a usable operator workflow now, with machine-readable artifacts for external release/test gates and explicit safeguards against accidental channel-tag overwrite.
+Constraints: Keep using `devcontainer up --prebuild` for build lifecycle execution; keep release test gate external/manual; preserve positional `<source> <tag...>` contract for push/tag.
+Affects: `cmd/decomk/main.go`, `cmd/decomk/checkpoint.go`, `cmd/decomk/checkpoint_test.go`, `README.md`, `TODO/011-single-path-checkpoints.md`.
+
 ## Goal
 
 Implement single-path checkpoints that reduce prebuild and first-boot
@@ -94,15 +102,15 @@ Out of scope:
 
 - [ ] 011.1 Define canonical single-path checkpoint contract (prebuild + checkpoint both execute the same `updateContent -> decomk run` flow with identical input surfaces).
 - [ ] 011.2 Define block progression workflow (`BlockNN` checkpoint becomes `FROM` base for later blocks) and document operator handoff points.
-- [ ] 011.3 Implement checkpoint command family (`build`, `push`, `tag`) with explicit release gate between push and stable tagging.
-- [ ] 011.3.1 Add checkpoint subcommand routing in `cmd/decomk/main.go` and usage text for `checkpoint build`, `checkpoint push`, and `checkpoint tag`.
-- [ ] 011.3.2 Implement `checkpoint build` handler to run prebuild/common lifecycle (`devcontainer up --prebuild`), commit local candidate image, and emit machine-readable JSON output.
-- [ ] 011.3.3 Implement `checkpoint push [-m] <source> <tag...>` using positional args (source digest/ref/image ID + one or more destination tags).
-- [ ] 011.3.4 Implement `checkpoint tag [-m] <source> <tag...>` for retagging tested remote candidates to channel tags (including `stable`) without rebuild.
-- [ ] 011.3.5 Enforce default fail-on-existing-tag behavior; require explicit `-m` to move existing channel tags.
-- [ ] 011.3.6 Include source-resolution and tag results in JSON output so external test/release tooling can consume build/push/tag artifacts.
-- [ ] 011.3.7 Keep temporary checkpoint container cleanup explicit for `build` (`--keep-container` for diagnostics, default cleanup otherwise).
-- [ ] 011.3.8 Add focused unit tests for build/push/tag success and failure paths (source resolution errors, tag collision without `-m`, registry/tag move errors, cleanup behavior).
+- [x] 011.3 Implement checkpoint command family (`build`, `push`, `tag`) with explicit release gate between push and stable tagging.
+- [x] 011.3.1 Add checkpoint subcommand routing in `cmd/decomk/main.go` and usage text for `checkpoint build`, `checkpoint push`, and `checkpoint tag`.
+- [x] 011.3.2 Implement `checkpoint build` handler to run prebuild/common lifecycle (`devcontainer up --prebuild`), commit local candidate image, and emit machine-readable JSON output.
+- [x] 011.3.3 Implement `checkpoint push [-m] <source> <tag...>` using positional args (source digest/ref/image ID + one or more destination tags).
+- [x] 011.3.4 Implement `checkpoint tag [-m] <source> <tag...>` for retagging tested remote candidates to channel tags (including `stable`) without rebuild.
+- [x] 011.3.5 Enforce default fail-on-existing-tag behavior; require explicit `-m` to move existing channel tags.
+- [x] 011.3.6 Include source-resolution and tag results in JSON output so external test/release tooling can consume build/push/tag artifacts.
+- [x] 011.3.7 Keep temporary checkpoint container cleanup explicit for `build` (`--keep-container` for diagnostics, default cleanup otherwise).
+- [x] 011.3.8 Add focused unit tests for build/push/tag success and failure paths (source resolution errors, tag collision without `-m`, registry/tag move errors, cleanup behavior).
 - [ ] 011.4 Enforce phase separation so checkpoint images exclude runtime/user-phase (`postCreate`) side effects.
 - [ ] 011.5 Add deterministic pinning checks (base digest, package/tool versions, git refs, and other mutable inputs) so checkpoint behavior remains stable.
 - [ ] 011.6 Add same-path verification evidence capture (lifecycle markers/command traces) to prove checkpoints were created through the shared `updateContent` flow.

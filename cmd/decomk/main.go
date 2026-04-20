@@ -81,6 +81,19 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return code
 		}
 		return code
+	case "checkpoint":
+		// Intent: Provide first-class checkpoint lifecycle commands (`build`,
+		// `push`, `tag`) directly in decomk so operators can run one canonical CLI
+		// flow instead of ad-hoc external scripts.
+		// Source: DI-011-20260420-162554 (TODO/011)
+		code, err := cmdCheckpoint(args[2:], stdout, stderr)
+		if err != nil {
+			if printErr := writeLine(stderr, err.Error()); printErr != nil {
+				return 1
+			}
+			return code
+		}
+		return code
 	default:
 		if err := writeLine(stderr, "unknown command:", args[1]); err != nil {
 			return 1
@@ -119,6 +132,7 @@ Commands:
   init    Install .devcontainer templates for decomk stage-0 bootstrap
   plan    Print resolved tuples/targets + env exports; run make -n (dry-run); do not write env export file
   run     Resolve, write env export file, and run make in the stamp dir
+  checkpoint  Build/push/tag checkpoint images for shared updateContent setup
 
 ARGS:
   Positional args are interpreted isconf-style:

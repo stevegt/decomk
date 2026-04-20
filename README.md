@@ -20,6 +20,7 @@ For deeper design background, see:
 - `decomk init` — scaffold stage-0 lifecycle files in `.devcontainer/`
 - `decomk plan` — resolve tuples/targets + run `make -n` in the stamp directory
 - `decomk run` — write env export file + run `make` in the stamp directory
+- `decomk checkpoint` — build/push/tag shared checkpoint images for the `updateContent` phase
 
 ## Step-by-step onboarding
 
@@ -172,6 +173,23 @@ DECOMK_HOME=/tmp/decomk DECOMK_LOG_DIR=/tmp/decomk/log \
 ```
 
 `decomk run` writes `<DECOMK_HOME>/env.sh` and runs make in `<DECOMK_HOME>/stamps`.
+
+## Checkpoint quick examples
+
+```bash
+# Build a local checkpoint candidate by running devcontainer prebuild lifecycle.
+decomk checkpoint build -workspace-folder . -config .devcontainer/devcontainer.json -tag ghcr.io/acme/base:block10-candidate
+
+# Publish candidate to immutable + testing tags.
+decomk checkpoint push ghcr.io/acme/base:block10-candidate \
+  ghcr.io/acme/base:block10-20260420 \
+  ghcr.io/acme/base:testing
+
+# After external/manual tests pass, move stable explicitly.
+decomk checkpoint tag -m ghcr.io/acme/base:block10-20260420 ghcr.io/acme/base:stable
+```
+
+`push`/`tag` fail if a destination tag already exists unless `-m` is set.
 
 ## Logging and state defaults
 
