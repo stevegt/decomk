@@ -75,11 +75,23 @@ commit the resulting container as the next block checkpoint image.
 
 ## Operational model
 
-1. Choose block profile path (`.devcontainer/BlockNN/devcontainer.json`).
-2. Run prebuild/common flow through `updateContent`.
-3. Run `decomk checkpoint --tag <image:tag>` to snapshot that state.
-4. Use checkpoint image as base (`FROM`) for later block progression.
+1. Run `decomk checkpoint build` to create a local candidate image by
+   executing prebuild/common flow through `updateContent`.
+2. Run `decomk checkpoint push <source> <immutable> <testing|unstable>`
+   to publish candidate tags for external/manual testing.
+3. After tests pass, run `decomk checkpoint tag -m <source> stable` to
+   move stable explicitly.
+4. Configure consumer repos to reference channel tags (auto-follow) or
+   pinned tags (intentional hold) in `.devcontainer/devcontainer.json`.
 5. Keep runtime/user setup in `postCreate`, outside shared checkpoints.
+
+Notes:
+
+- "Immutable tag" and "channel tag" are both plain registry tags; the
+  difference is operational policy (never move immutable tags, move
+  channel tags deliberately).
+- Stable must not be moved during build. Stable movement is a separate,
+  explicit post-test step.
 
 ## Relationship to planning artifacts
 

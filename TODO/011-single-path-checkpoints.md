@@ -44,6 +44,15 @@ Constraints: Preserve checkpoint v1 command shape, preserve phase split (`update
 Affects: `TODO/011-single-path-checkpoints.md`, `TODO/010-codespaces-block-prebuild-profiles.md`, `doc/image-management.md`, `TODO/TODO.md`.
 Supersedes: DI-011-20260419-130112
 
+ID: DI-011-20260420-160634
+Date: 2026-04-20 16:06:34
+Status: active
+Decision: Split checkpoint lifecycle into explicit `build`, `push`, and `tag` subcommands with an external/manual test gate between `push` and stable-tag movement; keep source/tag inputs positional and require explicit `-m` to move existing tags.
+Intent: Prevent accidental stable rollout during image creation, keep release control explicit, and align checkpoint rollout with channel-first testing (`unstable`/`testing` before `stable`).
+Constraints: Keep single-path guarantee (`updateContent -> decomk run`) for checkpoint builds, keep stamp carry behavior, allow source as digest/ref/image ID, and keep test orchestration out of decomk for now.
+Affects: `TODO/011-single-path-checkpoints.md`, `TODO/010-codespaces-block-prebuild-profiles.md`, `doc/image-management.md`, `README.md`.
+Supersedes: DI-011-20260419-141822
+
 ## Goal
 
 Implement single-path checkpoints that reduce prebuild and first-boot
@@ -85,34 +94,46 @@ Out of scope:
 
 - [ ] 011.1 Define canonical single-path checkpoint contract (prebuild + checkpoint both execute the same `updateContent -> decomk run` flow with identical input surfaces).
 - [ ] 011.2 Define block progression workflow (`BlockNN` checkpoint becomes `FROM` base for later blocks) and document operator handoff points.
-- [ ] 011.3 Implement `decomk checkpoint` (v1) to run prebuild/common lifecycle with `devcontainer up --prebuild`, then commit a checkpoint image.
-- [ ] 011.3.1 Add `checkpoint` subcommand wiring in `cmd/decomk/main.go` and usage text updates.
-- [ ] 011.3.2 Add `cmdCheckpoint(args, stdout, stderr)` in a new `cmd/decomk/checkpoint.go` using `flag.FlagSet`.
-- [ ] 011.3.3 Require `--tag`; support `--workspace` (default `.`), optional devcontainer config override, and `--keep-container`.
-- [ ] 011.3.4 Execute `devcontainer up --prebuild` and parse result metadata needed to identify the created container.
-- [ ] 011.3.5 Commit container to caller tag via Docker and inspect the resulting image ID.
-- [ ] 011.3.6 Emit a machine-readable JSON result on stdout (success/error, tag, container/image identifiers, cleanup status).
-- [ ] 011.3.7 Default to container cleanup after checkpoint, with explicit retain behavior when `--keep-container` is set.
-- [ ] 011.3.8 Add focused unit tests with command stubs for success, required-flag errors, prebuild failures, commit failures, and cleanup failures.
+- [ ] 011.3 Implement checkpoint command family (`build`, `push`, `tag`) with explicit release gate between push and stable tagging.
+- [ ] 011.3.1 Add checkpoint subcommand routing in `cmd/decomk/main.go` and usage text for `checkpoint build`, `checkpoint push`, and `checkpoint tag`.
+- [ ] 011.3.2 Implement `checkpoint build` handler to run prebuild/common lifecycle (`devcontainer up --prebuild`), commit local candidate image, and emit machine-readable JSON output.
+- [ ] 011.3.3 Implement `checkpoint push [-m] <source> <tag...>` using positional args (source digest/ref/image ID + one or more destination tags).
+- [ ] 011.3.4 Implement `checkpoint tag [-m] <source> <tag...>` for retagging tested remote candidates to channel tags (including `stable`) without rebuild.
+- [ ] 011.3.5 Enforce default fail-on-existing-tag behavior; require explicit `-m` to move existing channel tags.
+- [ ] 011.3.6 Include source-resolution and tag results in JSON output so external test/release tooling can consume build/push/tag artifacts.
+- [ ] 011.3.7 Keep temporary checkpoint container cleanup explicit for `build` (`--keep-container` for diagnostics, default cleanup otherwise).
+- [ ] 011.3.8 Add focused unit tests for build/push/tag success and failure paths (source resolution errors, tag collision without `-m`, registry/tag move errors, cleanup behavior).
 - [ ] 011.4 Enforce phase separation so checkpoint images exclude runtime/user-phase (`postCreate`) side effects.
 - [ ] 011.5 Add deterministic pinning checks (base digest, package/tool versions, git refs, and other mutable inputs) so checkpoint behavior remains stable.
 - [ ] 011.6 Add same-path verification evidence capture (lifecycle markers/command traces) to prove checkpoints were created through the shared `updateContent` flow.
-- [ ] 011.7 Add repeatable operator/CI entrypoints and documentation for checkpoint creation and block handoff.
+- [ ] 011.7 Add repeatable operator/CI entrypoints and documentation for `build -> push -> external test -> tag` block handoff.
 - [ ] 011.8 Execute acceptance runs and record evidence that checkpointed block progression removes repeated setup work from subsequent prebuild/first-boot paths.
 
-## 011.3 v1 command contract
+## 011.3 command contract
 
-- Command: `decomk checkpoint --tag <image:tag> [flags]`
-- Runner model: prebuild/common lifecycle only (`devcontainer up --prebuild`) for this phase.
-- Output: JSON on stdout (not files by default).
-- Cleanup: remove checkpoint container by default; keep only with `--keep-container`.
-- Deferred by design: numeric speed SLOs and comparator-heavy parity tooling.
+- `decomk checkpoint build [flags]`
+  - runs prebuild/common lifecycle and creates a local candidate image.
+  - outputs JSON with source digest/ref metadata for downstream steps.
+- `decomk checkpoint push [-m] <source> <tag...>`
+  - publishes one resolved source (digest/ref/image ID) to one-or-more tags.
+  - typically used for immutable + `testing`/`unstable` tags.
+- `decomk checkpoint tag [-m] <source> <tag...>`
+  - retags an already-published, tested source to channel tags (including `stable`) without rebuild.
+- move semantics:
+  - default fail if destination tag already exists;
+  - require explicit `-m` to move existing tags.
+- release sequencing:
+  - decomk handles `build` and `push`/`tag`;
+  - test gate between `push` and stable `tag` is external/manual.
+- deferred by design:
+  - numeric speed SLOs and full test orchestration remain outside this TODO.
 
 ## Acceptance criteria
 
 - Checkpoint runs and prebuild runs both execute the same
   `updateContent -> decomk run` path for shared setup.
 - Checkpoint images exclude runtime/user-phase (`postCreate`) effects.
+- Stable tags are moved only after explicit `push` + external test + `tag` workflow.
 - Block progression workflow (checkpoint -> next block base) is
   documented and runnable without hidden/manual steps.
 - Evidence artifacts show that repeated shared setup work is shifted into
@@ -123,18 +144,17 @@ Out of scope:
 ### DITL-011-DEVOPS-01 - DevOps engineer maintaining fast block startup
 
 The DevOps engineer sees that prebuild and first boot are getting
-slower as shared setup grows. They run `decomk checkpoint --tag
-<target>` to bake the current shared setup into a block image using
-the same `updateContent -> decomk` path used during prebuild. They
-then point the next block's base image at that checkpoint so later
-runs skip repeated setup work. By default, checkpoint should
-automatically remove the temporary checkpoint container after image
-commit. On failure they can run with `--keep-container` to retain the
-container for diagnosis. They need JSON output to explicitly report
-whether cleanup happened or a container was retained (including the
-relevant container ID). Their definition of success is simple: later
-prebuild and first-boot flows do less repeated work because checkpoint
-layers already contain it.
+slower as shared setup grows. They run `decomk checkpoint build` to
+create a local candidate image via the same `updateContent -> decomk`
+path used during prebuild, then `decomk checkpoint push <source>
+<immutable> <testing|unstable>` to publish testable tags. After an
+external/manual test gate passes, they run `decomk checkpoint tag -m
+<source> stable` to move stable explicitly. They need JSON output and
+command traces that show which source digest was built/pushed/tagged.
+By default, `build` should clean up the temporary checkpoint container;
+on failure they can retain it with `--keep-container` for diagnosis.
+Their definition of success is simple: later prebuild and first-boot
+flows do less repeated work because checkpoint layers already contain it.
 
 ### DITL-011-DEVTEAM-01 - Dev team member benefiting from checkpointed blocks
 
