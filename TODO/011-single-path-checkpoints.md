@@ -122,15 +122,19 @@ Out of scope:
 
 ### DITL-011-DEVOPS-01 - DevOps engineer maintaining fast block startup
 
-The DevOps engineer sees that prebuild and first boot are getting slower as
-shared setup grows. They run `decomk checkpoint --tag <target>` to bake the
-current shared setup into a block image using the same `updateContent -> decomk`
-path used during prebuild. They then point the next block's base image at that
-checkpoint so later runs skip repeated setup work. Most days they want automatic
-cleanup; on bad days they keep the container for diagnosis and need that state
-reflected in JSON output. Their definition of success is simple: later prebuild
-and first-boot flows do less repeated work because checkpoint layers already
-contain it.
+The DevOps engineer sees that prebuild and first boot are getting
+slower as shared setup grows. They run `decomk checkpoint --tag
+<target>` to bake the current shared setup into a block image using
+the same `updateContent -> decomk` path used during prebuild. They
+then point the next block's base image at that checkpoint so later
+runs skip repeated setup work. By default, checkpoint should
+automatically remove the temporary checkpoint container after image
+commit. On failure they can run with `--keep-container` to retain the
+container for diagnosis. They need JSON output to explicitly report
+whether cleanup happened or a container was retained (including the
+relevant container ID). Their definition of success is simple: later
+prebuild and first-boot flows do less repeated work because checkpoint
+layers already contain it.
 
 ### DITL-011-DEVTEAM-01 - Dev team member benefiting from checkpointed blocks
 
