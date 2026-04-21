@@ -1,0 +1,29 @@
+name: "Standard Issue"
+description: "Submit an issue after promising to help solve it."
+title: "[promise]: "
+labels: []
+body:
+  - type: checkboxes
+    id: promises
+    attributes:
+      label: Maintenance & AI Promises
+      description: Please review and check all items below to proceed with your submission.  Frame your submission as a promise to the maintainers and community that you will be an active participant in solving the issue you are raising, and that you will use LLMs thoughtfully and responsibly in this repo.  We ask for these promises to encourage thoughtful and responsible use of LLMs, to set expectations for engagement from issue submitters, and to help foster a collaborative and supportive community.
+      options:
+        - label: "I promise to spend more time than the primary maintainer in solving this issue."
+          required: true
+        - label: "I promise to spend more time researching and drafting this issue comment than I expect the primary maintainer to spend reading and responding to it."
+          required: true
+        - label: "I understand that the primary maintainer of this repository will not be using an LLM to draft any comments in response."
+          required: true
+        - label: "I promise that my use of LLMs in this repo will be considered and thoughtful, that I will stay in the loop, that I will review and understand diffs, and that I hold myself accountable for all LLM output."
+          required: true
+        - label: "I promise that any code submissions will follow the instructions in AGENTS.md."
+          required: true
+  - type: textarea
+    id: issue-details
+    attributes:
+      label: Issue Description
+      placeholder: Describe your issue here -- frame it as a series of promises as to what you have researched and what you will do...
+    validations:
+      required: true
+
