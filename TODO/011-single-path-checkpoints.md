@@ -77,6 +77,14 @@ Intent: Keep immediate focus on the completed checkpoint command/rollout contrac
 Constraints: Leave 011.5 open and explicitly labeled deferred; do not alter the existing checkpoint command contract.
 Affects: `TODO/011-single-path-checkpoints.md`.
 
+ID: DI-011-20260420-214841
+Date: 2026-04-20 21:48:41
+Status: active
+Decision: Define 011.1 as a documented canonical single-path contract now, and replace 011.2's old block-base wording with channel/pin progression (`candidate -> immutable+testing/unstable -> external test -> stable move`) as the active rollout method.
+Intent: Remove ambiguity about checkpoint progression semantics and align TODO 011 with the implemented `build/push/tag` contract plus the canonical consumer selector model from TODO 010.
+Constraints: Keep 011.2 as planning work (not yet complete), keep deferred items 011.4/011.5/011.6/011.8 unchanged, and avoid introducing new command behavior in this step.
+Affects: `TODO/011-single-path-checkpoints.md`.
+
 ## Goal
 
 Implement single-path checkpoints that reduce prebuild and first-boot
@@ -116,8 +124,8 @@ Out of scope:
 
 ## Subtasks
 
-- [ ] 011.1 Define canonical single-path checkpoint contract (prebuild + checkpoint both execute the same `updateContent -> decomk run` flow with identical input surfaces).
-- [ ] 011.2 Define block progression workflow (`BlockNN` checkpoint becomes `FROM` base for later blocks) and document operator handoff points.
+- [x] 011.1 Define canonical single-path checkpoint contract (prebuild + checkpoint both execute the same `updateContent -> decomk run` flow with identical input surfaces, and promotion always follows `build -> push -> external test -> tag`).
+- [ ] 011.2 Define progression workflow as channel/pin rollout (`candidate -> immutable + testing/unstable -> external test -> stable move`, with consumer repos either following channel tags or pinning immutable tags) and document operator handoff points.
 - [x] 011.3 Implement checkpoint command family (`build`, `push`, `tag`) with explicit release gate between push and stable tagging.
 - [x] 011.3.1 Add checkpoint subcommand routing in `cmd/decomk/main.go` and usage text for `checkpoint build`, `checkpoint push`, and `checkpoint tag`.
 - [x] 011.3.2 Implement `checkpoint build` handler to run prebuild/common lifecycle (`devcontainer up --prebuild`), commit local candidate image, and emit machine-readable JSON output.
@@ -151,6 +159,40 @@ Out of scope:
   - test gate between `push` and stable `tag` is external/manual.
 - deferred by design:
   - numeric speed SLOs and full test orchestration remain outside this TODO.
+
+## 011.1 canonical single-path contract
+
+The canonical checkpoint contract in this TODO is now:
+
+- Build path for shared image content is always:
+  - `devcontainer up --prebuild`
+  - lifecycle `updateContent`
+  - `decomk run`
+- Promotion path is always:
+  - `decomk checkpoint build`
+  - `decomk checkpoint push`
+  - external/manual test gate (outside decomk)
+  - `decomk checkpoint tag -m`
+- Decomk owns build/publish/tag mechanics and JSON artifacts.
+- External validation orchestration remains out-of-band by design.
+- Runtime/user phase (`postCreate`) is outside shared checkpoint image scope.
+
+This closes 011.1 as a documentation-defined contract baseline.
+
+## 011.2 progression method (channel/pin)
+
+The progression method for checkpoint rollout is:
+
+1. Build candidate source image.
+2. Push to immutable tag plus testing/unstable channel tags.
+3. Run external tests against published candidate.
+4. Move stable channel tag to the tested source.
+5. Consumer repos either:
+   - follow channel tags (automatic uptake), or
+   - pin immutable tags (intentional hold until maintainers update repo config).
+
+This replaces the older "next BlockNN `FROM` base" wording as the canonical
+rollout model.
 
 ## 011.7 Operator/CI handoff contract
 
@@ -218,8 +260,9 @@ decomk checkpoint tag -m \
   `updateContent -> decomk run` path for shared setup.
 - Checkpoint images exclude runtime/user-phase (`postCreate`) effects.
 - Stable tags are moved only after explicit `push` + external test + `tag` workflow.
-- Block progression workflow (checkpoint -> next block base) is
-  documented and runnable without hidden/manual steps.
+- Progression workflow (candidate -> immutable/testing -> external test ->
+  stable move, with channel-following or pinning consumers) is documented and
+  runnable without hidden/manual steps.
 - Evidence artifacts show that repeated shared setup work is shifted into
   checkpoint images for later prebuild/first-boot flows.
 
