@@ -61,6 +61,14 @@ Intent: Deliver TODO 011.3 as a usable operator workflow now, with machine-reada
 Constraints: Keep using `devcontainer up --prebuild` for build lifecycle execution; keep release test gate external/manual; preserve positional `<source> <tag...>` contract for push/tag.
 Affects: `cmd/decomk/main.go`, `cmd/decomk/checkpoint.go`, `cmd/decomk/checkpoint_test.go`, `README.md`, `TODO/011-single-path-checkpoints.md`.
 
+ID: DI-011-20260420-184053
+Date: 2026-04-20 18:40:53
+Status: active
+Decision: Complete TODO 011.7 as documentation-only by defining a canonical operator/CI handoff contract (narrative + command templates + artifact contract) for `build -> push -> external test -> tag`, and explicitly defer 011.4, 011.6, and 011.8.
+Intent: Give operators and CI maintainers one repeatable, auditable rollout playbook without introducing new scripts or workflow code in this step.
+Constraints: Keep external test gate outside decomk command execution; keep 011.4/011.6/011.8 open and deferred; keep command contract aligned with implemented checkpoint JSON outputs.
+Affects: `TODO/011-single-path-checkpoints.md`, `doc/image-management.md`, `README.md`.
+
 ## Goal
 
 Implement single-path checkpoints that reduce prebuild and first-boot
@@ -111,11 +119,11 @@ Out of scope:
 - [x] 011.3.6 Include source-resolution and tag results in JSON output so external test/release tooling can consume build/push/tag artifacts.
 - [x] 011.3.7 Keep temporary checkpoint container cleanup explicit for `build` (`--keep-container` for diagnostics, default cleanup otherwise).
 - [x] 011.3.8 Add focused unit tests for build/push/tag success and failure paths (source resolution errors, tag collision without `-m`, registry/tag move errors, cleanup behavior).
-- [ ] 011.4 Enforce phase separation so checkpoint images exclude runtime/user-phase (`postCreate`) side effects.
+- [ ] 011.4 Enforce phase separation so checkpoint images exclude runtime/user-phase (`postCreate`) side effects. (Deferred in this pass; see DI-011-20260420-184053.)
 - [ ] 011.5 Add deterministic pinning checks (base digest, package/tool versions, git refs, and other mutable inputs) so checkpoint behavior remains stable.
-- [ ] 011.6 Add same-path verification evidence capture (lifecycle markers/command traces) to prove checkpoints were created through the shared `updateContent` flow.
-- [ ] 011.7 Add repeatable operator/CI entrypoints and documentation for `build -> push -> external test -> tag` block handoff.
-- [ ] 011.8 Execute acceptance runs and record evidence that checkpointed block progression removes repeated setup work from subsequent prebuild/first-boot paths.
+- [ ] 011.6 Add same-path verification evidence capture (lifecycle markers/command traces) to prove checkpoints were created through the shared `updateContent` flow. (Deferred in this pass; see DI-011-20260420-184053.)
+- [x] 011.7 Add repeatable operator/CI entrypoints and documentation for `build -> push -> external test -> tag` block handoff.
+- [ ] 011.8 Execute acceptance runs and record evidence that checkpointed block progression removes repeated setup work from subsequent prebuild/first-boot paths. (Deferred in this pass; see DI-011-20260420-184053.)
 
 ## 011.3 command contract
 
@@ -135,6 +143,66 @@ Out of scope:
   - test gate between `push` and stable `tag` is external/manual.
 - deferred by design:
   - numeric speed SLOs and full test orchestration remain outside this TODO.
+
+## 011.7 Operator/CI handoff contract
+
+This section defines what the checkpoint handoff is for: to give DevOps
+engineers and CI jobs a repeatable, auditable promotion flow where image
+creation/publishing is automated through decomk, external validation stays
+outside decomk, and stable channel movement is explicit and intentional.
+
+### Canonical flow
+
+1. **Build candidate**: create a local candidate image using prebuild/common phase.
+2. **Push candidate tags**: publish immutable + testing/unstable tags.
+3. **External/manual test gate**: run validation outside decomk.
+4. **Tag promoted channel**: move channel tags (including `stable`) only after tests pass.
+
+### Command templates
+
+```bash
+# Step 1: build candidate (writes build JSON artifact)
+decomk checkpoint build \
+  -workspace-folder "${WORKSPACE_FOLDER:-.}" \
+  -config "${DEVCONTAINER_CONFIG:-.devcontainer/devcontainer.json}" \
+  -tag "${CANDIDATE_TAG}" \
+  > "${ARTIFACT_DIR}/checkpoint-build.json"
+
+# Step 2: publish immutable + testing/unstable tags (writes push JSON artifact)
+decomk checkpoint push \
+  "${CANDIDATE_TAG}" \
+  "${IMMUTABLE_TAG}" \
+  "${TESTING_TAG}" \
+  > "${ARTIFACT_DIR}/checkpoint-push.json"
+
+# Step 3: external/manual test gate (outside decomk; contract expects a pass/fail decision)
+# Example placeholder:
+# ./ci/external-checkpoint-tests.sh "${ARTIFACT_DIR}/checkpoint-push.json"
+
+# Step 4: promote stable channel after tests pass (writes tag JSON artifact)
+SOURCE_FOR_PROMOTION="$(jq -r '.sourceResolved' "${ARTIFACT_DIR}/checkpoint-push.json")"
+decomk checkpoint tag -m \
+  "${SOURCE_FOR_PROMOTION}" \
+  "${STABLE_TAG}" \
+  > "${ARTIFACT_DIR}/checkpoint-tag.json"
+```
+
+### Artifact contract
+
+| Step | Required input | Produced artifact | Required fields consumed by next step |
+| --- | --- | --- | --- |
+| Build | workspace folder, devcontainer config, candidate tag | `checkpoint-build.json` | `sourceResolved` (optional for audit), `candidateTag` |
+| Push | source image/tag + destination tags | `checkpoint-push.json` | `sourceResolved` (promotion source), `tags[].destination`, `tags[].digest` |
+| External test | `checkpoint-push.json` + org-specific tests | org-specific test evidence | pass/fail gate decision only |
+| Tag | source resolved reference + channel tags | `checkpoint-tag.json` | audit fields: `sourceResolved`, `tags[]` |
+
+### Failure and retry rules
+
+- `push` and `tag` fail if a destination tag already exists unless `-m` is provided.
+- Retry `build` safely with a new `-tag` when a candidate is discarded.
+- Retry `push` with the same immutable source when publish/network fails before gate.
+- Run `tag -m` only after external tests pass; never combine promotion with build.
+- Preserve JSON artifacts per run for audit/release traceability.
 
 ## Acceptance criteria
 

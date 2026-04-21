@@ -93,6 +93,19 @@ Notes:
 - Stable must not be moved during build. Stable movement is a separate,
   explicit post-test step.
 
+## Operator/CI handoff
+
+The canonical handoff path is:
+
+1. `decomk checkpoint build` (produce candidate + build artifact),
+2. `decomk checkpoint push` (publish immutable + testing/unstable tags + push artifact),
+3. external/manual test gate (outside decomk),
+4. `decomk checkpoint tag -m` (promote tested source to channel tags such as `stable`).
+
+The durable contract (command templates, artifact fields, retry rules) is
+maintained in `TODO/011-single-path-checkpoints.md` under
+`011.7 Operator/CI handoff contract`.
+
 ## Relationship to planning artifacts
 
 - `TODO/011-single-path-checkpoints.md`: single-path checkpoint

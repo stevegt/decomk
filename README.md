@@ -191,6 +191,11 @@ decomk checkpoint tag -m ghcr.io/acme/base:block10-20260420 ghcr.io/acme/base:st
 
 `push`/`tag` fail if a destination tag already exists unless `-m` is set.
 
+For operator/CI checkpoint rollout handoff details:
+
+- `TODO/011-single-path-checkpoints.md` (`011.7 Operator/CI handoff contract`) — canonical step-by-step contract and artifact requirements.
+- `doc/image-management.md` — design rationale and lifecycle context.
+
 ## Logging and state defaults
 
 - state root: `/var/decomk` (override `DECOMK_HOME` / `-home`)
