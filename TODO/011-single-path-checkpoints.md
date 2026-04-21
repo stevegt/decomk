@@ -69,6 +69,14 @@ Intent: Give operators and CI maintainers one repeatable, auditable rollout play
 Constraints: Keep external test gate outside decomk command execution; keep 011.4/011.6/011.8 open and deferred; keep command contract aligned with implemented checkpoint JSON outputs.
 Affects: `TODO/011-single-path-checkpoints.md`, `doc/image-management.md`, `README.md`.
 
+ID: DI-011-20260420-214106
+Date: 2026-04-20 21:41:06
+Status: active
+Decision: Defer TODO 011.5 deterministic pinning checks in the current phase, alongside already-deferred 011.4/011.6/011.8.
+Intent: Keep immediate focus on the completed checkpoint command/rollout contract and postpone additional guardrail scope until a later pass.
+Constraints: Leave 011.5 open and explicitly labeled deferred; do not alter the existing checkpoint command contract.
+Affects: `TODO/011-single-path-checkpoints.md`.
+
 ## Goal
 
 Implement single-path checkpoints that reduce prebuild and first-boot
@@ -120,7 +128,7 @@ Out of scope:
 - [x] 011.3.7 Keep temporary checkpoint container cleanup explicit for `build` (`--keep-container` for diagnostics, default cleanup otherwise).
 - [x] 011.3.8 Add focused unit tests for build/push/tag success and failure paths (source resolution errors, tag collision without `-m`, registry/tag move errors, cleanup behavior).
 - [ ] 011.4 Enforce phase separation so checkpoint images exclude runtime/user-phase (`postCreate`) side effects. (Deferred in this pass; see DI-011-20260420-184053.)
-- [ ] 011.5 Add deterministic pinning checks (base digest, package/tool versions, git refs, and other mutable inputs) so checkpoint behavior remains stable.
+- [ ] 011.5 Add deterministic pinning checks (base digest, package/tool versions, git refs, and other mutable inputs) so checkpoint behavior remains stable. (Deferred in this pass; see DI-011-20260420-214106.)
 - [ ] 011.6 Add same-path verification evidence capture (lifecycle markers/command traces) to prove checkpoints were created through the shared `updateContent` flow. (Deferred in this pass; see DI-011-20260420-184053.)
 - [x] 011.7 Add repeatable operator/CI entrypoints and documentation for `build -> push -> external test -> tag` block handoff.
 - [ ] 011.8 Execute acceptance runs and record evidence that checkpointed block progression removes repeated setup work from subsequent prebuild/first-boot paths. (Deferred in this pass; see DI-011-20260420-184053.)
