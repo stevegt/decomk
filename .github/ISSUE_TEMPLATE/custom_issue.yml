@@ -7,7 +7,7 @@ body:
     id: promises
     attributes:
       label: Maintenance & AI Promises
-      description: Please review and check all items below to proceed with your submission.  Frame your submission as a promise to the maintainers and community that you will be an active participant in solving the issue you are raising, and that you will use LLMs thoughtfully and responsibly in this repo.  We ask for these promises to encourage thoughtful and responsible use of LLMs, to set expectations for engagement from issue submitters, and to help foster a collaborative and supportive community.
+      description: We ask for these promises to encourage thoughtful and responsible use of LLMs, to set expectations for engagement from issue submitters, and to help foster a collaborative and supportive community.
       options:
         - label: "I promise to spend more time than the primary maintainer in solving this issue."
           required: true
