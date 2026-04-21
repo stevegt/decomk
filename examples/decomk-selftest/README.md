@@ -12,6 +12,14 @@ Template note:
 - GitHub Codespaces parity harness (automated)
 - Remote GCP provider checks (deferred)
 
+Selector policy note:
+- This harness uses fixture devcontainer paths under `examples/` for test
+  execution only.
+- Production selector policy remains one canonical
+  `.devcontainer/devcontainer.json` per repo with `image:` tag selection
+  (channel-following or immutable pinning), as documented in
+  `TODO/010-codespaces-block-prebuild-profiles.md`.
+
 ## Harness model
 
 1. `run.sh` creates a temporary fixture config repo from `fixtures/confrepo/`.

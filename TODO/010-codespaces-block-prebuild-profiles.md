@@ -53,6 +53,15 @@ Constraints: Keep TODO 010 focused on profile selection behavior (not checkpoint
 Affects: `TODO/010-codespaces-block-prebuild-profiles.md`, `TODO/011-single-path-checkpoints.md`, `doc/image-management.md`.
 Supersedes: DI-010-20260419-141822
 
+ID: DI-010-20260420-215954
+Date: 2026-04-20 21:59:54
+Status: active
+Decision: Close TODO 010 via documentation by standardizing producer/consumer selector policy, maintainer workflow, and channel-follow validation evidence around the finalized TODO 011 progression (`candidate -> immutable/testing -> external test -> stable`).
+Intent: Make selector behavior and rollout ownership decision-complete so teams can adopt tested checkpoint updates without per-user settings churn or profile-path switching.
+Constraints: Keep `.devcontainer/BlockXX/` rejected; keep checkpoint command internals in TODO 011; keep this pass documentation-only.
+Affects: `TODO/010-codespaces-block-prebuild-profiles.md`, `README.md`, `examples/decomk-selftest/README.md`, `TODO/TODO.md`.
+Supersedes: DI-010-20260420-160634
+
 ## Goal
 
 Define how repos select checkpoint channels/pins in devcontainer config
@@ -95,14 +104,107 @@ channel/pin selection rather than path switching.
   tracked in `TODO/011-single-path-checkpoints.md` and
   `doc/image-management.md`.
 
+## 010.1 Producer vs consumer expectations
+
+- **Producer repos** are release-owner repos that run checkpoint lifecycle
+  commands (`build`, `push`, `tag`) and publish tags for consumers.
+- **Consumer repos** do not run checkpoint release operations in normal
+  startup flow; they declare selector policy in one canonical
+  `.devcontainer/devcontainer.json` using `image:` references.
+- Producer and consumer may be the same repo in small teams, but roles
+  are still conceptually separate: release ownership vs environment
+  consumption.
+
+## 010.2 Selector modes (consumer policy)
+
+Consumers use one of two selector modes:
+
+1. **Channel-following** (`image: ...:stable` or team-approved channel)
+   - best for teams wanting tested updates with no per-release repo edits.
+2. **Immutable pinning** (`image: ...:<immutable-tag>`)
+   - best for controlled freeze windows and explicit update timing.
+
+Policy:
+
+- Channel selectors move only through the TODO 011 contract
+  (`build -> push -> external test -> tag -m stable`).
+- Immutable selectors never move in place; maintainers change the pinned
+  tag via explicit PR/commit.
+
+## 010.3 Harness/docs assumptions (canonical config)
+
+- Canonical repo config assumption is one
+  `.devcontainer/devcontainer.json` per consumer repo.
+- No `.devcontainer/BlockXX/...` path switching is required or expected.
+- Existing harness-specific devcontainer paths
+  (for example `.devcontainer/codespaces-selftest/devcontainer.json`) are
+  test fixtures only and do not represent the production selector model.
+
+## 010.4 Maintainer workflow (explicit selector edits)
+
+When selector policy must change for a repo:
+
+1. Update `.devcontainer/devcontainer.json` `image:` selector.
+2. Commit the change in the repo (no local-only setting overrides).
+3. Document intent in the PR/commit message (channel-follow vs pin).
+4. For pinned mode, include source checkpoint tag provenance
+   (`immutable tag` + upstream release/test evidence reference).
+
+## 010.5 Validation procedure and evidence format
+
+Validation objective: prove channel-following consumer repos pick up
+new tested checkpoint tags without per-repo config edits.
+
+Procedure:
+
+1. Choose a consumer repo that uses channel-following selector
+   (`image: ...:stable` or approved channel tag).
+2. Capture baseline evidence:
+   - selector value in `.devcontainer/devcontainer.json`,
+   - resolved runtime image digest before promotion.
+3. Run producer promotion flow from TODO 011:
+   - `checkpoint build`,
+   - `checkpoint push` (immutable + testing/unstable),
+   - external test gate pass,
+   - `checkpoint tag -m <source> stable`.
+4. Recreate/rebuild consumer devcontainer without editing consumer repo
+   selector config.
+5. Capture post-promotion evidence:
+   - same selector value unchanged,
+   - resolved runtime image digest now matches promoted source digest.
+
+Evidence format (minimum):
+
+- `consumer-selector-before.txt` (selector line),
+- `consumer-digest-before.txt`,
+- `producer-push.json`,
+- `producer-tag.json`,
+- `consumer-selector-after.txt`,
+- `consumer-digest-after.txt`,
+- `validation-summary.md` with pass/fail and digest comparison.
+
+Pass condition:
+
+- consumer selector file unchanged,
+- consumer resolved digest changes to promoted tested source digest.
+
+## 010.6 Maintenance rules (minimize config churn)
+
+- Default teams to channel-following unless there is a concrete freeze
+  requirement.
+- Use immutable pinning only with explicit owner and planned unpin date.
+- Avoid selector flips for routine releases; move channel tags instead.
+- Keep selector decisions repo-visible (git-tracked), never per-user.
+- Keep rollout semantics synchronized with TODO 011 handoff contract.
+
 ## Subtasks
 
-- [ ] 010.1 Document producer vs consumer repo config expectations (producer may build checkpoints; consumer should use `image:` selector refs).
-- [ ] 010.2 Document selector modes for consumers (channel-following vs pinned checkpoint tag) and when each is appropriate.
-- [ ] 010.3 Update harness/docs assumptions to canonical `.devcontainer/devcontainer.json` usage (no BlockXX path requirement).
-- [ ] 010.4 Document repo-maintainer workflow for explicit `devcontainer.json` edits + commit when selector policy changes are needed.
-- [ ] 010.5 Validate that channel-following consumer repos pick up new tested checkpoint tags without per-repo config edits.
-- [ ] 010.6 Document maintenance rules for keeping selector policy clear and minimizing config churn.
+- [x] 010.1 Document producer vs consumer repo config expectations (producer may build checkpoints; consumer should use `image:` selector refs).
+- [x] 010.2 Document selector modes for consumers (channel-following vs pinned checkpoint tag) and when each is appropriate.
+- [x] 010.3 Update harness/docs assumptions to canonical `.devcontainer/devcontainer.json` usage (no BlockXX path requirement).
+- [x] 010.4 Document repo-maintainer workflow for explicit `devcontainer.json` edits + commit when selector policy changes are needed.
+- [x] 010.5 Validate that channel-following consumer repos pick up new tested checkpoint tags without per-repo config edits.
+- [x] 010.6 Document maintenance rules for keeping selector policy clear and minimizing config churn.
 
 ## Day-in-the-life stories
 

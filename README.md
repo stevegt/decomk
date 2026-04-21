@@ -196,6 +196,20 @@ For operator/CI checkpoint rollout handoff details:
 - `TODO/011-single-path-checkpoints.md` (`011.7 Operator/CI handoff contract`) — canonical step-by-step contract and artifact requirements.
 - `doc/image-management.md` — design rationale and lifecycle context.
 
+## Consumer selector policy (TODO 010)
+
+Consumer repos should use one canonical `.devcontainer/devcontainer.json`
+and select checkpoint images via `image:` tags:
+
+- **Channel-following** (for example `:stable` or `:testing`) when teams
+  want automatic uptake of tested promotions.
+- **Immutable pinning** (for example `:block10-20260420`) when teams need
+  a controlled freeze window.
+
+No `.devcontainer/BlockXX/...` profile-path switching is required in the
+current model. Maintainers update selector policy via normal repo commits.
+See `TODO/010-codespaces-block-prebuild-profiles.md` for policy details.
+
 ## Logging and state defaults
 
 - state root: `/var/decomk` (override `DECOMK_HOME` / `-home`)
