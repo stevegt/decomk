@@ -85,6 +85,15 @@ Intent: Remove ambiguity about checkpoint progression semantics and align TODO 0
 Constraints: Keep 011.2 as planning work (not yet complete), keep deferred items 011.4/011.5/011.6/011.8 unchanged, and avoid introducing new command behavior in this step.
 Affects: `TODO/011-single-path-checkpoints.md`.
 
+ID: DI-011-20260420-215113
+Date: 2026-04-20 21:51:13
+Status: active
+Decision: Close TODO 011.2 by adopting channel/pin progression as the canonical checkpoint rollout method and recording explicit operator handoff points for each stage.
+Intent: Finalize progression semantics so TODO 011 has no remaining ambiguity between old block-base phrasing and the current `build/push/tag` rollout model.
+Constraints: Keep deferred scope unchanged for 011.4/011.5/011.6/011.8; avoid adding new command behavior in this pass.
+Affects: `TODO/011-single-path-checkpoints.md`.
+Supersedes: DI-011-20260420-214841
+
 ## Goal
 
 Implement single-path checkpoints that reduce prebuild and first-boot
@@ -125,7 +134,7 @@ Out of scope:
 ## Subtasks
 
 - [x] 011.1 Define canonical single-path checkpoint contract (prebuild + checkpoint both execute the same `updateContent -> decomk run` flow with identical input surfaces, and promotion always follows `build -> push -> external test -> tag`).
-- [ ] 011.2 Define progression workflow as channel/pin rollout (`candidate -> immutable + testing/unstable -> external test -> stable move`, with consumer repos either following channel tags or pinning immutable tags) and document operator handoff points.
+- [x] 011.2 Define progression workflow as channel/pin rollout (`candidate -> immutable + testing/unstable -> external test -> stable move`, with consumer repos either following channel tags or pinning immutable tags) and document operator handoff points.
 - [x] 011.3 Implement checkpoint command family (`build`, `push`, `tag`) with explicit release gate between push and stable tagging.
 - [x] 011.3.1 Add checkpoint subcommand routing in `cmd/decomk/main.go` and usage text for `checkpoint build`, `checkpoint push`, and `checkpoint tag`.
 - [x] 011.3.2 Implement `checkpoint build` handler to run prebuild/common lifecycle (`devcontainer up --prebuild`), commit local candidate image, and emit machine-readable JSON output.
@@ -193,6 +202,16 @@ The progression method for checkpoint rollout is:
 
 This replaces the older "next BlockNN `FROM` base" wording as the canonical
 rollout model.
+
+Operator handoff points for this progression are:
+
+1. Build owner runs `decomk checkpoint build` and publishes `checkpoint-build.json`.
+2. Release owner runs `decomk checkpoint push` and publishes `checkpoint-push.json`.
+3. QA/validation owner executes the external test gate using push artifacts.
+4. Release owner runs `decomk checkpoint tag -m` only after gate pass.
+5. Repo maintainers choose consumer mode per repo: channel-following or immutable pinning.
+
+This closes 011.2 as a documentation-defined rollout progression contract.
 
 ## 011.7 Operator/CI handoff contract
 
