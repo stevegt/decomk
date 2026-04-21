@@ -23,7 +23,7 @@ body:
     id: issue-details
     attributes:
       label: Issue Description
-      placeholder: Describe your issue here -- frame it as a series of promises as to what you have researched and what you will do...
+      placeholder: Describe your issue here -- frame it as a discussion of what you have researched and what you will do...
     validations:
       required: true
 
