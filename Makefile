@@ -10,7 +10,11 @@ generate:
 	go generate ./...
 
 check-generated:
+	# Intent: Keep both stage-0 and conf-repo generated examples in sync with
+	# embedded templates so `decomk init` and `decomk init-conf` outputs cannot
+	# drift from checked-in references. Source: DI-013-20260422-143000 (TODO/013)
 	go run ./cmd/stage0gen -check
+	go run ./cmd/confrepogen -check
 
 test:
 	go test ./...

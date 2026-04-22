@@ -6,7 +6,7 @@ This list is sorted by priority (not number). TODO numbers are stable; do not re
 - [x] 008 - decomk: no silent failures + explicit error handling (`TODO/008-no-silent-failures.md`)
 - [ ] 001 - decomk: isconf-like devcontainer tool bootstrap (`TODO/001-decomk-devcontainer-tool-bootstrap.md`)
 - [ ] 012 - mob-sandbox pilot for decomk stage-0 (`TODO/012-mob-sandbox-pilot.md`)
-- [ ] 013 - conf repo init scaffolding (`TODO/013-conf-repo-init-scaffolding.md`)
+- [x] 013 - conf repo init scaffolding (`TODO/013-conf-repo-init-scaffolding.md`)
 - [x] 010 - codespaces: block-specific devcontainer prebuild profiles (`TODO/010-codespaces-block-prebuild-profiles.md`)
 - [ ] 011 - image management: single-path checkpoints (`TODO/011-single-path-checkpoints.md`)
 - [x] 009 - phase-eval: empirical lifecycle spike for DevPod/Codespaces (`TODO/009-phase-eval-lifecycle-spike.md`)

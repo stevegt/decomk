@@ -382,7 +382,7 @@ Pragmatic MVP: define a small set of **capability groups**, then compose per-rep
 - [ ] 001.13 Add optional derived `env.mk` output generated from the same canonical env tuple sequence as `env.sh` (without making `env.mk` the source of truth).
 - [x] 001.14 Add strict non-overwrite defaults to `decomk init` (fail unless `-f`/`-force` when target files exist) and provide explicit commit/force/difftool reconciliation guidance.
 - [x] 001.15 Add stage-0 template ownership banners and README onboarding reorganization, plus a canonical legacy-variable migration mapping section.
-- [ ] 001.16 Add first-class shared conf repo scaffolding (`decomk init-conf`), tracked in `TODO/013-conf-repo-init-scaffolding.md`.
+- [x] 001.16 Add first-class shared conf repo scaffolding (`decomk init-conf`), tracked in `TODO/013-conf-repo-init-scaffolding.md`.
 
 ## Legacy stage-0 variable migration mapping
 

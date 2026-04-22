@@ -17,6 +17,7 @@ For deeper design background, see:
 
 ## Current commands
 
+- `decomk init-conf` — scaffold a shared conf repo (`decomk.conf` + `Makefile` + producer `.devcontainer/`)
 - `decomk init` — scaffold stage-0 lifecycle files in `.devcontainer/`
 - `decomk plan` — resolve tuples/targets + run `make -n` in the stamp directory
 - `decomk run` — write env export file + run `make` in the stamp directory
@@ -24,46 +25,7 @@ For deeper design background, see:
 
 ## Step-by-step onboarding
 
-### 1) Create one shared config repo for all managed containers
-
-Create a git repo with at least:
-
-- `decomk.conf`
-- `Makefile`
-
-Minimal example `decomk.conf`:
-
-```conf
-DEFAULT: Block00_base Block10_common
-owner/repo-a: DEFAULT Block20_go
-owner/repo-b: DEFAULT Block30_node
-```
-
-Minimal example `Makefile`:
-
-```make
-SHELL := /bin/bash
-.ONESHELL:
-.SHELLFLAGS := -euo pipefail -c
-
-Block00_base:
-	echo "base"
-	touch $@
-
-Block10_common: Block00_base
-	echo "common"
-	touch $@
-
-Block20_go: Block10_common
-	echo "go tools"
-	touch $@
-```
-
-Push this repo somewhere reachable by your devcontainers and keep its clone URI ready as:
-
-- `git:<repo-url>[?ref=<git-ref>]`
-
-### 2) Run `decomk init` in each repo you want managed
+### 1) Bootstrap one shared conf repo with `decomk init-conf`
 
 Install decomk on your own machine:
 
@@ -71,7 +33,32 @@ Install decomk on your own machine:
 go install github.com/stevegt/decomk/cmd/decomk@stable
 ```
 
-Then in each workspace repo:
+In your shared conf repo:
+
+```bash
+decomk init-conf -conf-uri git:<your-shared-conf-repo-url>
+```
+
+This writes a starter tree:
+
+- `decomk.conf`
+- `Makefile`
+- `README.md`
+- `bin/hello-world.sh`
+- `.devcontainer/devcontainer.json`
+- `.devcontainer/decomk-stage0.sh`
+- `.devcontainer/Dockerfile`
+
+### 2) Customize and push the shared conf repo
+
+- Edit `decomk.conf` contexts/tuples for your org/repo policy.
+- Edit `Makefile` targets for idempotent shared setup work.
+- Push the repo and keep its URI ready as:
+  - `git:<repo-url>[?ref=<git-ref>]`
+
+### 3) Run `decomk init` in each consumer repo
+
+In each workspace repo you want managed:
 
 ```bash
 decomk init -conf-uri git:<your-shared-conf-repo-url>
@@ -82,13 +69,34 @@ This writes:
 - `.devcontainer/devcontainer.json`
 - `.devcontainer/decomk-stage0.sh`
 
-### 3) Start/rebuild the devcontainer
+### 4) Start/rebuild the devcontainer
 
 The generated stage-0 hooks:
 
 1. ensures `decomk` is available in `PATH` from `DECOMK_TOOL_URI`,
 2. syncs config repo from `DECOMK_CONF_URI` into `<DECOMK_HOME>/conf`,
 3. runs `decomk run ${DECOMK_RUN_ARGS:-all}`.
+
+## `decomk init-conf` safety and overwrite policy
+
+`decomk init-conf` is conservative by default:
+
+- If **any** managed conf-repo file already exists, `decomk init-conf` fails.
+- It does **not** overwrite existing files in default mode.
+- It does **not** write alternate temp merge files in default mode.
+
+If you intentionally want to regenerate/replace files, use force:
+
+- `-f` (alias)
+- `-force`
+
+Recommended reconciliation workflow when files already exist:
+
+```bash
+git commit -m "Checkpoint existing conf-repo files"
+decomk init-conf -f -conf-uri git:<your-shared-conf-repo-url>
+git difftool -- decomk.conf Makefile README.md .devcontainer/devcontainer.json .devcontainer/decomk-stage0.sh .devcontainer/Dockerfile
+```
 
 ## `decomk init` safety and overwrite policy
 
@@ -133,6 +141,19 @@ Regenerate/check:
 make generate
 make check-generated
 ```
+
+`init-conf` canonical sources:
+
+- `cmd/decomk/templates/confrepo.decomk.conf.tmpl`
+- `cmd/decomk/templates/confrepo.Makefile.tmpl`
+- `cmd/decomk/templates/confrepo.README.md.tmpl`
+- `cmd/decomk/templates/confrepo.hello-world.sh.tmpl`
+- `cmd/decomk/templates/confrepo.devcontainer.json.tmpl`
+- `cmd/decomk/templates/confrepo.Dockerfile.tmpl`
+
+Generated copy:
+
+- `examples/confrepo/*`
 
 ## Key stage-0 environment contract
 
@@ -479,6 +500,7 @@ writable and you did not explicitly override the log dir, decomk falls back to
 ## CLI usage
 
 ```text
+decomk init-conf [flags]
 decomk init [flags]
 decomk plan [flags] [ARGS...]
 decomk run  [flags] [ARGS...]
@@ -511,6 +533,17 @@ ARGS:
   -force                    Overwrite existing stage-0 files even when they already exist
   -f                        Alias for -force
   -no-prompt                Do not prompt for unset values
+
+  Flags for init-conf:
+  -repo-root <path>         Target conf repo root (default: current git repo root)
+  -name <string>            devcontainer.json "name" value
+  -conf-uri <uri>           DECOMK_CONF_URI value in producer devcontainer.json (git:...)
+  -tool-uri <uri>           DECOMK_TOOL_URI value in producer devcontainer.json (go:... or git:...)
+  -home <abs-path>          DECOMK_HOME value in producer devcontainer.json
+  -log-dir <abs-path>       DECOMK_LOG_DIR value in producer devcontainer.json
+  -run-args <string>        DECOMK_RUN_ARGS value in producer devcontainer.json
+  -force                    Overwrite existing managed conf-repo files
+  -f                        Alias for -force
 ```
 
 ## Makefile privilege model
