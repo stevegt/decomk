@@ -856,19 +856,47 @@ func resolveMakeCommand(makeAsRoot bool, dryRun bool) (command []string, usesSud
 
 	usesSudo = true
 
-	// Best-effort: preserve PATH so root-run make sees the same toolchain paths
-	// as the dev user (common in devcontainers).
-	//
-	// This is intentionally tolerant:
-	//   - some sudo builds do not support --preserve-env
-	//   - some sudoers policies disallow preserving PATH
-	//
-	// In those cases we fall back to plain "sudo -n make" and let make recipes
-	// manage PATH explicitly if needed.
-	if err := exec.Command("sudo", "-n", "--preserve-env=PATH", "true").Run(); err == nil {
-		return []string{"sudo", "-n", "--preserve-env=PATH", "make"}, usesSudo, nil
+	support := sudoPreserveEnvSupport{
+		pathAndGitHubUser: canSudoPreserveEnv("PATH,GITHUB_USER"),
 	}
-	return []string{"sudo", "-n", "make"}, usesSudo, nil
+	if !support.pathAndGitHubUser {
+		support.pathOnly = canSudoPreserveEnv("PATH")
+	}
+	return selectSudoMakeCommand(support), usesSudo, nil
+}
+
+// sudoPreserveEnvSupport reports which preserve-env configurations sudo accepts
+// under the current policy/runtime.
+type sudoPreserveEnvSupport struct {
+	pathAndGitHubUser bool
+	pathOnly          bool
+}
+
+// canSudoPreserveEnv reports whether sudo accepts a specific --preserve-env
+// variable list for a non-interactive no-op command.
+func canSudoPreserveEnv(varList string) bool {
+	if strings.TrimSpace(varList) == "" {
+		return false
+	}
+	arg := "--preserve-env=" + varList
+	return exec.Command("sudo", "-n", arg, "true").Run() == nil
+}
+
+// selectSudoMakeCommand selects the sudo argv prefix for make based on
+// preserve-env capability probes.
+//
+// Intent: Preserve GITHUB_USER (runtime identity) and PATH for root-run make
+// when possible, while degrading safely on restrictive sudo builds/policies
+// instead of hard failing.
+// Source: DI-001-20260422-130000 (TODO/001)
+func selectSudoMakeCommand(support sudoPreserveEnvSupport) []string {
+	if support.pathAndGitHubUser {
+		return []string{"sudo", "-n", "--preserve-env=PATH,GITHUB_USER", "make"}
+	}
+	if support.pathOnly {
+		return []string{"sudo", "-n", "--preserve-env=PATH", "make"}
+	}
+	return []string{"sudo", "-n", "make"}
 }
 
 // chownTreeToCurrentUser ensures path and its contents are owned by the current

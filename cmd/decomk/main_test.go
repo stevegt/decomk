@@ -262,6 +262,77 @@ func TestCanonicalEnvTuplesAndMakeInvocationParity(t *testing.T) {
 	}
 }
 
+func TestSelectSudoMakeCommand(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name    string
+		support sudoPreserveEnvSupport
+		want    []string
+	}{
+		{
+			name: "preserve PATH and GITHUB_USER when supported",
+			support: sudoPreserveEnvSupport{
+				pathAndGitHubUser: true,
+			},
+			want: []string{"sudo", "-n", "--preserve-env=PATH,GITHUB_USER", "make"},
+		},
+		{
+			name: "fall back to PATH-only preserve",
+			support: sudoPreserveEnvSupport{
+				pathOnly: true,
+			},
+			want: []string{"sudo", "-n", "--preserve-env=PATH", "make"},
+		},
+		{
+			name:    "fall back to plain sudo make",
+			support: sudoPreserveEnvSupport{},
+			want:    []string{"sudo", "-n", "make"},
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			got := selectSudoMakeCommand(tc.support)
+			if !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("selectSudoMakeCommand(): got %#v want %#v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestResolveMakeCommand_DryRunBypassesSudo(t *testing.T) {
+	t.Parallel()
+
+	got, usesSudo, err := resolveMakeCommand(true, true)
+	if err != nil {
+		t.Fatalf("resolveMakeCommand() error: %v", err)
+	}
+	if usesSudo {
+		t.Fatalf("usesSudo: got true want false")
+	}
+	if want := []string{"make"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("command: got %#v want %#v", got, want)
+	}
+}
+
+func TestResolveMakeCommand_NoRootModeBypassesSudo(t *testing.T) {
+	t.Parallel()
+
+	got, usesSudo, err := resolveMakeCommand(false, false)
+	if err != nil {
+		t.Fatalf("resolveMakeCommand() error: %v", err)
+	}
+	if usesSudo {
+		t.Fatalf("usesSudo: got true want false")
+	}
+	if want := []string{"make"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("command: got %#v want %#v", got, want)
+	}
+}
+
 func TestResolveWorkspacesDir_Precedence(t *testing.T) {
 	t.Parallel()
 

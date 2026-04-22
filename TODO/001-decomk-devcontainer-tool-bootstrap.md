@@ -142,6 +142,14 @@ Intent: Keep TODO 001 aligned with the expanded bootstrap contract where conf re
 Constraints: Preserve stable TODO numbering and keep the conf-repo-init implementation details centralized in TODO 013.
 Affects: `TODO/001-decomk-devcontainer-tool-bootstrap.md`, `TODO/013-conf-repo-init-scaffolding.md`, `TODO/TODO.md`.
 
+ID: DI-001-20260422-130000
+Date: 2026-04-22 13:00:00
+Status: active
+Decision: In root-make mode, make `resolveMakeCommand` prefer `sudo --preserve-env=PATH,GITHUB_USER`, fall back to `PATH`-only preserve, then plain `sudo`, while keeping dry-run and non-root modes unchanged.
+Intent: Keep postCreate user-phase checks and Makefile behavior consistent when make is launched through sudo, without introducing hard failures on restrictive sudo policies.
+Constraints: Preserve existing passwordless-sudo requirements, avoid broad env preservation beyond `PATH` + `GITHUB_USER`, and keep fallback behavior explicit/tested.
+Affects: `cmd/decomk/main.go`, `cmd/decomk/main_test.go`, `TODO/001-decomk-devcontainer-tool-bootstrap.md`.
+
 ## Goal
 
 Create an isconf-inspired “context -> target groups + vars”
