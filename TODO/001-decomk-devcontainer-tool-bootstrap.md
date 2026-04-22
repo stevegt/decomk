@@ -126,6 +126,14 @@ Intent: Keep TODO 001 aligned with current scope and avoid carrying obsolete pla
 Constraints: Preserve stable TODO numbering for remaining items and avoid renumbering other TODO entries.
 Affects: `TODO/001-decomk-devcontainer-tool-bootstrap.md`.
 
+ID: DI-001-20260421-221834
+Date: 2026-04-21 22:18:34
+Status: active
+Decision: Track TODO `001.8` execution details in a dedicated cross-repo checklist file (`TODO/012-mob-sandbox-pilot.md`) instead of embedding those details in TODO 001.
+Intent: Keep TODO 001 focused on decomk bootstrap scope while giving the mob-sandbox pilot a decision-complete, repo-scoped execution checklist.
+Constraints: Keep TODO numbering stable, keep `001.8` open until TODO 012 completion criteria and evidence are satisfied, and label execution tasks by repository.
+Affects: `TODO/001-decomk-devcontainer-tool-bootstrap.md`, `TODO/012-mob-sandbox-pilot.md`, `TODO/TODO.md`.
+
 ## Goal
 
 Create an isconf-inspired “context -> target groups + vars”
@@ -350,7 +358,7 @@ Pragmatic MVP: define a small set of **capability groups**, then compose per-rep
 - [x] 001.3 Choose wrapper language (Go vs Bash) and document the tradeoffs/decision.
 - [x] 001.4 Implement macro expansion (isconf `expandmacro` semantics) without Perl.
 - [x] 001.5 Implement env export file generation and decide where it is written.
-- [ ] 001.8 Pilot in `mob-sandbox` via `devcontainer.json` `postCreateCommand`, then generalize.
+- [ ] 001.8 Execute the `mob-sandbox` pilot and generalize outcomes, tracked in `TODO/012-mob-sandbox-pilot.md`.
 - [x] 001.9 Add a reference `examples/devcontainer/postCreateCommand.sh` that performs stage-0 bootstrap (ensure decomk in `PATH`, sync config repo, run decomk), then reuse it in pilots.
 - [x] 001.10 Add `decomk init` to scaffold `.devcontainer` files from embedded templates with flag/prompt inputs.
 - [x] 001.11 Generate example scaffold files from canonical templates and enforce sync via `go generate`/tests.
