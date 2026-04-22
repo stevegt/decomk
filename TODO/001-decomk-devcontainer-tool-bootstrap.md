@@ -134,6 +134,14 @@ Intent: Keep TODO 001 focused on decomk bootstrap scope while giving the mob-san
 Constraints: Keep TODO numbering stable, keep `001.8` open until TODO 012 completion criteria and evidence are satisfied, and label execution tasks by repository.
 Affects: `TODO/001-decomk-devcontainer-tool-bootstrap.md`, `TODO/012-mob-sandbox-pilot.md`, `TODO/TODO.md`.
 
+ID: DI-001-20260422-110600
+Date: 2026-04-22 11:06:00
+Status: active
+Decision: Track shared config repo scaffolding as a dedicated follow-on workstream (`TODO/013-conf-repo-init-scaffolding.md`) and reference it from TODO 001 via a new subtask.
+Intent: Keep TODO 001 aligned with the expanded bootstrap contract where conf repos can be initialized with decomk, without overloading existing subtask scope.
+Constraints: Preserve stable TODO numbering and keep the conf-repo-init implementation details centralized in TODO 013.
+Affects: `TODO/001-decomk-devcontainer-tool-bootstrap.md`, `TODO/013-conf-repo-init-scaffolding.md`, `TODO/TODO.md`.
+
 ## Goal
 
 Create an isconf-inspired “context -> target groups + vars”
@@ -366,6 +374,7 @@ Pragmatic MVP: define a small set of **capability groups**, then compose per-rep
 - [ ] 001.13 Add optional derived `env.mk` output generated from the same canonical env tuple sequence as `env.sh` (without making `env.mk` the source of truth).
 - [x] 001.14 Add strict non-overwrite defaults to `decomk init` (fail unless `-f`/`-force` when target files exist) and provide explicit commit/force/difftool reconciliation guidance.
 - [x] 001.15 Add stage-0 template ownership banners and README onboarding reorganization, plus a canonical legacy-variable migration mapping section.
+- [ ] 001.16 Add first-class shared conf repo scaffolding (`decomk init-conf`), tracked in `TODO/013-conf-repo-init-scaffolding.md`.
 
 ## Legacy stage-0 variable migration mapping
 

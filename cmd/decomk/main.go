@@ -63,6 +63,19 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return code
 		}
 		return code
+	case "init-conf":
+		// Intent: Let operators bootstrap a shared decomk config repo (including
+		// a starter producer devcontainer) from embedded templates instead of
+		// hand-authoring the initial conf tree.
+		// Source: DI-013-20260422-110500 (TODO/013)
+		code, err := cmdInitConf(args[2:], stdout, stderr)
+		if err != nil {
+			if printErr := writeLine(stderr, err.Error()); printErr != nil {
+				return 1
+			}
+			return code
+		}
+		return code
 	case "plan":
 		code, err := cmdPlan(args[2:], stdout, stderr)
 		if err != nil {
@@ -129,7 +142,8 @@ Usage:
   decomk <command> [flags] [ARGS...]
 
 Commands:
-  init    Install .devcontainer templates for decomk stage-0 bootstrap
+  init       Install .devcontainer templates for decomk stage-0 bootstrap
+  init-conf  Install shared conf-repo starter templates (decomk.conf + Makefile + producer devcontainer)
   plan    Print resolved tuples/targets + env exports; run make -n (dry-run); do not write env export file
   run     Resolve, write env export file, and run make in the stamp dir
   checkpoint  Build/push/tag checkpoint images for shared updateContent setup

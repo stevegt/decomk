@@ -1,0 +1,70 @@
+// Package confrepo centralizes defaults for shared decomk config-repo
+// scaffolding.
+//
+// Intent: Keep conf-repo initialization defaults in one package so command
+// handlers, generators, and sync tests cannot drift on path/value assumptions.
+// Source: DI-013-20260422-110500 (TODO/013)
+package confrepo
+
+import (
+	"path/filepath"
+
+	"github.com/stevegt/decomk/stage0"
+)
+
+const (
+	// DefaultName is the default devcontainer name used for conf-repo producer
+	// scaffolding when the caller does not provide one.
+	DefaultName = "decomk conf producer"
+
+	// DefaultConfURI is the placeholder URI scaffolded into conf-repo
+	// devcontainer settings until operators replace it with a real repo URI.
+	DefaultConfURI = "git:https://github.com/<org>/<conf-repo>.git?ref=main"
+
+	// DefaultHome is the default DECOMK_HOME value scaffolded for producer
+	// configs.
+	DefaultHome = "/var/decomk"
+
+	// DefaultLogDir is the default DECOMK_LOG_DIR value scaffolded for producer
+	// configs.
+	DefaultLogDir = "/var/log/decomk"
+
+	// DefaultRunArgs is the default DECOMK_RUN_ARGS value scaffolded for
+	// producer configs.
+	DefaultRunArgs = "all"
+)
+
+// ProducerDevcontainerData returns canonical starter data for the conf-repo
+// producer devcontainer scaffold.
+func ProducerDevcontainerData(name string) stage0.DevcontainerTemplateData {
+	if name == "" {
+		name = DefaultName
+	}
+	return stage0.DevcontainerTemplateData{
+		Name:                 name,
+		BuildDockerfile:      "Dockerfile",
+		BuildContext:         "..",
+		Home:                 DefaultHome,
+		LogDir:               DefaultLogDir,
+		ToolURI:              stage0.DefaultToolURI,
+		ConfURI:              DefaultConfURI,
+		DecomkRunArgs:        DefaultRunArgs,
+		UpdateContentCommand: stage0.DefaultUpdateContentCommand,
+		PostCreateCommand:    stage0.DefaultPostCreateCommand,
+	}
+}
+
+// ManagedPaths returns all conf-repo scaffold output paths relative to repo
+// root.
+func ManagedPaths() []string {
+	return []string{
+		"decomk.conf",
+		"Makefile",
+		"README.md",
+		filepath.Join("bin", "hello-world.sh"),
+		filepath.Join(".devcontainer", "devcontainer.json"),
+		filepath.Join(".devcontainer", "decomk-stage0.sh"),
+		filepath.Join(".devcontainer", "Dockerfile"),
+	}
+}
+
