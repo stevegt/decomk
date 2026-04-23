@@ -30,12 +30,15 @@ import (
 	"github.com/stevegt/envi"
 )
 
-const defaultVersion = "dev"
-
 // decomkVersion is the CLI version string printed by `decomk version`.
 //
-// Build pipelines can override this via `-ldflags "-X main.decomkVersion=<value>"`.
-var decomkVersion = defaultVersion
+// Intent: Default runtime version output to the generated value sourced from the
+// checked-in VERSION file so source builds and tagged releases use one canonical
+// version identifier.
+// Source: DI-001-20260423-204251 (TODO/001)
+//
+// Build pipelines can still override this via `-ldflags "-X main.decomkVersion=<value>"`.
+var decomkVersion = generatedDecomkVersion
 
 func main() {
 	os.Exit(run(os.Args, os.Stdout, os.Stderr))

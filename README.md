@@ -24,6 +24,27 @@ For deeper design background, see:
 - `decomk run` — write env export file + run `make` in the stamp directory
 - `decomk checkpoint` — build/push/tag shared checkpoint images for the `updateContent` phase
 
+## Versioning and release
+
+- `VERSION` at repo root is the canonical CLI release version source.
+- `go generate ./...` updates `cmd/decomk/version_generated.go` from `VERSION`.
+- `decomk version` prints the generated value at runtime (unless overridden by build-time ldflags).
+
+Minor release workflow:
+
+```bash
+make release-minor
+```
+
+This runs `scripts/release.sh minor`, which:
+
+1. refuses to run if the repo is dirty,
+2. reads and bumps `VERSION` minor (`vMAJOR.MINOR[.PATCH] -> vMAJOR.(MINOR+1).0`),
+3. regenerates `cmd/decomk/version_generated.go`,
+4. commits the version bump,
+5. creates a matching git tag,
+6. pushes branch and tags.
+
 ## Step-by-step onboarding
 
 ### 1) Bootstrap one shared conf repo with `decomk init-conf`

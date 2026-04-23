@@ -166,6 +166,14 @@ Intent: Prevent unnecessary prompt churn when overwrite would be refused anyway,
 Constraints: Preserve existing non-force overwrite guidance text and `-f/-force` override behavior; keep explicit `DECOMK_TOOL_URI` values unchanged.
 Affects: `cmd/decomk/init.go`, `cmd/decomk/init_test.go`, `stage0/stage0.go`, `cmd/decomk/templates/decomk-stage0.sh.tmpl`, generated `examples/*/.devcontainer/*`, `README.md`.
 
+ID: DI-001-20260423-204251
+Date: 2026-04-23 20:42:51
+Status: active
+Decision: Make `VERSION` the canonical source for CLI release version, generate `cmd/decomk/version_generated.go` from it via `go generate`, add `make release-minor` backed by `scripts/release.sh` to bump minor version + commit + tag + push, and have `decomk version` default to the generated value.
+Intent: Keep release versioning deterministic and source-controlled so runtime `decomk version` matches release tags without depending on external binary publishing workflows.
+Constraints: Release script must fail on dirty repos, must refuse duplicate tags, and must update VERSION plus generated version source in one release commit before tagging.
+Affects: `VERSION`, `cmd/versiongen/main.go`, `cmd/decomk/generate_version.go`, `cmd/decomk/version_generated.go`, `cmd/decomk/main.go`, `scripts/release.sh`, `Makefile`, `README.md`, `TODO/001-decomk-devcontainer-tool-bootstrap.md`.
+
 ## Goal
 
 Create an isconf-inspired “context -> target groups + vars”
@@ -399,6 +407,7 @@ Pragmatic MVP: define a small set of **capability groups**, then compose per-rep
 - [x] 001.14 Add strict non-overwrite defaults to `decomk init` (fail unless `-f`/`-force` when target files exist) and provide explicit commit/force/difftool reconciliation guidance.
 - [x] 001.15 Add stage-0 template ownership banners and README onboarding reorganization, plus a canonical legacy-variable migration mapping section.
 - [x] 001.16 Add first-class shared conf repo scaffolding (`decomk init-conf`), tracked in `TODO/013-conf-repo-init-scaffolding.md`.
+- [x] 001.17 Add source-controlled release versioning (`VERSION` + generated version file) and a `make release-minor` workflow.
 
 ## Legacy stage-0 variable migration mapping
 

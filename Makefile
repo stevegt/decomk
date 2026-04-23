@@ -2,7 +2,7 @@
 # so developers and CI can enforce template/example sync consistently.
 # Source: DI-001-20260312-141200 (TODO/001)
 
-.PHONY: generate check-generated check-no-shell-swallow check-no-go-blank-assign check-errcheck test verify selftest-devpod selftest-codespaces selftest-codespaces-clean
+.PHONY: generate check-generated check-no-shell-swallow check-no-go-blank-assign check-errcheck test verify selftest-devpod selftest-codespaces selftest-codespaces-clean release-minor
 
 all: verify
 
@@ -15,6 +15,7 @@ check-generated:
 	# drift from checked-in references. Source: DI-013-20260422-143000 (TODO/013)
 	go run ./cmd/stage0gen -check
 	go run ./cmd/confrepogen -check
+	go run ./cmd/versiongen -check
 
 test:
 	go test ./...
@@ -56,3 +57,9 @@ selftest-codespaces:
 
 selftest-codespaces-clean:
 	examples/decomk-selftest/codespaces/run.sh --cleanup
+
+# Intent: Provide a one-command release operator entrypoint that bumps VERSION,
+# commits, tags, and pushes through an explicit scripted workflow.
+# Source: DI-001-20260423-204251 (TODO/001)
+release-minor:
+	bash scripts/release.sh minor
