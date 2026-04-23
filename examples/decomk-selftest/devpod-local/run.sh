@@ -183,19 +183,15 @@ start_git_server() {
 render_devcontainer_json() {
   local conf_uri="$1"
   local tool_uri="$2"
-  local decomk_run_args="$3"
-  local file_path="$4"
+  local file_path="$3"
   local escaped_conf_uri
   local escaped_tool_uri
-  local escaped_args
 
   escaped_conf_uri="$(escape_sed_replacement "$conf_uri")"
   escaped_tool_uri="$(escape_sed_replacement "$tool_uri")"
-  escaped_args="$(escape_sed_replacement "$decomk_run_args")"
   sed -i \
     -e "s|__DECOMK_CONF_URI__|$escaped_conf_uri|g" \
     -e "s|__DECOMK_TOOL_URI__|$escaped_tool_uri|g" \
-    -e "s|__DECOMK_RUN_ARGS__|$escaped_args|g" \
     "$file_path"
 }
 
@@ -233,10 +229,11 @@ run_logged cp "$template_dir/devcontainer.json" "$workspace_copy/.devcontainer/d
 run_logged cp "$template_dir/Dockerfile" "$workspace_copy/.devcontainer/Dockerfile"
 run_logged cp "$template_dir/decomk-stage0.sh" "$workspace_copy/.devcontainer/decomk-stage0.sh"
 run_logged chmod +x "$workspace_copy/.devcontainer/decomk-stage0.sh"
-render_devcontainer_json "$conf_uri" "$tool_uri" "$decomk_run_args" "$workspace_copy/.devcontainer/devcontainer.json"
+render_devcontainer_json "$conf_uri" "$tool_uri" "$workspace_copy/.devcontainer/devcontainer.json"
 
 active_workspaces+=("$workspace_name")
 run_logged run_devpod_up "$workspace_name" "$workspace_copy"
+run_logged devpod ssh "$workspace_name" --command "decomk run $decomk_run_args"
 
 make_log_path="$(latest_make_log_path)"
 if [[ -z "$make_log_path" ]]; then
@@ -313,7 +310,7 @@ require_absent_marker "SELFTEST PASS stamp-probe-ran"
 # values so selftest validates phase separation and user-identity handling
 # independent of provider-specific hook scheduling.
 # Source: DI-001-20260416-223600 (TODO/001)
-run_logged devpod ssh "$workspace_name" --command "GITHUB_USER= DECOMK_RUN_ARGS=TUPLE_PHASE_UPDATE .devcontainer/decomk-stage0.sh updateContent"
+run_logged devpod ssh "$workspace_name" --command "GITHUB_USER= .devcontainer/decomk-stage0.sh updateContent TUPLE_PHASE_UPDATE"
 phase_update_log_path="$(latest_make_log_path)"
 if [[ -z "$phase_update_log_path" ]]; then
   die "self-test could not find phase-update make.log"
@@ -323,7 +320,7 @@ require_no_fail_markers
 require_marker "SELFTEST PASS phase-updateContent"
 require_marker "SELFTEST PASS github-user-empty-in-updateContent"
 
-run_logged devpod ssh "$workspace_name" --command "GITHUB_USER=decomk-selftest-dev DECOMK_RUN_ARGS=TUPLE_PHASE_POST .devcontainer/decomk-stage0.sh postCreate"
+run_logged devpod ssh "$workspace_name" --command "GITHUB_USER=decomk-selftest-dev .devcontainer/decomk-stage0.sh postCreate TUPLE_PHASE_POST"
 phase_post_log_path="$(latest_make_log_path)"
 if [[ -z "$phase_post_log_path" ]]; then
   die "self-test could not find phase-post make.log"

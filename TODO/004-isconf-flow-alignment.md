@@ -1,5 +1,15 @@
 # TODO 004 - decomk: align flow with isconf (identity → vars → PACKAGES → make)
 
+## Decision Intent Log
+
+ID: DI-004-20260422-193652
+Date: 2026-04-22 19:36:52
+Status: active
+Decision: Treat `decomk.conf` as tuple/macro policy only (no bare literal targets), require at least one positional action arg for both `decomk plan` and `decomk run`, and pass lifecycle phase selectors (`updateContent`/`postCreate`) as explicit action args from stage-0.
+Intent: Match the isconf model more strictly by separating identity+tuple resolution from action selection, fail early on malformed RHS tokens, and remove implicit no-arg target behavior that obscures execution intent.
+Constraints: Preserve mixed action-arg behavior (`arg` expands through tuple variable when defined, otherwise falls back to literal make target), keep stage-0 script generic, and remove `DECOMK_RUN_ARGS`/phase-run-args indirection from generated scaffolding.
+Affects: `cmd/decomk/main.go`, `cmd/decomk/main_test.go`, `contexts/*`, `cmd/decomk/templates/*`, `stage0/*`, `cmd/decomk/init*.go`, `confrepo/*`, `examples/decomk-selftest/*`, `README.md`, `doc/decomk-design.md`.
+
 Goal: align decomk’s user model and execution flow with the proven isconf flow,
 while preserving decomk’s devcontainer-specific needs (multi-repo workspaces,
 container-scoped stamps, Go implementation).

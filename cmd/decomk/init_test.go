@@ -22,7 +22,6 @@ func TestRenderInitTemplate_DevcontainerJSON(t *testing.T) {
 		ToolURI:              "go:github.com/stevegt/decomk/cmd/decomk@stable",
 		Home:                 "/var/decomk",
 		LogDir:               "/var/log/decomk",
-		DecomkRunArgs:        "all INSTALL",
 		UpdateContentCommand: stage0.DefaultUpdateContentCommand,
 		PostCreateCommand:    stage0.DefaultPostCreateCommand,
 	}
@@ -55,7 +54,6 @@ func TestRenderInitTemplate_DevcontainerJSON(t *testing.T) {
 		"DECOMK_LOG_DIR":  data.LogDir,
 		"DECOMK_TOOL_URI": data.ToolURI,
 		"DECOMK_CONF_URI": data.ConfURI,
-		"DECOMK_RUN_ARGS": data.DecomkRunArgs,
 	}
 	for key, want := range tests {
 		if got := envMap[key]; got != want {
@@ -80,7 +78,6 @@ func TestWriteInitStage0_ForcePolicy(t *testing.T) {
 		ToolURI:              "go:github.com/stevegt/decomk/cmd/decomk@stable",
 		Home:                 "/var/decomk",
 		LogDir:               "/var/log/decomk",
-		DecomkRunArgs:        "all",
 		UpdateContentCommand: stage0.DefaultUpdateContentCommand,
 		PostCreateCommand:    stage0.DefaultPostCreateCommand,
 	}
@@ -134,7 +131,6 @@ func TestWriteInitStage0_FailsIfEitherTargetExists(t *testing.T) {
 		ToolURI:              "go:github.com/stevegt/decomk/cmd/decomk@stable",
 		Home:                 "/var/decomk",
 		LogDir:               "/var/log/decomk",
-		DecomkRunArgs:        "all",
 		UpdateContentCommand: stage0.DefaultUpdateContentCommand,
 		PostCreateCommand:    stage0.DefaultPostCreateCommand,
 	}
@@ -164,7 +160,6 @@ func TestCmdInit_NoPromptWritesFiles(t *testing.T) {
 		"-tool-uri", "go:github.com/stevegt/decomk/cmd/decomk@stable",
 		"-home", "/var/decomk",
 		"-log-dir", "/var/log/decomk",
-		"-run-args", "all",
 	}
 	code, err := cmdInit(args, &stdout, &stderr)
 	if err != nil {
@@ -211,7 +206,6 @@ func TestCmdInit_ForceAliasF(t *testing.T) {
 		"-tool-uri", "go:github.com/stevegt/decomk/cmd/decomk@stable",
 		"-home", "/var/decomk",
 		"-log-dir", "/var/log/decomk",
-		"-run-args", "all",
 	}
 
 	code, err := cmdInit(baseArgs, &stdout, &stderr)

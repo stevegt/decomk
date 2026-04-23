@@ -75,3 +75,32 @@ DEFAULT:
 		t.Fatalf("DEFAULT tokens: got %q want %q", got, want)
 	}
 }
+
+func TestValidateRefs(t *testing.T) {
+	t.Parallel()
+
+	t.Run("accepts tuple and known key refs", func(t *testing.T) {
+		t.Parallel()
+		defs := Defs{
+			"DEFAULT": {"COMMON", "INSTALL=tool-a tool-b"},
+			"COMMON":  {"FOO=bar"},
+		}
+		if err := ValidateRefs(defs); err != nil {
+			t.Fatalf("ValidateRefs() error: %v", err)
+		}
+	})
+
+	t.Run("rejects bare unknown token", func(t *testing.T) {
+		t.Parallel()
+		defs := Defs{
+			"DEFAULT": {"UNKNOWN_TOKEN"},
+		}
+		err := ValidateRefs(defs)
+		if err == nil {
+			t.Fatalf("ValidateRefs() expected error, got nil")
+		}
+		if got, want := err.Error(), `invalid token "UNKNOWN_TOKEN" in key "DEFAULT"`; !strings.Contains(got, want) {
+			t.Fatalf("ValidateRefs() error: got %q want substring %q", got, want)
+		}
+	})
+}

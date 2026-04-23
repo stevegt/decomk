@@ -14,14 +14,14 @@ It contains:
 1. Edit `decomk.conf`:
    - keep `DEFAULT` for shared policy,
    - replace `owner/repo` with real repo keys,
-   - update tuple values and target composition.
+   - update tuple values and action-selector composition (for example `updateContent='...'`, `postCreate='...'`).
 2. Edit `Makefile`:
    - replace hello-world targets with your real setup targets,
    - keep idempotent file targets (`touch $@`) for repeatable runs.
 3. Edit `.devcontainer/devcontainer.json`:
    - set real `DECOMK_CONF_URI`,
    - set real `DECOMK_TOOL_URI`,
-   - tune run args and lifecycle options.
+   - keep lifecycle hooks pointing at `.devcontainer/decomk-stage0.sh updateContent|postCreate`.
 
 ## Genesis image workflow (important)
 
@@ -41,4 +41,4 @@ After the genesis image is stable:
 3. remove `.devcontainer/Dockerfile` from active use in this repo.
 
 The long-term shared setup should live in `decomk.conf` and `Makefile`; the
-Dockerfile should stay minimal.
+Dockerfile should stay minimal or nonexistent.

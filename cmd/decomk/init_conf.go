@@ -21,7 +21,6 @@ type initConfFlags struct {
 	toolURI  string
 	home     string
 	logDir   string
-	runArgs  string
 	force    bool
 }
 
@@ -42,7 +41,6 @@ func cmdInitConf(args []string, stdout, stderr io.Writer) (int, error) {
 		toolURI:  stage0.DefaultToolURI,
 		home:     confrepo.DefaultHome,
 		logDir:   confrepo.DefaultLogDir,
-		runArgs:  confrepo.DefaultRunArgs,
 	}
 	addInitConfFlags(fs, &flags)
 
@@ -99,16 +97,11 @@ func cmdInitConf(args []string, stdout, stderr io.Writer) (int, error) {
 	if flags.logDir == "" || !filepath.IsAbs(flags.logDir) {
 		return 1, fmt.Errorf("DECOMK_LOG_DIR template value must be an absolute path (got %q)", flags.logDir)
 	}
-	if strings.TrimSpace(flags.runArgs) == "" {
-		return 1, fmt.Errorf("DECOMK_RUN_ARGS template value cannot be empty")
-	}
-
 	data := confrepo.ProducerDevcontainerData(flags.name)
 	data.ConfURI = flags.confURI
 	data.ToolURI = flags.toolURI
 	data.Home = flags.home
 	data.LogDir = flags.logDir
-	data.DecomkRunArgs = flags.runArgs
 
 	results, err := writeInitConfScaffold(repoRoot, data, flags.force)
 	if err != nil {
@@ -130,7 +123,6 @@ func addInitConfFlags(fs *flag.FlagSet, flags *initConfFlags) {
 	fs.StringVar(&flags.toolURI, "tool-uri", flags.toolURI, "DECOMK_TOOL_URI value for generated producer devcontainer")
 	fs.StringVar(&flags.home, "home", flags.home, "DECOMK_HOME value for generated producer devcontainer")
 	fs.StringVar(&flags.logDir, "log-dir", flags.logDir, "DECOMK_LOG_DIR value for generated producer devcontainer")
-	fs.StringVar(&flags.runArgs, "run-args", flags.runArgs, "DECOMK_RUN_ARGS value for generated producer devcontainer")
 	fs.BoolVar(&flags.force, "force", false, "overwrite existing conf-repo scaffold files")
 	fs.BoolVar(&flags.force, "f", false, "alias for -force")
 }
@@ -233,4 +225,3 @@ func initConfExistingTargetsError(existing []string) error {
 	builder.WriteString("  3) review and merge with git difftool\n")
 	return errors.New(builder.String())
 }
-

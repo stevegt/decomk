@@ -32,7 +32,8 @@ Selector policy note:
 6. `decomk-stage0.sh` receives explicit lifecycle phase args from `devcontainer.json`:
    - `updateContentCommand` calls `decomk-stage0.sh updateContent`
    - `postCreateCommand` calls `decomk-stage0.sh postCreate`
-7. Harnesses run explicit phase probes (`TUPLE_PHASE_UPDATE`, `TUPLE_PHASE_POST`) and assert:
+7. Harnesses run explicit phase probes by passing extra action args to stage-0
+   (`decomk-stage0.sh <phase> <selector>`) and assert:
    - `updateContent` phase marker + empty `GITHUB_USER`,
    - `postCreate` phase marker + non-empty `GITHUB_USER`.
 8. `run.sh` reads container make logs and enforces PASS/FAIL markers.

@@ -10,13 +10,12 @@
     "dockerfile": {{json .BuildDockerfile}},
     "context": {{json .BuildContext}}
   },
-  "containerEnv": {
-    "DECOMK_HOME": {{json .Home}},
-    "DECOMK_LOG_DIR": {{json .LogDir}},
-    "DECOMK_TOOL_URI": {{json .ToolURI}},
-    "DECOMK_CONF_URI": {{json .ConfURI}},
-    "DECOMK_RUN_ARGS": {{json .DecomkRunArgs}}
-  },
+    "containerEnv": {
+      "DECOMK_HOME": {{json .Home}},
+      "DECOMK_LOG_DIR": {{json .LogDir}},
+      "DECOMK_TOOL_URI": {{json .ToolURI}},
+      "DECOMK_CONF_URI": {{json .ConfURI}}
+    },
   "updateContentCommand": {{json .UpdateContentCommand}},
   "postCreateCommand": {{json .PostCreateCommand}}
 }

@@ -4,14 +4,18 @@
 #
 # A token can be:
 # - another context key (macro-style composition),
-# - a tuple (`NAME=value`) passed to make as a variable,
-# - or a make target name.
+# - or a tuple (`NAME=value`) passed to make as a variable.
+#
+# Bare make target names are intentionally not allowed on the RHS. Put target
+# lists inside tuple values (for example `updateContent='all'`).
 #
 # Start simple:
 # - `DEFAULT` is the baseline policy shared by all repos.
 # - Add one context key per repo (`owner/repo`) as needed.
 
-DEFAULT: all
+DEFAULT:
+  updateContent='all'
+  postCreate='all'
   HELLO_TEXT='Hello from DEFAULT context'
   DEVCONTAINER_GUI=0
 

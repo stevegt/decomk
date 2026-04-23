@@ -2,7 +2,7 @@
 //
 // MVP responsibilities:
 //   - Load decomk.conf (and optional decomk.d/*.conf).
-//   - Expand macros into make targets + VAR=value tuples.
+//   - Expand macros into a tuple-only policy set (VAR=value assignments).
 //   - Write a shell-friendly env file (env.sh) for other processes to source.
 //   - Optionally execute GNU make in a persistent stamp directory.
 package main
@@ -148,7 +148,7 @@ Commands:
   run     Resolve, write env export file, and run make in the stamp dir
   checkpoint  Build/push/tag checkpoint images for shared updateContent setup
 
-ARGS:
+ARGS (required for plan/run):
   Positional args are interpreted isconf-style:
     - If an arg matches a resolved tuple variable name (e.g. INSTALL), its value
       is split on whitespace to produce make targets.
@@ -237,8 +237,6 @@ type resolvedPlan struct {
 	Expanded []string
 	// Tuples are the NAME=value entries passed on make's argv.
 	Tuples []string
-	// Targets are the make targets passed on make's argv.
-	Targets []string
 }
 
 // cmdPlan resolves config and prints what decomk would do, without running real
@@ -346,6 +344,12 @@ func cmdExecute(args []string, stdout, stderr io.Writer, mode executionMode) (ex
 		return 2, err
 	}
 	actionArgs := fs.Args()
+	// Intent: Require explicit action selection for both plan and run so decomk
+	// does not silently fall back to config-derived/no-arg target behavior.
+	// Source: DI-004-20260422-193652 (TODO/004)
+	if len(actionArgs) == 0 {
+		return 2, fmt.Errorf("decomk %s requires at least one action arg", mode.Name)
+	}
 
 	// makeAsRoot is an execution concern (how decomk invokes make), not part of
 	// the resolved config/expansion model. Keep it out of resolvedPlan so plan
@@ -383,7 +387,7 @@ func cmdExecute(args []string, stdout, stderr io.Writer, mode executionMode) (ex
 	}
 	plan.Tuples = resolvedTuples
 
-	targets, targetSource := selectTargets(plan.Targets, plan.Tuples, actionArgs)
+	targets, targetSource := selectTargets(plan.Tuples, actionArgs)
 	cookedTuples := canonicalEnvTuples(plan, targets, makeAsRoot, incomingEnv)
 
 	if mode.DryRun {
@@ -997,6 +1001,12 @@ func resolvePlanFromFlags(f commonFlags) (*resolvedPlan, error) {
 		return nil, err
 	}
 	tuples, targets := resolve.Partition(expanded)
+	// Intent: Enforce tuple-only config output after macro expansion so target
+	// selection happens exclusively through explicit action args.
+	// Source: DI-004-20260422-193652 (TODO/004)
+	if len(targets) > 0 {
+		return nil, fmt.Errorf("invalid config: expanded non-tuple tokens %v; decomk.conf RHS tokens must be tuple assignments (NAME=value) or defined keys", targets)
+	}
 
 	stampDir := state.StampDir(home)
 	envFile := state.EnvFile(home)
@@ -1035,7 +1045,6 @@ func resolvePlanFromFlags(f commonFlags) (*resolvedPlan, error) {
 		Makefile:        makefile,
 		Expanded:        expanded,
 		Tuples:          tuples,
-		Targets:         targets,
 	}, nil
 }
 
@@ -1218,6 +1227,12 @@ func loadDefs(home, explicitConfig string) (defs contexts.Defs, paths []string, 
 			return nil, nil, e
 		}
 		defs = contexts.Merge(defs, tree)
+	}
+	// Intent: Keep decomk.conf tuple-only by requiring every bare RHS token to be
+	// a defined key, so config files cannot accidentally smuggle literal targets.
+	// Source: DI-004-20260422-193652 (TODO/004)
+	if err := contexts.ValidateRefs(defs); err != nil {
+		return nil, nil, err
 	}
 
 	paths = append([]string(nil), sources...)
@@ -1449,34 +1464,15 @@ func computedVars(plan *resolvedPlan, targets []string, makeAsRoot bool) map[str
 	}
 }
 
-// selectTargets determines which make targets decomk should pass on argv for a
-// given plan.
+// selectTargets determines which make targets decomk should pass on argv.
 //
-// Semantics are intentionally isconf-like:
-//   - If actionArgs is non-empty, actionArgs drive the selection and config
-//     target tokens are ignored.
-//   - Each arg is treated as either:
-//   - an action variable name (when it matches a resolved tuple variable),
-//     in which case that variable's value is split on whitespace into targets, or
+// Callers must pass at least one action arg (enforced in cmdExecute).
+// Each arg is interpreted as:
+//   - an action variable name (when it matches a resolved tuple variable), or
 //   - a literal make target (fallback).
-//   - If actionArgs is empty, decomk preserves its historical behavior:
-//   - run config target tokens if present, else
-//   - default to INSTALL (if defined), else
-//   - pass no targets (make's default goal).
-func selectTargets(configTargets, tuples, actionArgs []string) (targets []string, source string) {
+func selectTargets(tuples, actionArgs []string) (targets []string, source string) {
 	effective := effectiveTupleValues(tuples)
-	if len(actionArgs) > 0 {
-		return targetsFromActionArgs(actionArgs, effective), "actionArgs"
-	}
-	if len(configTargets) > 0 {
-		return append([]string(nil), configTargets...), "configTargets"
-	}
-	if installTargets, ok := effective["INSTALL"]; ok {
-		if split := splitTargetList(installTargets); len(split) > 0 {
-			return split, "defaultINSTALL"
-		}
-	}
-	return nil, "makeDefaultGoal"
+	return targetsFromActionArgs(actionArgs, effective), "actionArgs"
 }
 
 // envMapFromList converts KEY=value strings into a map where the last entry for

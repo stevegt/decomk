@@ -24,12 +24,12 @@ func TestLoadDefs_Precedence_ConfigRepoThenExplicit(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(configRepoConfig), 0o755); err != nil {
 		t.Fatalf("MkdirAll(config repo): %v", err)
 	}
-	if err := os.WriteFile(configRepoConfig, []byte("A: configA\nB: configB\n"), 0o600); err != nil {
+	if err := os.WriteFile(configRepoConfig, []byte("A: FOO=configA\nB: BAR=configB\n"), 0o600); err != nil {
 		t.Fatalf("WriteFile(config repo decomk.conf): %v", err)
 	}
 
 	explicit := filepath.Join(t.TempDir(), "decomk.conf")
-	if err := os.WriteFile(explicit, []byte("B: explicitB\n"), 0o600); err != nil {
+	if err := os.WriteFile(explicit, []byte("B: BAR=explicitB\n"), 0o600); err != nil {
 		t.Fatalf("WriteFile(explicit decomk.conf): %v", err)
 	}
 
@@ -39,15 +39,36 @@ func TestLoadDefs_Precedence_ConfigRepoThenExplicit(t *testing.T) {
 	}
 
 	// Precedence is "last wins": config repo < explicit.
-	if got, want := defs["A"], []string{"configA"}; !reflect.DeepEqual(got, want) {
+	if got, want := defs["A"], []string{"FOO=configA"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("A tokens: got %#v want %#v", got, want)
 	}
-	if got, want := defs["B"], []string{"explicitB"}; !reflect.DeepEqual(got, want) {
+	if got, want := defs["B"], []string{"BAR=explicitB"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("B tokens: got %#v want %#v", got, want)
 	}
 
 	if got, want := paths, []string{configRepoConfig, explicit}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("paths: got %#v want %#v", got, want)
+	}
+}
+
+func TestLoadDefs_RejectsBareUnknownToken(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	configRepoConfig := filepath.Join(home, "conf", "decomk.conf")
+	if err := os.MkdirAll(filepath.Dir(configRepoConfig), 0o755); err != nil {
+		t.Fatalf("MkdirAll(config repo): %v", err)
+	}
+	if err := os.WriteFile(configRepoConfig, []byte("DEFAULT: all\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile(config repo decomk.conf): %v", err)
+	}
+
+	_, _, err := loadDefs(home, "")
+	if err == nil {
+		t.Fatalf("loadDefs() expected error, got nil")
+	}
+	if got, want := err.Error(), `invalid token "all" in key "DEFAULT"`; !strings.Contains(got, want) {
+		t.Fatalf("loadDefs() error: got %q want substring %q", got, want)
 	}
 }
 
@@ -57,23 +78,20 @@ func TestSelectTargets(t *testing.T) {
 	// This test encodes the isconf-style "action args" behavior:
 	//   - positional args select actions/targets,
 	//   - action variable args expand via tuple values,
-	//   - otherwise args are treated as literal targets,
-	//   - and when args are present they override config-derived target tokens.
+	//   - otherwise args are treated as literal targets.
 	cases := []struct {
-		name          string
-		configTargets []string
-		tuples        []string
-		actionArgs    []string
-		wantTargets   []string
-		wantSource    string
+		name        string
+		tuples      []string
+		actionArgs  []string
+		wantTargets []string
+		wantSource  string
 	}{
 		{
-			name:          "action args expand INSTALL",
-			configTargets: []string{"configTarget"},
-			tuples:        []string{"INSTALL=install-neovim install-codex"},
-			actionArgs:    []string{"INSTALL"},
-			wantTargets:   []string{"install-neovim", "install-codex"},
-			wantSource:    "actionArgs",
+			name:        "action args expand INSTALL",
+			tuples:      []string{"INSTALL=install-neovim install-codex"},
+			actionArgs:  []string{"INSTALL"},
+			wantTargets: []string{"install-neovim", "install-codex"},
+			wantSource:  "actionArgs",
 		},
 		{
 			name:        "action args unknown treated as literal target",
@@ -88,36 +106,13 @@ func TestSelectTargets(t *testing.T) {
 			wantTargets: []string{"one", "two", "extra"},
 			wantSource:  "actionArgs",
 		},
-		{
-			name:          "no args uses config-derived targets",
-			configTargets: []string{"Block00_base", "Block10_common"},
-			tuples:        []string{"INSTALL=ignored"},
-			wantTargets:   []string{"Block00_base", "Block10_common"},
-			wantSource:    "configTargets",
-		},
-		{
-			name:        "no args falls back to INSTALL when no config targets",
-			tuples:      []string{"INSTALL=one two"},
-			wantTargets: []string{"one", "two"},
-			wantSource:  "defaultINSTALL",
-		},
-		{
-			name:        "INSTALL last wins",
-			tuples:      []string{"INSTALL=old", "INSTALL=new newer"},
-			wantTargets: []string{"new", "newer"},
-			wantSource:  "defaultINSTALL",
-		},
-		{
-			name:       "no targets means make default goal",
-			wantSource: "makeDefaultGoal",
-		},
 	}
 
 	for _, tc := range cases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			gotTargets, gotSource := selectTargets(tc.configTargets, tc.tuples, tc.actionArgs)
+			gotTargets, gotSource := selectTargets(tc.tuples, tc.actionArgs)
 			if gotSource != tc.wantSource {
 				t.Fatalf("source: got %q want %q", gotSource, tc.wantSource)
 			}
@@ -185,6 +180,40 @@ func TestResolveTuplePassThroughs(t *testing.T) {
 	}
 }
 
+func TestCmdPlan_RequiresActionArg(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	code, err := cmdPlan(nil, &out, &errOut)
+	if code != 2 {
+		t.Fatalf("cmdPlan() code: got %d want 2", code)
+	}
+	if err == nil {
+		t.Fatalf("cmdPlan() error: got nil want non-nil")
+	}
+	if got, want := err.Error(), "decomk plan requires at least one action arg"; !strings.Contains(got, want) {
+		t.Fatalf("cmdPlan() error: got %q want substring %q", got, want)
+	}
+}
+
+func TestCmdRun_RequiresActionArg(t *testing.T) {
+	t.Parallel()
+
+	var out bytes.Buffer
+	var errOut bytes.Buffer
+	code, err := cmdRun(nil, &out, &errOut)
+	if code != 2 {
+		t.Fatalf("cmdRun() code: got %d want 2", code)
+	}
+	if err == nil {
+		t.Fatalf("cmdRun() error: got nil want non-nil")
+	}
+	if got, want := err.Error(), "decomk run requires at least one action arg"; !strings.Contains(got, want) {
+		t.Fatalf("cmdRun() error: got %q want substring %q", got, want)
+	}
+}
+
 func TestSelectTargets_PassthroughInstallTuple(t *testing.T) {
 	t.Parallel()
 
@@ -196,10 +225,10 @@ func TestSelectTargets_PassthroughInstallTuple(t *testing.T) {
 		t.Fatalf("resolveTuplePassThroughs(): %v", err)
 	}
 
-	gotTargets, gotSource := selectTargets(nil, tuples, nil)
+	gotTargets, gotSource := selectTargets(tuples, []string{"INSTALL"})
 	wantTargets := []string{"install-neovim", "install-codex"}
-	if gotSource != "defaultINSTALL" {
-		t.Fatalf("source: got %q want %q", gotSource, "defaultINSTALL")
+	if gotSource != "actionArgs" {
+		t.Fatalf("source: got %q want %q", gotSource, "actionArgs")
 	}
 	if !reflect.DeepEqual(gotTargets, wantTargets) {
 		t.Fatalf("targets: got %#v want %#v", gotTargets, wantTargets)

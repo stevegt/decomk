@@ -25,7 +25,6 @@ type initFlags struct {
 	toolURI  string
 	home     string
 	logDir   string
-	runArgs  string
 	force    bool
 	noPrompt bool
 }
@@ -53,7 +52,6 @@ func cmdInit(args []string, stdout, stderr io.Writer) (int, error) {
 		toolURI:  envi.String("DECOMK_TOOL_URI", stage0.DefaultToolURI),
 		home:     envi.String("DECOMK_HOME", state.DefaultHome),
 		logDir:   envi.String("DECOMK_LOG_DIR", state.DefaultLogDir),
-		runArgs:  envi.String("DECOMK_RUN_ARGS", "all"),
 	}
 	addInitFlags(fs, &f)
 
@@ -138,7 +136,6 @@ func cmdInit(args []string, stdout, stderr io.Writer) (int, error) {
 		ToolURI:              f.toolURI,
 		Home:                 f.home,
 		LogDir:               f.logDir,
-		DecomkRunArgs:        f.runArgs,
 		UpdateContentCommand: stage0.DefaultUpdateContentCommand,
 		PostCreateCommand:    stage0.DefaultPostCreateCommand,
 	}
@@ -169,7 +166,6 @@ func addInitFlags(fs *flag.FlagSet, f *initFlags) {
 	fs.StringVar(&f.toolURI, "tool-uri", f.toolURI, "DECOMK_TOOL_URI value for devcontainer.json")
 	fs.StringVar(&f.home, "home", f.home, "DECOMK_HOME value for devcontainer.json")
 	fs.StringVar(&f.logDir, "log-dir", f.logDir, "DECOMK_LOG_DIR value for devcontainer.json")
-	fs.StringVar(&f.runArgs, "run-args", f.runArgs, "DECOMK_RUN_ARGS value for devcontainer.json")
 	fs.BoolVar(&f.force, "force", false, "overwrite existing stage-0 files even when they already exist")
 	fs.BoolVar(&f.force, "f", false, "alias for -force")
 	fs.BoolVar(&f.noPrompt, "no-prompt", false, "disable interactive prompts for unset values")
@@ -205,12 +201,6 @@ func promptInitFlags(f *initFlags, setFlags map[string]bool, in io.Reader, out i
 	}
 	if !setFlags["log-dir"] {
 		f.logDir, err = promptWithDefault(reader, out, "DECOMK_LOG_DIR", f.logDir)
-		if err != nil {
-			return err
-		}
-	}
-	if !setFlags["run-args"] {
-		f.runArgs, err = promptWithDefault(reader, out, "DECOMK_RUN_ARGS", f.runArgs)
 		if err != nil {
 			return err
 		}

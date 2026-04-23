@@ -1,191 +1,83 @@
-# decomk Design (Selftest + isconf-Aligned Selector Semantics)
+# decomk Design
 
-This document captures the current design direction discussed for decomk selftest behavior after reviewing `doc/isconf-design.md`.
+This document captures the current decomk execution model after the
+tuple-only config correction and lifecycle phase selector work.
 
-It focuses on:
+## 1) Core model
 
-- how decomk action arguments should be interpreted (isconf-aligned),
-- how `examples/decomk-selftest` uses `decomk.conf` and `Makefile`,
-- how to avoid selector translation tables while still testing tuple-selector behavior.
+`decomk` keeps three concerns separate:
 
----
+1. **Identity selection**: pick config keys (`DEFAULT`, repo keys, or explicit `-context`).
+2. **Tuple resolution**: expand selected keys into `NAME=value` tuples.
+3. **Action selection**: use positional args to decide which make targets to run.
 
-## 1) Design Goals
+`decomk.conf` is the policy layer; `Makefile` is the execution graph.
 
-1. Keep decomk behavior aligned with isconf’s model:
-   - context expansion produces tuples and tokens,
-   - action args can map through tuple variables,
-   - unknown action args fall back to literal targets.
-2. Avoid maintaining selector translation tables in the harness.
-3. Make selftest easy to reason about and deterministic.
-4. Keep policy in `decomk.conf`, execution graph in `Makefile` + scripts.
+## 2) `decomk.conf` contract (strict)
 
----
+RHS tokens in `decomk.conf` must be one of:
 
-## 2) Core decomk Action-Arg Model
+- `NAME=value` tuples, or
+- macro references to other keys defined in `decomk.conf`.
 
-For `decomk run [ARGS...]`:
+Bare RHS tokens that are neither tuples nor defined keys are rejected as
+configuration errors with key+token context.
 
-1. Resolve context keys (typically `DEFAULT` plus discovered keys, or explicit `-context`).
-2. Expand macros to tokens.
-3. Partition tokens into:
-   - tuples (`NAME=value`),
-   - config target tokens.
-4. Select final targets:
-   - if `ARGS` are present:
-     - if arg matches an effective tuple variable name, expand to that tuple’s value (split on whitespace),
-     - otherwise treat arg as a literal make target.
-   - if no `ARGS`:
-     - use config target tokens if present,
-     - else fallback to `INSTALL` tuple if present,
-     - else make default goal.
+This removes accidental "implicit target tokens" from config and aligns with the
+isconf tuple/macro pattern.
 
-This is the same shape documented in `doc/isconf-design.md`, adapted to decomk.
+## 3) `plan` / `run` action args
 
-## 2.1) Environment contract (`env.sh` == make env)
+`decomk plan` and `decomk run` require at least one positional action arg.
 
-- `decomk run` writes `${DECOMK_HOME}/env.sh` and uses the same canonical tuple list to invoke make.
-- Canonical order is:
-  1. incoming `DECOMK_*` passthrough vars,
-  2. resolved config tuples,
-  3. decomk-computed vars (last-wins).
-- Tuple value sentinel `NAME=$` resolves from incoming env; if missing, decomk falls back to an earlier tuple assignment for `NAME`; if no fallback exists, run/plan fails fast.
-- This keeps env exports and runtime make/recipe env behavior consistent even when make runs via sudo.
+For each action arg:
 
----
+- if it matches a resolved tuple variable name, decomk splits that tuple value on
+  whitespace and appends those words as make targets;
+- otherwise decomk treats the arg as a literal make target.
 
-## 3) Selftest Design Decisions
+There is no no-arg fallback behavior.
 
-## 3.1 Primary selector mode: literal targets
+## 4) Canonical environment contract
 
-Primary selftest execution uses literal Makefile target names as decomk args:
+`decomk` computes one canonical tuple stream and uses it for both:
 
-- `all`
-- `selftest-verify-tool-repo`
-- `selftest-verify-conf-repo`
-- `selftest-context-repo`
-- `selftest-context-shared`
-- `selftest-stamp-probe`
-- `selftest-stamp-verify`
+- env export file (`<DECOMK_HOME>/env.sh`), and
+- make invocation argv/env.
 
-That means no primary selector mapping table in `decomk.conf`.
+Ordering is:
 
-## 3.2 Tuple-selector coverage still required
+1. incoming `DECOMK_*` passthrough vars,
+2. resolved config tuples,
+3. decomk-computed tuples (last-wins).
 
-Even with literal-primary mode, selftest explicitly exercises tuple selector expansion:
+Tuple value sentinel `NAME=$` means: take incoming env `NAME`; if unset, reuse an
+earlier tuple assignment for `NAME`; otherwise fail.
 
-- tuple-only runs (arg maps to tuple value),
-- mixed runs (tuple selector + literal target in same invocation),
-- stamp/idempotency tuple paths.
+## 5) Stage-0 lifecycle contract
 
-## 3.3 No translation table policy
+Generated devcontainer hooks call:
 
-The harness does not keep a selector→scenario lookup for expected outcomes.
-Instead, fixture make/scripts emit machine-readable pass/fail markers and the harness validates those markers from logs.
+- `bash .devcontainer/decomk-stage0.sh updateContent`
+- `bash .devcontainer/decomk-stage0.sh postCreate`
 
----
+`decomk-stage0.sh`:
 
-## 4) `decomk.conf` and `Makefile` Responsibilities
+1. ensures a `decomk` binary is available (`DECOMK_TOOL_URI`),
+2. syncs config repo (`DECOMK_CONF_URI`),
+3. exports `DECOMK_STAGE0_PHASE`,
+4. runs `decomk run <action-args>`.
 
-## 4.1 `decomk.conf` (policy/config layer)
+Action args default to the lifecycle phase selector (`updateContent` or
+`postCreate`). Optional extra args passed to `decomk-stage0.sh` override that
+default selector list.
 
-`DEFAULT` contains runtime fixture tuples and tuple selectors. The workspace repo context (`decomk`) overrides selected tuples while leaving other `DEFAULT` tuples available.
+## 6) Selftest implications
 
-Example pattern:
+Selftests keep their target logic in fixture `Makefile` targets and scripts.
 
-```conf
-DEFAULT: TUPLE_VERIFY_TOOL='selftest-verify-tool-repo'
-  TUPLE_VERIFY_CONF='selftest-verify-conf-repo'
-  TUPLE_CONTEXT_OVERRIDE='selftest-context-default'
-  TUPLE_DEFAULT_SHARED='selftest-context-shared'
-  TUPLE_STAMP_PROBE='selftest-stamp-probe'
-  TUPLE_STAMP_VERIFY='selftest-stamp-verify'
+- phase hooks are tested via explicit stage-0 phase calls,
+- tuple-selector expansion and literal-target fallback are tested via `decomk run`,
+- stamp idempotency is tested with repeated stamp probe/verify runs.
 
-decomk: TUPLE_CONTEXT_OVERRIDE='selftest-context-repo'
-```
-
-## 4.2 `Makefile` (execution graph layer)
-
-`Makefile` defines the executable target graph:
-
-- `all` depends on fixture verification targets,
-- verification and stamp targets emit `SELFTEST PASS ...` / `SELFTEST FAIL ...` markers,
-- idempotent checks use stamp-backed file targets and explicit stamp verification.
-
-No selector mapping logic is required in `Makefile`; target names are the selectors for literal-primary runs.
-
----
-
-## 5) Harness Contract
-
-## 5.1 `run.sh`
-
-- Accepts decomk action args as positional passthrough.
-- Rejects flag-style args (for example `-context`) so context selection stays automatic from workspace repo identity.
-- Uses default tuple args when no args are provided:
-  - `TUPLE_VERIFY_TOOL`
-  - `TUPLE_VERIFY_CONF`
-  - `TUPLE_CONTEXT_OVERRIDE`
-  - `TUPLE_DEFAULT_SHARED`
-- Renders those args into generated workspace `.devcontainer/devcontainer.json` as `DECOMK_RUN_ARGS`.
-- Brings up one DevPod workspace, reads `make.log`, requires expected `SELFTEST PASS ...` markers, and fails on any `SELFTEST FAIL ...`.
-- Runs an explicit two-step stamp check sequence:
-  - `decomk run TUPLE_STAMP_PROBE`
-  - `decomk run TUPLE_STAMP_PROBE TUPLE_STAMP_VERIFY`
-
-## 5.2 `decomk-stage0.sh`
-
-- `devcontainer.json` lifecycle hooks call one script with explicit phase args:
-  - `updateContentCommand`: `bash .devcontainer/decomk-stage0.sh updateContent`
-  - `postCreateCommand`: `bash .devcontainer/decomk-stage0.sh postCreate`
-- The script ensures a `decomk` binary is available in `PATH` (install-first default; optional clone mode).
-- The script syncs `DECOMK_CONF_URI` (`git:...`) into `${DECOMK_HOME}/conf`.
-- The script resolves phase-aware run args (`DECOMK_UPDATE_CONTENT_RUN_ARGS` / `DECOMK_POST_CREATE_RUN_ARGS`, defaulting to `DECOMK_RUN_ARGS`) and runs:
-  - `decomk run <resolved-args> DECOMK_STAGE0_PHASE=<phase>`
-- The script does not perform selftest marker validation; verification stays in fixture make/scripts plus harness log parsing.
-
-This avoids hardcoded selector-expansion tables in the hook.
-
----
-
-## 6) Test Matrix Requirements
-
-Selftest covers the selector forms and stamp behavior exercised by the current harness:
-
-1. **Literal-only**
-   - `decomk run all`
-2. **Tuple-only (default harness args)**
-   - `decomk run TUPLE_VERIFY_TOOL TUPLE_VERIFY_CONF TUPLE_CONTEXT_OVERRIDE TUPLE_DEFAULT_SHARED`
-3. **Stamp/idempotency sequence**
-   - `decomk run TUPLE_STAMP_PROBE`
-   - `decomk run TUPLE_STAMP_PROBE TUPLE_STAMP_VERIFY`
-4. **Lifecycle phase probes**
-   - `decomk-stage0.sh updateContent` with `DECOMK_RUN_ARGS=TUPLE_PHASE_UPDATE`
-   - `decomk-stage0.sh postCreate` with `DECOMK_RUN_ARGS=TUPLE_PHASE_POST`
-
-Success criteria:
-
-- required `SELFTEST PASS ...` markers are present in each run's `make.log`,
-- no `SELFTEST FAIL ...` marker appears,
-- stamp probe runs once and stamp verify confirms idempotency,
-- phase probes confirm `DECOMK_STAGE0_PHASE` routing and GITHUB_USER expectations.
-
----
-
-## 7) Why this design
-
-This keeps decomk selftest consistent with isconf’s architecture:
-
-- tuples remain first-class for action-variable semantics,
-- literal targets remain first-class for direct invocation,
-- config stays declarative,
-- execution stays in make targets/prereqs,
-- no fragile translation table is needed.
-
----
-
-## 8) Non-goals
-
-- This design does not change decomk core parser grammar.
-- This design does not require making action args expand arbitrary top-level macro keys by default.
-- This design does not require separate containers per scenario; one container per harness invocation remains acceptable.
+No selector translation table is required in the harness.

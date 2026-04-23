@@ -1,8 +1,9 @@
 // Package contexts loads and parses decomk.conf-style context definitions.
 //
 // A decomk config file is a map from a context key to a list of tokens. Tokens
-// are later expanded as macros (by name) and then partitioned into make targets
-// and VAR=value tuples.
+// are later expanded as macros (by name) and validated as tuple-or-key tokens.
+// Action target selection is driven by decomk positional args, not by bare RHS
+// target tokens in config.
 //
 // The grammar is intentionally small and deterministic so it can be parsed
 // safely without eval-like behavior. Specifically, parsing does *not* expand
@@ -32,6 +33,8 @@ import (
 	"sort"
 	"strings"
 	"unicode"
+
+	"github.com/stevegt/decomk/resolve"
 )
 
 // Defs maps a context/macro name to its token list.
@@ -184,6 +187,40 @@ func Merge(base, overlay Defs) Defs {
 		out[k] = append([]string(nil), v...)
 	}
 	return out
+}
+
+// ValidateRefs checks that every non-tuple RHS token is a known key.
+//
+// This enforces decomk.conf's tuple/macro-only model:
+//   - `NAME=value` tokens are tuple assignments,
+//   - any other RHS token must be a key present in defs.
+//
+// A bare token that is neither a tuple nor a defined key is rejected with a
+// user-friendly error that identifies the key and token.
+//
+// Intent: Fail fast on ambiguous bare RHS literals so decomk context config stays
+// tuple/macro-only and action selection remains explicit in command args.
+// Source: DI-004-20260422-193652 (TODO/004)
+func ValidateRefs(defs Defs) error {
+	keys := make([]string, 0, len(defs))
+	for key := range defs {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	for _, key := range keys {
+		tokens := defs[key]
+		for _, token := range tokens {
+			if _, _, ok := resolve.SplitTuple(token); ok {
+				continue
+			}
+			if _, ok := defs[token]; ok {
+				continue
+			}
+			return fmt.Errorf("invalid token %q in key %q: bare RHS tokens must be tuple assignments (NAME=value) or defined keys", token, key)
+		}
+	}
+	return nil
 }
 
 // splitKeyLine parses a key definition line of the form "key: tokens...".

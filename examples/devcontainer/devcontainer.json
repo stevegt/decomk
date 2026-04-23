@@ -4,13 +4,12 @@
     "dockerfile": "Dockerfile",
     "context": "."
   },
-  "containerEnv": {
-    "DECOMK_HOME": "/var/decomk",
-    "DECOMK_LOG_DIR": "/var/log/decomk",
-    "DECOMK_TOOL_URI": "go:github.com/stevegt/decomk/cmd/decomk@stable",
-    "DECOMK_CONF_URI": "",
-    "DECOMK_RUN_ARGS": "all"
-  },
+    "containerEnv": {
+      "DECOMK_HOME": "/var/decomk",
+      "DECOMK_LOG_DIR": "/var/log/decomk",
+      "DECOMK_TOOL_URI": "go:github.com/stevegt/decomk/cmd/decomk@stable",
+      "DECOMK_CONF_URI": ""
+    },
   "remoteUser": "dev",
   "updateContentCommand": "bash .devcontainer/decomk-stage0.sh updateContent",
   "postCreateCommand": "bash .devcontainer/decomk-stage0.sh postCreate"

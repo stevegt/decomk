@@ -9,13 +9,12 @@
 {{- if .RunArgs }}
   "runArgs": {{json .RunArgs}},
 {{- end }}
-  "containerEnv": {
-    "DECOMK_HOME": {{json .Home}},
-    "DECOMK_LOG_DIR": {{json .LogDir}},
-    "DECOMK_TOOL_URI": {{json .ToolURI}},
-    "DECOMK_CONF_URI": {{json .ConfURI}},
-    "DECOMK_RUN_ARGS": {{json .DecomkRunArgs}}
-  },
+    "containerEnv": {
+      "DECOMK_HOME": {{json .Home}},
+      "DECOMK_LOG_DIR": {{json .LogDir}},
+      "DECOMK_TOOL_URI": {{json .ToolURI}},
+      "DECOMK_CONF_URI": {{json .ConfURI}}
+    },
 {{- if .RemoteUser }}
   "remoteUser": {{json .RemoteUser}},
 {{- end }}

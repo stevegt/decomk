@@ -499,7 +499,7 @@ machine="$resolved_machine"
 
 decomk_run_args="$(join_space_args "${decomk_args[@]}")"
 if [[ -z "$decomk_run_args" ]]; then
-  fail 2 "resolved DECOMK_RUN_ARGS is empty"
+  fail 2 "resolved decomk action args are empty"
 fi
 
 run_id="$(date -u +%Y%m%d-%H%M%S)-$$"
@@ -641,7 +641,10 @@ decomk_home_q="$(printf '%q' "$decomk_home")"
 decomk_log_dir_q="$(printf '%q' "$decomk_log_dir")"
 tool_uri_q="$(printf '%q' "$tool_uri")"
 conf_uri_override_q="$(printf '%q' "$conf_uri")"
-run_args_q="$(printf '%q' "$decomk_run_args")"
+decomk_run_args_shell=""
+for arg in "${decomk_args[@]}"; do
+  decomk_run_args_shell+=" $(printf '%q' "$arg")"
+done
 
 remote_stage0_script="$(cat <<EOF
 set -euo pipefail
@@ -679,8 +682,7 @@ export DECOMK_HOME=$decomk_home_q
 export DECOMK_LOG_DIR=$decomk_log_dir_q
 export DECOMK_TOOL_URI=$tool_uri_q
 export DECOMK_CONF_URI="\$resolved_conf_uri"
-export DECOMK_RUN_ARGS=$run_args_q
-bash examples/devcontainer/decomk-stage0.sh postCreate
+bash examples/devcontainer/decomk-stage0.sh postCreate$decomk_run_args_shell
 EOF
 )"
 
@@ -733,14 +735,14 @@ EOF
 
 run_stage0_phase_with_stage0_env() {
   local stage0_phase="$1"
-  local stage0_run_args="$2"
+  local stage0_action_arg="$2"
   local github_user_value="$3"
 
   local stage0_phase_q
-  local stage0_run_args_q
+  local stage0_action_arg_q
   local github_user_value_q
   stage0_phase_q="$(printf '%q' "$stage0_phase")"
-  stage0_run_args_q="$(printf '%q' "$stage0_run_args")"
+  stage0_action_arg_q="$(printf '%q' "$stage0_action_arg")"
   github_user_value_q="$(printf '%q' "$github_user_value")"
 
   local run_script
@@ -761,9 +763,8 @@ cd "\$workspace_dir"
 export DECOMK_HOME=$decomk_home_q
 export DECOMK_LOG_DIR=$decomk_log_dir_q
 export DECOMK_TOOL_URI=$tool_uri_q
-export DECOMK_RUN_ARGS=$stage0_run_args_q
 export GITHUB_USER=$github_user_value_q
-bash examples/devcontainer/decomk-stage0.sh $stage0_phase_q
+bash examples/devcontainer/decomk-stage0.sh $stage0_phase_q $stage0_action_arg_q
 EOF
 )"
 

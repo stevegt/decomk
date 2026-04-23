@@ -59,7 +59,6 @@ type DevcontainerTemplateData struct {
 	LogDir               string
 	ToolURI              string
 	ConfURI              string
-	DecomkRunArgs        string
 	UpdateContentCommand string
 	PostCreateCommand    string
 }
@@ -99,7 +98,6 @@ func ProductionExampleDevcontainerData() DevcontainerTemplateData {
 		LogDir:               "/var/log/decomk",
 		ToolURI:              DefaultToolURI,
 		ConfURI:              "",
-		DecomkRunArgs:        "all",
 		UpdateContentCommand: DefaultUpdateContentCommand,
 		PostCreateCommand:    DefaultPostCreateCommand,
 	}
@@ -118,7 +116,6 @@ func SelftestDevcontainerData() DevcontainerTemplateData {
 		LogDir:               "/tmp/decomk-selftest/log",
 		ToolURI:              "__DECOMK_TOOL_URI__",
 		ConfURI:              "__DECOMK_CONF_URI__",
-		DecomkRunArgs:        "__DECOMK_RUN_ARGS__",
 		UpdateContentCommand: DefaultUpdateContentCommand,
 		PostCreateCommand:    DefaultPostCreateCommand,
 	}

@@ -18,9 +18,6 @@ if [[ $# -gt 0 ]]; then
   stage0_phase="$1"
   shift
 fi
-if [[ $# -gt 0 ]]; then
-  die "unexpected positional args: $* (expected only updateContent or postCreate)"
-fi
 case "$stage0_phase" in
   updateContent|postCreate)
     ;;
@@ -37,13 +34,10 @@ DECOMK_HOME="${DECOMK_HOME:-/var/decomk}"
 DECOMK_LOG_DIR="${DECOMK_LOG_DIR:-/var/log/decomk}"
 DECOMK_TOOL_URI="${DECOMK_TOOL_URI:-go:github.com/stevegt/decomk/cmd/decomk@stable}"
 DECOMK_CONF_URI="${DECOMK_CONF_URI:-}"
-DECOMK_RUN_ARGS="${DECOMK_RUN_ARGS:-all}"
-DECOMK_UPDATE_CONTENT_RUN_ARGS="${DECOMK_UPDATE_CONTENT_RUN_ARGS:-$DECOMK_RUN_ARGS}"
-DECOMK_POST_CREATE_RUN_ARGS="${DECOMK_POST_CREATE_RUN_ARGS:-$DECOMK_RUN_ARGS}"
 DECOMK_STAGE0_PHASE="$stage0_phase"
 
 export DECOMK_HOME DECOMK_LOG_DIR DECOMK_TOOL_URI DECOMK_CONF_URI
-export DECOMK_RUN_ARGS DECOMK_UPDATE_CONTENT_RUN_ARGS DECOMK_POST_CREATE_RUN_ARGS DECOMK_STAGE0_PHASE
+export DECOMK_STAGE0_PHASE
 
 require_clean_git_repo() {
   local repo_dir="$1"
@@ -248,20 +242,6 @@ resolve_decomk_binary() {
   return 1
 }
 
-resolve_phase_run_args() {
-  case "$stage0_phase" in
-    updateContent)
-      printf '%s' "$DECOMK_UPDATE_CONTENT_RUN_ARGS"
-      ;;
-    postCreate)
-      printf '%s' "$DECOMK_POST_CREATE_RUN_ARGS"
-      ;;
-    *)
-      die "internal error: unsupported stage-0 phase while resolving run args: $stage0_phase"
-      ;;
-  esac
-}
-
 mkdir -p "$DECOMK_HOME" "$DECOMK_LOG_DIR"
 
 install_decomk
@@ -274,14 +254,12 @@ fi
 decomk_bin="$(resolve_decomk_binary)" || {
   die "could not find installed decomk binary (tried go install target and PATH)"
 }
-phase_run_args="$(resolve_phase_run_args)"
-if [[ -z "$phase_run_args" ]]; then
-  die "resolved empty run args for stage-0 phase $stage0_phase"
+action_args=("$@")
+if [[ ${#action_args[@]} -eq 0 ]]; then
+  action_args=("$stage0_phase")
 fi
 
-# Intent: Pass lifecycle phase as an explicit make tuple so config/make logic can
-# separate prebuild/common behavior from runtime/user behavior without relying on
-# ambiguous environment inference.
-# Source: DI-001-20260416-223600 (TODO/001)
-# shellcheck disable=SC2086
-"$decomk_bin" run ${phase_run_args} DECOMK_STAGE0_PHASE="$stage0_phase"
+# Intent: Pass lifecycle phase as the explicit decomk action selector while
+# exporting DECOMK_STAGE0_PHASE for Makefile logic that needs phase-aware guards.
+# Source: DI-004-20260422-193652 (TODO/004)
+"$decomk_bin" run "${action_args[@]}"

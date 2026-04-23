@@ -6,7 +6,7 @@
 
 `decomk` separates concerns:
 
-- **Policy** lives in shared config (`decomk.conf`): context expansion, tuple values, and default target composition.
+- **Policy** lives in shared config (`decomk.conf`): context expansion, tuple values, and action-variable composition.
 - **Execution graph** lives in a `Makefile` that is shared across multiple devcontainer repos: file targets in the stamp directory define idempotent, dependency-ordered work.
 - **Stage-0 lifecycle files** (`.devcontainer/devcontainer.json`, `.devcontainer/decomk-stage0.sh`) are generated scaffolding and should be treated as managed bootstrap wrappers, not as the place to encode per-repo tool policy.
 
@@ -75,7 +75,7 @@ The generated stage-0 hooks:
 
 1. ensures `decomk` is available in `PATH` from `DECOMK_TOOL_URI`,
 2. syncs config repo from `DECOMK_CONF_URI` into `<DECOMK_HOME>/conf`,
-3. runs `decomk run ${DECOMK_RUN_ARGS:-all}`.
+3. runs `decomk run <action-args>` (defaulting to lifecycle phase selector `updateContent`/`postCreate`).
 
 ## `decomk init-conf` safety and overwrite policy
 
@@ -163,9 +163,6 @@ Primary stage-0 vars in `devcontainer.json`:
 - `DECOMK_CONF_URI` — config source (`git:` URI)
 - `DECOMK_HOME` — state root (default `/var/decomk`)
 - `DECOMK_LOG_DIR` — run-log root (default `/var/log/decomk`)
-- `DECOMK_RUN_ARGS` — action args passed to `decomk run`
-- `DECOMK_UPDATE_CONTENT_RUN_ARGS` — optional phase-specific args for `updateContent` (defaults to `DECOMK_RUN_ARGS`)
-- `DECOMK_POST_CREATE_RUN_ARGS` — optional phase-specific args for `postCreate` (defaults to `DECOMK_RUN_ARGS`)
 
 Generated lifecycle hooks call one script with explicit phase args:
 
@@ -179,18 +176,18 @@ Legacy variable-name migration mapping is documented in:
 ## Run/plan quick examples
 
 ```bash
-decomk plan
-decomk run
+decomk plan INSTALL
+decomk run INSTALL
 ```
 
 With explicit local files for experimentation:
 
 ```bash
 DECOMK_HOME=/tmp/decomk \
-  decomk plan -config ./decomk.conf -makefile ./Makefile -context myrepo
+  decomk plan INSTALL -config ./decomk.conf -makefile ./Makefile -context myrepo
 
 DECOMK_HOME=/tmp/decomk DECOMK_LOG_DIR=/tmp/decomk/log \
-  decomk run -config ./decomk.conf -makefile ./Makefile -context myrepo
+  decomk run INSTALL -config ./decomk.conf -makefile ./Makefile -context myrepo
 ```
 
 `decomk run` writes `<DECOMK_HOME>/env.sh` and runs make in `<DECOMK_HOME>/stamps`.
@@ -259,7 +256,9 @@ You can force a single context with `-context` / `DECOMK_CONTEXT`.
 Each context key maps to a list of tokens. Tokens are one of:
 - a macro reference (token matches another key in `decomk.conf`)
 - a `NAME=value` tuple (passed to `make` on argv as a variable assignment)
-- a make target name (everything else)
+
+Bare RHS tokens that are not tuples must resolve to keys defined in `decomk.conf`.
+Unknown bare RHS tokens are rejected as config errors.
 
 ### Action args (isconf-style)
 
@@ -284,10 +283,7 @@ decomk run INSTALL
 decomk run install-neovim    # literal target fallback
 ```
 
-If you provide any positional args, decomk uses them to select targets and
-ignores any config-derived target tokens. If you provide no positional args,
-decomk runs config-derived target tokens when present; otherwise it defaults to
-`INSTALL` if defined.
+`decomk plan` and `decomk run` require at least one positional action arg.
 
 ### Stamps
 
@@ -354,29 +350,24 @@ the step has succeeded.
      - plus the selected per-workspace keys (when any)
 
 9) Expand macros (recursive)
-   - if a token exactly matches a key in the config map, it is replaced by that
-     key’s token list, recursively
-   - unknown tokens remain literal
-   - guardrails:
-     - cycle detection
-     - maximum depth (default 64; override with `-max-expand-depth`)
+    - if a token exactly matches a key in the config map, it is replaced by that
+      key’s token list, recursively
+    - unknown bare RHS tokens are rejected before expansion (`decomk.conf` must be tuple-or-key only)
+    - guardrails:
+      - cycle detection
+      - maximum depth (default 64; override with `-max-expand-depth`)
 
 10) Partition expanded tokens
-   - tuples: `NAME=value` where `NAME` matches `[A-Za-z_][A-Za-z0-9_]*`
-   - targets: all other tokens 
+    - tuples: `NAME=value` where `NAME` matches `[A-Za-z_][A-Za-z0-9_]*`
+    - targets: must be empty (non-empty output is treated as invalid config)
 
 11) Select make targets (isconf-style action args)
-   - Build an “effective tuple map” from the tuple list (last assignment wins).
-   - If positional args are provided:
-     - for each arg:
-       - if arg matches a tuple variable name: split its value on whitespace and append as targets
-       - else: treat arg as a literal make target
-     - Note: when positional args are provided, decomk ignores any config-derived target tokens.
-   - If no positional args are provided:
-     - if config-derived targets exist: use them (backward compatible)
-     - else if `INSTALL` is defined and non-empty: split its value on whitespace and use that
-     - else: pass no targets (make uses its default goal)
-   - decomk exposes the selected targets as `DECOMK_PACKAGES` (exported in the env export file and passed to make).
+    - Build an “effective tuple map” from the tuple list (last assignment wins).
+    - Positional args are required.
+    - For each arg:
+      - if arg matches a tuple variable name: split its value on whitespace and append as targets
+      - else: treat arg as a literal make target
+    - decomk exposes the selected targets as `DECOMK_PACKAGES` (exported in the env export file and passed to make).
 
 12) Compute state paths
    - stamp dir (global):
@@ -506,9 +497,8 @@ decomk plan [flags] [ARGS...]
 decomk run  [flags] [ARGS...]
 
 ARGS:
-  Action variable names (e.g. INSTALL) or literal make targets. If any ARGS are
-  provided, decomk ignores config-derived target tokens and uses ARGS to select
-  targets.
+  Action variable names (e.g. INSTALL) or literal make targets.
+  ARGS are required for both `decomk plan` and `decomk run`.
 
   Common flags for plan/run:
   -home <abs-path>          Override DECOMK_HOME
@@ -529,7 +519,6 @@ ARGS:
   -tool-uri <uri>           DECOMK_TOOL_URI value in devcontainer.json (go:... or git:...)
   -home <abs-path>          DECOMK_HOME value in devcontainer.json
   -log-dir <abs-path>       DECOMK_LOG_DIR value in devcontainer.json
-  -run-args <string>        DECOMK_RUN_ARGS value in devcontainer.json
   -force                    Overwrite existing stage-0 files even when they already exist
   -f                        Alias for -force
   -no-prompt                Do not prompt for unset values
@@ -541,7 +530,6 @@ ARGS:
   -tool-uri <uri>           DECOMK_TOOL_URI value in producer devcontainer.json (go:... or git:...)
   -home <abs-path>          DECOMK_HOME value in producer devcontainer.json
   -log-dir <abs-path>       DECOMK_LOG_DIR value in producer devcontainer.json
-  -run-args <string>        DECOMK_RUN_ARGS value in producer devcontainer.json
   -force                    Overwrite existing managed conf-repo files
   -f                        Alias for -force
 ```

@@ -84,8 +84,7 @@ failure-policy and documentation contracts in the decomk repo.
     -conf-uri "git:https://github.com/ciwg/decomk-conf-cswg.git?ref=main" \
     -tool-uri "go:github.com/stevegt/decomk/cmd/decomk@stable" \
     -home "/var/decomk" \
-    -log-dir "/var/log/decomk" \
-    -run-args "all"
+    -log-dir "/var/log/decomk"
   ```
 - [ ] 012.9 [repo: mob-sandbox] Merge required repo-specific settings back into regenerated files.
   ```bash

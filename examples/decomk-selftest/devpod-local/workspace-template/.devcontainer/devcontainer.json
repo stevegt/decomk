@@ -5,13 +5,12 @@
     "context": ".."
   },
   "runArgs": ["--add-host=host.docker.internal:host-gateway"],
-  "containerEnv": {
-    "DECOMK_HOME": "/tmp/decomk-selftest/home",
-    "DECOMK_LOG_DIR": "/tmp/decomk-selftest/log",
-    "DECOMK_TOOL_URI": "__DECOMK_TOOL_URI__",
-    "DECOMK_CONF_URI": "__DECOMK_CONF_URI__",
-    "DECOMK_RUN_ARGS": "__DECOMK_RUN_ARGS__"
-  },
+    "containerEnv": {
+      "DECOMK_HOME": "/tmp/decomk-selftest/home",
+      "DECOMK_LOG_DIR": "/tmp/decomk-selftest/log",
+      "DECOMK_TOOL_URI": "__DECOMK_TOOL_URI__",
+      "DECOMK_CONF_URI": "__DECOMK_CONF_URI__"
+    },
   "remoteUser": "dev",
   "updateContentCommand": "bash .devcontainer/decomk-stage0.sh updateContent",
   "postCreateCommand": "bash .devcontainer/decomk-stage0.sh postCreate"

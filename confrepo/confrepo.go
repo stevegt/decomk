@@ -28,10 +28,6 @@ const (
 	// DefaultLogDir is the default DECOMK_LOG_DIR value scaffolded for producer
 	// configs.
 	DefaultLogDir = "/var/log/decomk"
-
-	// DefaultRunArgs is the default DECOMK_RUN_ARGS value scaffolded for
-	// producer configs.
-	DefaultRunArgs = "all"
 )
 
 // ProducerDevcontainerData returns canonical starter data for the conf-repo
@@ -48,7 +44,6 @@ func ProducerDevcontainerData(name string) stage0.DevcontainerTemplateData {
 		LogDir:               DefaultLogDir,
 		ToolURI:              stage0.DefaultToolURI,
 		ConfURI:              DefaultConfURI,
-		DecomkRunArgs:        DefaultRunArgs,
 		UpdateContentCommand: stage0.DefaultUpdateContentCommand,
 		PostCreateCommand:    stage0.DefaultPostCreateCommand,
 	}
@@ -67,4 +62,3 @@ func ManagedPaths() []string {
 		filepath.Join(".devcontainer", "Dockerfile"),
 	}
 }
-
