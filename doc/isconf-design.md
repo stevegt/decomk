@@ -76,7 +76,28 @@ Tokens can be:
 
 - macro names (`HQFT`, `TOS`, `TNG_FRONT`, etc.)
 - tuples (`BOOT='...'`, `CFCLUSTER=configure_cluster`, `NTP_MASTER=y`)
-- literals
+- literals (unknown tokens; generally treated as errors once `parseargs.pl` runs — see below)
+
+### Important: action tuples vs make targets
+
+In practice, `hosts.conf` is not a place to list *bare* make targets. Instead, it is a place to define **tuples** whose values are lists of make targets, and then select those tuples by name at runtime:
+
+- `etc/rc.isconf` normally calls `bin/isconf` with action names like `BOOT` or `CRON`.
+- `bin/isconf` resolves each action name by looking up the tuple of the same name in the expanded `hosts.conf` tuples (via `parseargs.pl`).
+- The **tuple value** (e.g. `BOOT='Block12 mkusers ...'`) becomes the list of make goals passed to `make`.
+
+#### Bare tokens in `hosts.conf`
+
+The only safe bare RHS tokens in `hosts.conf` are **macro names** that also appear on the LHS (e.g. `HQFT`, `INHS`). They must expand away into tuples before `parseargs.pl` sees the tuple string.
+
+Any bare token that survives macro expansion (for example an undefined macro name, or a bare make target accidentally placed on the RHS) will cause `parseargs.pl` to fail with `syntax error in hosts.conf`.
+
+#### Running literal make targets from the CLI
+
+`bin/isconf` also supports an escape hatch for ad-hoc runs:
+
+- If none of the CLI args match tuple names, it falls back to treating the CLI args as literal make targets (e.g. `isconf custom_target`).
+- Caveat: if at least one CLI arg *does* match a tuple name, unknown args are silently ignored. For example, `isconf BOOT custom_target` will resolve `BOOT` and drop `custom_target`. To include extra targets, either add them to the tuple value (e.g. `BOOT='... custom_target'`) or run a second `isconf` invocation.
 
 Important default stanza:
 
