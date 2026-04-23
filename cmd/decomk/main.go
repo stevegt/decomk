@@ -30,6 +30,13 @@ import (
 	"github.com/stevegt/envi"
 )
 
+const defaultVersion = "dev"
+
+// decomkVersion is the CLI version string printed by `decomk version`.
+//
+// Build pipelines can override this via `-ldflags "-X main.decomkVersion=<value>"`.
+var decomkVersion = defaultVersion
+
 func main() {
 	os.Exit(run(os.Args, os.Stdout, os.Stderr))
 }
@@ -50,6 +57,15 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return 1
 		}
 		return 0
+	case "version":
+		code, err := cmdVersion(args[2:], stdout, stderr)
+		if err != nil {
+			if printErr := writeLine(stderr, err.Error()); printErr != nil {
+				return 1
+			}
+			return code
+		}
+		return code
 	case "init":
 		// Intent: Make stage-0 devcontainer bootstrap scaffolding first-class in
 		// decomk so new repos can be bootstrapped consistently without manual file
@@ -142,6 +158,7 @@ Usage:
   decomk <command> [flags] [ARGS...]
 
 Commands:
+  version  Print decomk CLI version string
   init       Install .devcontainer templates for decomk stage-0 bootstrap
   init-conf  Install shared conf-repo starter templates (decomk.conf + Makefile + producer devcontainer)
   plan    Print resolved tuples/targets + env exports; run make -n (dry-run); do not write env export file
@@ -154,6 +171,29 @@ ARGS (required for plan/run):
       is split on whitespace to produce make targets.
     - Otherwise, the arg is treated as a literal make target name.
 `
+}
+
+// cmdVersion prints the CLI version string and validates version-specific args.
+//
+// Intent: Provide a stable machine-readable version surface for scripts and
+// operators without requiring `-h` parsing or external package metadata lookup.
+// Source: DI-001-20260423-045924 (TODO/001)
+func cmdVersion(args []string, stdout, stderr io.Writer) (int, error) {
+	fs := flag.NewFlagSet("decomk version", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0, nil
+		}
+		return 2, err
+	}
+	if len(fs.Args()) != 0 {
+		return 2, fmt.Errorf("version does not accept positional args: %q", strings.Join(fs.Args(), " "))
+	}
+	if err := writeLine(stdout, decomkVersion); err != nil {
+		return 1, err
+	}
+	return 0, nil
 }
 
 // commonFlags are the shared flags for subcommands that resolve a context.

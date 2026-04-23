@@ -333,4 +333,25 @@ require_no_fail_markers
 require_marker "SELFTEST PASS phase-postCreate"
 require_marker "SELFTEST PASS github-user-present-in-postCreate"
 
-log "all required self-test markers found (including stamp + lifecycle phase checks)"
+# Intent: Assert DECOMK_FAIL_NOBOOT policy in both modes so stage-0 failures are
+# visible and deterministic while preserving optional continue-boot behavior.
+# Source: DI-012-20260423-045339 (TODO/012)
+failure_root="/tmp/decomk-selftest/home/stage0/failure"
+failure_marker="$failure_root/latest-postCreate.marker"
+failure_log="$failure_root/latest-postCreate.log"
+
+run_logged devpod ssh "$workspace_name" --command "DECOMK_CONF_URI='git:https://github.invalid/decomk-conf-does-not-exist.git' DECOMK_FAIL_NOBOOT=false .devcontainer/decomk-stage0.sh postCreate TUPLE_PHASE_POST"
+run_logged devpod ssh "$workspace_name" --command "test -f '$failure_marker'"
+run_logged devpod ssh "$workspace_name" --command "test -f '$failure_log'"
+run_logged devpod ssh "$workspace_name" --command "if [[ -f '/etc/motd.d/80-decomk-stage0' ]] || [[ -f '$failure_root/motd.txt' ]]; then exit 0; fi; echo 'missing stage-0 motd hint and fallback hint' >&2; exit 1"
+
+if devpod ssh "$workspace_name" --command "DECOMK_CONF_URI='git:https://github.invalid/decomk-conf-does-not-exist.git' DECOMK_FAIL_NOBOOT=true .devcontainer/decomk-stage0.sh postCreate TUPLE_PHASE_POST"; then
+  die "expected stage-0 failure with DECOMK_FAIL_NOBOOT=true"
+else
+  fail_rc=$?
+  log "observed expected DECOMK_FAIL_NOBOOT=true failure rc=$fail_rc"
+fi
+run_logged devpod ssh "$workspace_name" --command "test -f '$failure_marker'"
+run_logged devpod ssh "$workspace_name" --command "test -f '$failure_log'"
+
+log "all required self-test markers found (including stamp + lifecycle phase + fail-no-boot checks)"

@@ -19,6 +19,14 @@ Constraints: Keep task ownership labeled by repository, keep TODO 012 as the aut
 Affects: `TODO/012-mob-sandbox-pilot.md`.
 Supersedes: DI-012-20260421-221834
 
+ID: DI-012-20260423-045339
+Date: 2026-04-23 04:53:39
+Status: active
+Decision: Add a first-class stage-0 failure policy (`DECOMK_FAIL_NOBOOT`) that defaults to continue-boot behavior, records deterministic marker/log artifacts under `DECOMK_HOME`, and emits MOTD hints (or a fallback hint file) when stage-0 fails.
+Intent: Keep container boot non-blocking by default while making bootstrap failures visible, diagnosable, and testable with one consistent artifact contract across templates, examples, and selftests.
+Constraints: `DECOMK_FAIL_NOBOOT=true` must fail fast with non-zero exit; unset/false must return success after recording artifacts; invalid values must fail explicitly; stage-0 generated files must remain in sync through template regeneration.
+Affects: `cmd/decomk/templates/decomk-stage0.sh.tmpl`, `cmd/decomk/templates/devcontainer.json.tmpl`, `cmd/decomk/templates/confrepo.devcontainer.json.tmpl`, `stage0/stage0.go`, `cmd/decomk/init*.go`, generated `examples/**/.devcontainer/*`, `README.md`, `doc/decomk-design.md`, `examples/decomk-selftest/README.md`, `cmd/decomk/*_test.go`.
+
 ## Goal
 
 Pilot decomk stage-0 lifecycle integration in `mob-sandbox` against the
@@ -82,7 +90,7 @@ failure-policy and documentation contracts in the decomk repo.
   decomk init -repo-root . -f -no-prompt \
     -name "mob-sandbox" \
     -conf-uri "git:https://github.com/ciwg/decomk-conf-cswg.git?ref=main" \
-    -tool-uri "go:github.com/stevegt/decomk/cmd/decomk@stable" \
+    -tool-uri "go:github.com/stevegt/decomk/cmd/decomk@latest" \
     -home "/var/decomk" \
     -log-dir "/var/log/decomk"
   ```

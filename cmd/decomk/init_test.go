@@ -19,9 +19,10 @@ func TestRenderInitTemplate_DevcontainerJSON(t *testing.T) {
 	data := stage0.DevcontainerTemplateData{
 		Name:                 `repo "alpha"`,
 		ConfURI:              "git:https://example.com/conf.git?ref=prod",
-		ToolURI:              "go:github.com/stevegt/decomk/cmd/decomk@stable",
+		ToolURI:              stage0.DefaultToolURI,
 		Home:                 "/var/decomk",
 		LogDir:               "/var/log/decomk",
+		FailNoBoot:           "true",
 		UpdateContentCommand: stage0.DefaultUpdateContentCommand,
 		PostCreateCommand:    stage0.DefaultPostCreateCommand,
 	}
@@ -50,10 +51,11 @@ func TestRenderInitTemplate_DevcontainerJSON(t *testing.T) {
 	}
 
 	tests := map[string]string{
-		"DECOMK_HOME":     data.Home,
-		"DECOMK_LOG_DIR":  data.LogDir,
-		"DECOMK_TOOL_URI": data.ToolURI,
-		"DECOMK_CONF_URI": data.ConfURI,
+		"DECOMK_HOME":        data.Home,
+		"DECOMK_LOG_DIR":     data.LogDir,
+		"DECOMK_TOOL_URI":    data.ToolURI,
+		"DECOMK_CONF_URI":    data.ConfURI,
+		"DECOMK_FAIL_NOBOOT": data.FailNoBoot,
 	}
 	for key, want := range tests {
 		if got := envMap[key]; got != want {
@@ -75,7 +77,7 @@ func TestWriteInitStage0_ForcePolicy(t *testing.T) {
 	data := stage0.DevcontainerTemplateData{
 		Name:                 "repo",
 		ConfURI:              "git:https://example.com/conf.git",
-		ToolURI:              "go:github.com/stevegt/decomk/cmd/decomk@stable",
+		ToolURI:              stage0.DefaultToolURI,
 		Home:                 "/var/decomk",
 		LogDir:               "/var/log/decomk",
 		UpdateContentCommand: stage0.DefaultUpdateContentCommand,
@@ -128,7 +130,7 @@ func TestWriteInitStage0_FailsIfEitherTargetExists(t *testing.T) {
 	data := stage0.DevcontainerTemplateData{
 		Name:                 "repo",
 		ConfURI:              "git:https://example.com/conf.git",
-		ToolURI:              "go:github.com/stevegt/decomk/cmd/decomk@stable",
+		ToolURI:              stage0.DefaultToolURI,
 		Home:                 "/var/decomk",
 		LogDir:               "/var/log/decomk",
 		UpdateContentCommand: stage0.DefaultUpdateContentCommand,
@@ -145,6 +147,57 @@ func TestWriteInitStage0_FailsIfEitherTargetExists(t *testing.T) {
 	}
 }
 
+func TestCmdInit_OverwriteCheckRunsBeforeValidationAndPrompts(t *testing.T) {
+	t.Parallel()
+
+	repoRoot := t.TempDir()
+	devcontainerDir := filepath.Join(repoRoot, ".devcontainer")
+	if err := os.MkdirAll(devcontainerDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(devcontainerDir): %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(devcontainerDir, "devcontainer.json"), []byte(`{"name":"existing"}`), 0o644); err != nil {
+		t.Fatalf("WriteFile(devcontainer.json): %v", err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code, err := cmdInit([]string{
+		"-repo-root", repoRoot,
+		"-tool-uri", "not-a-valid-uri",
+	}, &stdout, &stderr)
+	if err == nil {
+		t.Fatalf("cmdInit() error: got nil want overwrite error")
+	}
+	if code != 1 {
+		t.Fatalf("cmdInit() code: got %d want 1", code)
+	}
+	if !strings.Contains(err.Error(), "refusing to overwrite existing stage-0 file(s)") {
+		t.Fatalf("error: got %q want overwrite refusal", err.Error())
+	}
+	if strings.Contains(err.Error(), "DECOMK_TOOL_URI template value must start") {
+		t.Fatalf("error: got validation failure %q; expected overwrite refusal first", err.Error())
+	}
+}
+
+func TestValidateFailNoBootValue(t *testing.T) {
+	t.Parallel()
+
+	validValues := []string{"", "false", "true", "0", "1", "no", "yes", "off", "on", " TRUE "}
+	for _, value := range validValues {
+		value := value
+		t.Run("valid_"+strings.ReplaceAll(strings.TrimSpace(strings.ToLower(value)), " ", "_"), func(t *testing.T) {
+			t.Parallel()
+			if err := validateFailNoBootValue(value); err != nil {
+				t.Fatalf("validateFailNoBootValue(%q) error: %v", value, err)
+			}
+		})
+	}
+
+	if err := validateFailNoBootValue("maybe"); err == nil {
+		t.Fatalf("validateFailNoBootValue(maybe): expected error, got nil")
+	}
+}
+
 func TestCmdInit_NoPromptWritesFiles(t *testing.T) {
 	t.Parallel()
 
@@ -157,7 +210,7 @@ func TestCmdInit_NoPromptWritesFiles(t *testing.T) {
 		"-repo-root", repoRoot,
 		"-name", "myrepo",
 		"-conf-uri", "git:https://example.com/conf.git",
-		"-tool-uri", "go:github.com/stevegt/decomk/cmd/decomk@stable",
+		"-tool-uri", stage0.DefaultToolURI,
 		"-home", "/var/decomk",
 		"-log-dir", "/var/log/decomk",
 	}
@@ -203,7 +256,7 @@ func TestCmdInit_ForceAliasF(t *testing.T) {
 		"-repo-root", repoRoot,
 		"-name", "myrepo",
 		"-conf-uri", "git:https://example.com/conf.git",
-		"-tool-uri", "go:github.com/stevegt/decomk/cmd/decomk@stable",
+		"-tool-uri", stage0.DefaultToolURI,
 		"-home", "/var/decomk",
 		"-log-dir", "/var/log/decomk",
 	}
@@ -339,7 +392,7 @@ func TestCmdInit_ToolURIValidation(t *testing.T) {
 		"-repo-root", repoRoot,
 		"-name", "myrepo",
 		"-conf-uri", "git:https://example.com/conf.git",
-		"-tool-uri", "go:github.com/stevegt/decomk/cmd/decomk@stable",
+		"-tool-uri", stage0.DefaultToolURI,
 	}, &stdout, &stderr)
 	if err != nil {
 		t.Fatalf("go URI cmdInit() error: %v", err)

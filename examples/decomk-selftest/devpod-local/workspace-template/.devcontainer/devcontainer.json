@@ -9,7 +9,8 @@
       "DECOMK_HOME": "/tmp/decomk-selftest/home",
       "DECOMK_LOG_DIR": "/tmp/decomk-selftest/log",
       "DECOMK_TOOL_URI": "__DECOMK_TOOL_URI__",
-      "DECOMK_CONF_URI": "__DECOMK_CONF_URI__"
+      "DECOMK_CONF_URI": "__DECOMK_CONF_URI__",
+      "DECOMK_FAIL_NOBOOT": "false"
     },
   "remoteUser": "dev",
   "updateContentCommand": "bash .devcontainer/decomk-stage0.sh updateContent",

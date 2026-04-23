@@ -36,8 +36,11 @@ Selector policy note:
    (`decomk-stage0.sh <phase> <selector>`) and assert:
    - `updateContent` phase marker + empty `GITHUB_USER`,
    - `postCreate` phase marker + non-empty `GITHUB_USER`.
-8. `run.sh` reads container make logs and enforces PASS/FAIL markers.
-9. `run.sh` then runs two explicit stamp regression invocations:
+8. Harnesses inject stage-0 failure probes with invalid `DECOMK_CONF_URI` to assert:
+   - `DECOMK_FAIL_NOBOOT=false` returns success and writes failure marker/log + MOTD (or fallback),
+   - `DECOMK_FAIL_NOBOOT=true` returns non-zero.
+9. `run.sh` reads container make logs and enforces PASS/FAIL markers.
+10. `run.sh` then runs two explicit stamp regression invocations:
    - `decomk run TUPLE_STAMP_PROBE`
    - `decomk run TUPLE_STAMP_PROBE TUPLE_STAMP_VERIFY`
 
@@ -146,3 +149,6 @@ because the harness runs all remote checks through `gh codespace ssh`.
 - `SELFTEST PASS github-user-present-in-postCreate`
 
 Any `SELFTEST FAIL ...` marker is treated as failure.
+
+`DECOMK_FAIL_NOBOOT` checks are validated through stage-0 exit codes and
+failure artifact files under `<DECOMK_HOME>/stage0/failure/`.

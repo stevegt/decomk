@@ -19,6 +19,7 @@ For deeper design background, see:
 
 - `decomk init-conf` — scaffold a shared conf repo (`decomk.conf` + `Makefile` + producer `.devcontainer/`)
 - `decomk init` — scaffold stage-0 lifecycle files in `.devcontainer/`
+- `decomk version` — print the decomk CLI version string
 - `decomk plan` — resolve tuples/targets + run `make -n` in the stamp directory
 - `decomk run` — write env export file + run `make` in the stamp directory
 - `decomk checkpoint` — build/push/tag shared checkpoint images for the `updateContent` phase
@@ -30,7 +31,7 @@ For deeper design background, see:
 Install decomk on your own machine:
 
 ```bash
-go install github.com/stevegt/decomk/cmd/decomk@stable
+go install github.com/stevegt/decomk/cmd/decomk@latest
 ```
 
 In your shared conf repo:
@@ -163,11 +164,17 @@ Primary stage-0 vars in `devcontainer.json`:
 - `DECOMK_CONF_URI` — config source (`git:` URI)
 - `DECOMK_HOME` — state root (default `/var/decomk`)
 - `DECOMK_LOG_DIR` — run-log root (default `/var/log/decomk`)
+- `DECOMK_FAIL_NOBOOT` — stage-0 failure policy (`false` default: continue boot after writing diagnostics; `true`: fail startup)
 
 Generated lifecycle hooks call one script with explicit phase args:
 
 - `updateContentCommand`: `bash .devcontainer/decomk-stage0.sh updateContent`
 - `postCreateCommand`: `bash .devcontainer/decomk-stage0.sh postCreate`
+
+When stage-0 fails, generated script behavior is:
+
+- `DECOMK_FAIL_NOBOOT=true`: exit non-zero and fail startup.
+- unset/false: write phase-specific failure marker/log under `<DECOMK_HOME>/stage0/failure/`, write a MOTD hint (or fallback hint file), then return success so container boot continues.
 
 Legacy variable-name migration mapping is documented in:
 
@@ -493,6 +500,7 @@ writable and you did not explicitly override the log dir, decomk falls back to
 ```text
 decomk init-conf [flags]
 decomk init [flags]
+decomk version
 decomk plan [flags] [ARGS...]
 decomk run  [flags] [ARGS...]
 
@@ -519,6 +527,7 @@ ARGS:
   -tool-uri <uri>           DECOMK_TOOL_URI value in devcontainer.json (go:... or git:...)
   -home <abs-path>          DECOMK_HOME value in devcontainer.json
   -log-dir <abs-path>       DECOMK_LOG_DIR value in devcontainer.json
+  -fail-no-boot <value>     DECOMK_FAIL_NOBOOT value in devcontainer.json (true/false/1/0/yes/no/on/off)
   -force                    Overwrite existing stage-0 files even when they already exist
   -f                        Alias for -force
   -no-prompt                Do not prompt for unset values
@@ -530,6 +539,7 @@ ARGS:
   -tool-uri <uri>           DECOMK_TOOL_URI value in producer devcontainer.json (go:... or git:...)
   -home <abs-path>          DECOMK_HOME value in producer devcontainer.json
   -log-dir <abs-path>       DECOMK_LOG_DIR value in producer devcontainer.json
+  -fail-no-boot <value>     DECOMK_FAIL_NOBOOT value in producer devcontainer.json (true/false/1/0/yes/no/on/off)
   -force                    Overwrite existing managed conf-repo files
   -f                        Alias for -force
 ```

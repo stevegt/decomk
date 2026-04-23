@@ -44,6 +44,7 @@ func ProducerDevcontainerData(name string) stage0.DevcontainerTemplateData {
 		LogDir:               DefaultLogDir,
 		ToolURI:              stage0.DefaultToolURI,
 		ConfURI:              DefaultConfURI,
+		FailNoBoot:           stage0.DefaultFailNoBoot,
 		UpdateContentCommand: stage0.DefaultUpdateContentCommand,
 		PostCreateCommand:    stage0.DefaultPostCreateCommand,
 	}

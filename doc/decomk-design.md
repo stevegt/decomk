@@ -72,6 +72,18 @@ Action args default to the lifecycle phase selector (`updateContent` or
 `postCreate`). Optional extra args passed to `decomk-stage0.sh` override that
 default selector list.
 
+Failure policy is explicit via `DECOMK_FAIL_NOBOOT`:
+
+- `true` (`1|yes|on`) => stage-0 exits non-zero on failure.
+- unset/`false` (`0|no|off`) => stage-0 records diagnostics and returns success.
+
+In continue-boot mode, stage-0 writes deterministic artifacts:
+
+- `<DECOMK_HOME>/stage0/failure/latest-<phase>.marker`
+- `<DECOMK_HOME>/stage0/failure/latest-<phase>.log`
+- MOTD hint at `/etc/motd.d/80-decomk-stage0` when writable, otherwise fallback
+  hint at `<DECOMK_HOME>/stage0/failure/motd.txt`.
+
 ## 6) Selftest implications
 
 Selftests keep their target logic in fixture `Makefile` targets and scripts.

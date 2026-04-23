@@ -35,8 +35,17 @@ const (
 	// Intent: Keep stage-0 bootstrap source selection on one explicit URI grammar
 	// (`go:` / `git:`) so install-vs-clone behavior is determined by source value
 	// instead of a parallel mode variable family.
-	// Source: DI-001-20260412-170500 (TODO/001)
-	DefaultToolURI = "go:github.com/stevegt/decomk/cmd/decomk@stable"
+	// Source: DI-001-20260423-051500 (TODO/001)
+	DefaultToolURI = "go:github.com/stevegt/decomk/cmd/decomk@latest"
+
+	// DefaultFailNoBoot is the canonical stage-0 failure policy used by generated
+	// devcontainer files. False keeps container startup non-blocking while stage-0
+	// still records diagnostics and hints when bootstrap steps fail.
+	//
+	// Intent: Keep first-boot behavior predictable by defaulting to continue-boot
+	// semantics while still surfacing stage-0 failures via artifacts and warnings.
+	// Source: DI-012-20260423-045339 (TODO/012)
+	DefaultFailNoBoot = "false"
 )
 
 // DevcontainerTemplateData is the full data model for rendering
@@ -59,6 +68,7 @@ type DevcontainerTemplateData struct {
 	LogDir               string
 	ToolURI              string
 	ConfURI              string
+	FailNoBoot           string
 	UpdateContentCommand string
 	PostCreateCommand    string
 }
@@ -79,6 +89,9 @@ func (data DevcontainerTemplateData) EnsureDefaults() DevcontainerTemplateData {
 	if data.ToolURI == "" {
 		data.ToolURI = DefaultToolURI
 	}
+	if data.FailNoBoot == "" {
+		data.FailNoBoot = DefaultFailNoBoot
+	}
 	return data
 }
 
@@ -98,6 +111,7 @@ func ProductionExampleDevcontainerData() DevcontainerTemplateData {
 		LogDir:               "/var/log/decomk",
 		ToolURI:              DefaultToolURI,
 		ConfURI:              "",
+		FailNoBoot:           DefaultFailNoBoot,
 		UpdateContentCommand: DefaultUpdateContentCommand,
 		PostCreateCommand:    DefaultPostCreateCommand,
 	}
@@ -116,6 +130,7 @@ func SelftestDevcontainerData() DevcontainerTemplateData {
 		LogDir:               "/tmp/decomk-selftest/log",
 		ToolURI:              "__DECOMK_TOOL_URI__",
 		ConfURI:              "__DECOMK_CONF_URI__",
+		FailNoBoot:           DefaultFailNoBoot,
 		UpdateContentCommand: DefaultUpdateContentCommand,
 		PostCreateCommand:    DefaultPostCreateCommand,
 	}

@@ -150,6 +150,22 @@ Intent: Keep postCreate user-phase checks and Makefile behavior consistent when 
 Constraints: Preserve existing passwordless-sudo requirements, avoid broad env preservation beyond `PATH` + `GITHUB_USER`, and keep fallback behavior explicit/tested.
 Affects: `cmd/decomk/main.go`, `cmd/decomk/main_test.go`, `TODO/001-decomk-devcontainer-tool-bootstrap.md`.
 
+ID: DI-001-20260423-045924
+Date: 2026-04-23 04:59:24
+Status: active
+Decision: Add a first-class `decomk version` subcommand that prints one CLI version string and rejects positional args.
+Intent: Give operators and automation a stable, script-friendly way to identify decomk binary version without parsing help text.
+Constraints: Default version string stays `dev` unless overridden at build time; command output remains a single line.
+Affects: `cmd/decomk/main.go`, `cmd/decomk/*_test.go`, `README.md`.
+
+ID: DI-001-20260423-051500
+Date: 2026-04-23 05:15:00
+Status: active
+Decision: Make `decomk init` refuse existing stage-0 targets before any interactive prompts, and change the canonical default `DECOMK_TOOL_URI` from `@stable` to `@latest`.
+Intent: Prevent unnecessary prompt churn when overwrite would be refused anyway, and align default tool bootstrap behavior with newest release by default.
+Constraints: Preserve existing non-force overwrite guidance text and `-f/-force` override behavior; keep explicit `DECOMK_TOOL_URI` values unchanged.
+Affects: `cmd/decomk/init.go`, `cmd/decomk/init_test.go`, `stage0/stage0.go`, `cmd/decomk/templates/decomk-stage0.sh.tmpl`, generated `examples/*/.devcontainer/*`, `README.md`.
+
 ## Goal
 
 Create an isconf-inspired “context -> target groups + vars”

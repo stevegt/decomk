@@ -15,13 +15,14 @@ import (
 
 // initConfFlags are user-facing options for "decomk init-conf".
 type initConfFlags struct {
-	repoRoot string
-	name     string
-	confURI  string
-	toolURI  string
-	home     string
-	logDir   string
-	force    bool
+	repoRoot   string
+	name       string
+	confURI    string
+	toolURI    string
+	home       string
+	logDir     string
+	failNoBoot string
+	force      bool
 }
 
 // cmdInitConf writes shared config-repo starter files in the target repo root.
@@ -35,12 +36,13 @@ func cmdInitConf(args []string, stdout, stderr io.Writer) (int, error) {
 	fs.SetOutput(stderr)
 
 	flags := initConfFlags{
-		repoRoot: "",
-		name:     confrepo.DefaultName,
-		confURI:  confrepo.DefaultConfURI,
-		toolURI:  stage0.DefaultToolURI,
-		home:     confrepo.DefaultHome,
-		logDir:   confrepo.DefaultLogDir,
+		repoRoot:   "",
+		name:       confrepo.DefaultName,
+		confURI:    confrepo.DefaultConfURI,
+		toolURI:    stage0.DefaultToolURI,
+		home:       confrepo.DefaultHome,
+		logDir:     confrepo.DefaultLogDir,
+		failNoBoot: stage0.DefaultFailNoBoot,
 	}
 	addInitConfFlags(fs, &flags)
 
@@ -97,11 +99,15 @@ func cmdInitConf(args []string, stdout, stderr io.Writer) (int, error) {
 	if flags.logDir == "" || !filepath.IsAbs(flags.logDir) {
 		return 1, fmt.Errorf("DECOMK_LOG_DIR template value must be an absolute path (got %q)", flags.logDir)
 	}
+	if err := validateFailNoBootValue(flags.failNoBoot); err != nil {
+		return 1, err
+	}
 	data := confrepo.ProducerDevcontainerData(flags.name)
 	data.ConfURI = flags.confURI
 	data.ToolURI = flags.toolURI
 	data.Home = flags.home
 	data.LogDir = flags.logDir
+	data.FailNoBoot = flags.failNoBoot
 
 	results, err := writeInitConfScaffold(repoRoot, data, flags.force)
 	if err != nil {
@@ -123,6 +129,7 @@ func addInitConfFlags(fs *flag.FlagSet, flags *initConfFlags) {
 	fs.StringVar(&flags.toolURI, "tool-uri", flags.toolURI, "DECOMK_TOOL_URI value for generated producer devcontainer")
 	fs.StringVar(&flags.home, "home", flags.home, "DECOMK_HOME value for generated producer devcontainer")
 	fs.StringVar(&flags.logDir, "log-dir", flags.logDir, "DECOMK_LOG_DIR value for generated producer devcontainer")
+	fs.StringVar(&flags.failNoBoot, "fail-no-boot", flags.failNoBoot, "DECOMK_FAIL_NOBOOT value for generated producer devcontainer")
 	fs.BoolVar(&flags.force, "force", false, "overwrite existing conf-repo scaffold files")
 	fs.BoolVar(&flags.force, "f", false, "alias for -force")
 }

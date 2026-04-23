@@ -19,14 +19,15 @@ import (
 
 // initFlags are the user-facing options for "decomk init".
 type initFlags struct {
-	repoRoot string
-	name     string
-	confURI  string
-	toolURI  string
-	home     string
-	logDir   string
-	force    bool
-	noPrompt bool
+	repoRoot   string
+	name       string
+	confURI    string
+	toolURI    string
+	home       string
+	logDir     string
+	failNoBoot string
+	force      bool
+	noPrompt   bool
 }
 
 // initWriteResult reports what happened for one stage-0 file.
@@ -47,11 +48,12 @@ func cmdInit(args []string, stdout, stderr io.Writer) (int, error) {
 	fs.SetOutput(stderr)
 
 	f := initFlags{
-		repoRoot: "",
-		confURI:  envi.String("DECOMK_CONF_URI", ""),
-		toolURI:  envi.String("DECOMK_TOOL_URI", stage0.DefaultToolURI),
-		home:     envi.String("DECOMK_HOME", state.DefaultHome),
-		logDir:   envi.String("DECOMK_LOG_DIR", state.DefaultLogDir),
+		repoRoot:   "",
+		confURI:    envi.String("DECOMK_CONF_URI", ""),
+		toolURI:    envi.String("DECOMK_TOOL_URI", stage0.DefaultToolURI),
+		home:       envi.String("DECOMK_HOME", state.DefaultHome),
+		logDir:     envi.String("DECOMK_LOG_DIR", state.DefaultLogDir),
+		failNoBoot: envi.String("DECOMK_FAIL_NOBOOT", stage0.DefaultFailNoBoot),
 	}
 	addInitFlags(fs, &f)
 
@@ -92,6 +94,23 @@ func cmdInit(args []string, stdout, stderr io.Writer) (int, error) {
 		return 1, fmt.Errorf("repo root is not a directory: %s", repoRoot)
 	}
 
+	if !f.force {
+		// Intent: Fail fast on existing stage-0 targets before interactive prompts
+		// so operators do not answer init questions only to hit overwrite refusal at
+		// the end of the command.
+		// Source: DI-001-20260423-051500 (TODO/001)
+		devcontainerDir := filepath.Join(repoRoot, ".devcontainer")
+		jsonPath := filepath.Join(devcontainerDir, "devcontainer.json")
+		stage0ScriptPath := filepath.Join(devcontainerDir, "decomk-stage0.sh")
+		existing, err := existingInitTargets(jsonPath, stage0ScriptPath)
+		if err != nil {
+			return 1, err
+		}
+		if len(existing) > 0 {
+			return 1, initExistingTargetsError(existing)
+		}
+	}
+
 	if f.name == "" {
 		f.name = filepath.Base(repoRoot)
 	}
@@ -125,6 +144,9 @@ func cmdInit(args []string, stdout, stderr io.Writer) (int, error) {
 	if f.logDir == "" || !filepath.IsAbs(f.logDir) {
 		return 1, fmt.Errorf("DECOMK_LOG_DIR template value must be an absolute path (got %q)", f.logDir)
 	}
+	if err := validateFailNoBootValue(f.failNoBoot); err != nil {
+		return 1, err
+	}
 
 	// Use the shared stage-0 data model so `decomk init` and generated examples
 	// render from the same template contract.
@@ -136,6 +158,7 @@ func cmdInit(args []string, stdout, stderr io.Writer) (int, error) {
 		ToolURI:              f.toolURI,
 		Home:                 f.home,
 		LogDir:               f.logDir,
+		FailNoBoot:           f.failNoBoot,
 		UpdateContentCommand: stage0.DefaultUpdateContentCommand,
 		PostCreateCommand:    stage0.DefaultPostCreateCommand,
 	}
@@ -166,6 +189,7 @@ func addInitFlags(fs *flag.FlagSet, f *initFlags) {
 	fs.StringVar(&f.toolURI, "tool-uri", f.toolURI, "DECOMK_TOOL_URI value for devcontainer.json")
 	fs.StringVar(&f.home, "home", f.home, "DECOMK_HOME value for devcontainer.json")
 	fs.StringVar(&f.logDir, "log-dir", f.logDir, "DECOMK_LOG_DIR value for devcontainer.json")
+	fs.StringVar(&f.failNoBoot, "fail-no-boot", f.failNoBoot, "DECOMK_FAIL_NOBOOT value for devcontainer.json (true fails startup on stage-0 errors)")
 	fs.BoolVar(&f.force, "force", false, "overwrite existing stage-0 files even when they already exist")
 	fs.BoolVar(&f.force, "f", false, "alias for -force")
 	fs.BoolVar(&f.noPrompt, "no-prompt", false, "disable interactive prompts for unset values")
@@ -205,6 +229,12 @@ func promptInitFlags(f *initFlags, setFlags map[string]bool, in io.Reader, out i
 			return err
 		}
 	}
+	if !setFlags["fail-no-boot"] {
+		f.failNoBoot, err = promptWithDefault(reader, out, "DECOMK_FAIL_NOBOOT", f.failNoBoot)
+		if err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -228,6 +258,22 @@ func promptWithDefault(reader *bufio.Reader, out io.Writer, label, defaultValue 
 		return defaultValue, nil
 	}
 	return value, nil
+}
+
+// validateFailNoBootValue enforces the accepted stage-0 failure-policy values
+// used by DECOMK_FAIL_NOBOOT.
+//
+// Intent: Keep generated stage-0 config values explicit and valid at init time so
+// invalid policy strings fail early instead of surprising users at container boot.
+// Source: DI-012-20260423-045339 (TODO/012)
+func validateFailNoBootValue(value string) error {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	switch normalized {
+	case "", "0", "false", "no", "off", "1", "true", "yes", "on":
+		return nil
+	default:
+		return fmt.Errorf("DECOMK_FAIL_NOBOOT must be one of: true,false,1,0,yes,no,on,off (got %q)", value)
+	}
 }
 
 // isInteractiveInput reports whether file is connected to a terminal-like input.

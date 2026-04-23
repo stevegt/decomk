@@ -2,11 +2,14 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/stevegt/decomk/stage0"
 )
 
 func TestCmdInitConf_WritesStarterTree(t *testing.T) {
@@ -51,6 +54,27 @@ func TestCmdInitConf_WritesStarterTree(t *testing.T) {
 		if info.Mode().Perm() != tc.mode {
 			t.Fatalf("%s mode: got %#o want %#o", tc.relPath, info.Mode().Perm(), tc.mode)
 		}
+	}
+
+	devcontainerPath := filepath.Join(repoRoot, ".devcontainer", "devcontainer.json")
+	contents, err := os.ReadFile(devcontainerPath)
+	if err != nil {
+		t.Fatalf("ReadFile(devcontainer.json): %v", err)
+	}
+	jsonWithoutComments, err := stripJSONCLineComments(contents)
+	if err != nil {
+		t.Fatalf("stripJSONCLineComments(devcontainer.json): %v", err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(jsonWithoutComments, &decoded); err != nil {
+		t.Fatalf("json.Unmarshal(devcontainer.json): %v", err)
+	}
+	containerEnv, ok := decoded["containerEnv"].(map[string]any)
+	if !ok {
+		t.Fatalf("containerEnv: got %#v", decoded["containerEnv"])
+	}
+	if got, want := containerEnv["DECOMK_FAIL_NOBOOT"], stage0.DefaultFailNoBoot; got != want {
+		t.Fatalf("DECOMK_FAIL_NOBOOT: got %#v want %#v", got, want)
 	}
 }
 
@@ -172,4 +196,3 @@ func TestCmdInitConf_DefaultRepoRootErrorsOutsideGitRepo(t *testing.T) {
 		t.Fatalf("error: got %q want mention of -repo-root guidance", err.Error())
 	}
 }
-

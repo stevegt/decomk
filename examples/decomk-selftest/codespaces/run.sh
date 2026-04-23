@@ -737,13 +737,27 @@ run_stage0_phase_with_stage0_env() {
   local stage0_phase="$1"
   local stage0_action_arg="$2"
   local github_user_value="$3"
+  local stage0_conf_uri_override="${4:-}"
+  local stage0_fail_noboot_override="${5:-}"
 
   local stage0_phase_q
   local stage0_action_arg_q
   local github_user_value_q
+  local stage0_conf_uri_override_q
+  local stage0_fail_noboot_override_q
+  local conf_uri_export_snippet=""
+  local fail_noboot_export_snippet=""
   stage0_phase_q="$(printf '%q' "$stage0_phase")"
   stage0_action_arg_q="$(printf '%q' "$stage0_action_arg")"
   github_user_value_q="$(printf '%q' "$github_user_value")"
+  if [[ -n "$stage0_conf_uri_override" ]]; then
+    stage0_conf_uri_override_q="$(printf '%q' "$stage0_conf_uri_override")"
+    conf_uri_export_snippet="export DECOMK_CONF_URI=$stage0_conf_uri_override_q"
+  fi
+  if [[ -n "$stage0_fail_noboot_override" ]]; then
+    stage0_fail_noboot_override_q="$(printf '%q' "$stage0_fail_noboot_override")"
+    fail_noboot_export_snippet="export DECOMK_FAIL_NOBOOT=$stage0_fail_noboot_override_q"
+  fi
 
   local run_script
   run_script="$(cat <<EOF
@@ -764,6 +778,8 @@ export DECOMK_HOME=$decomk_home_q
 export DECOMK_LOG_DIR=$decomk_log_dir_q
 export DECOMK_TOOL_URI=$tool_uri_q
 export GITHUB_USER=$github_user_value_q
+$conf_uri_export_snippet
+$fail_noboot_export_snippet
 bash examples/devcontainer/decomk-stage0.sh $stage0_phase_q $stage0_action_arg_q
 EOF
 )"
@@ -836,4 +852,38 @@ require_no_fail_markers_or_fail 34
 require_marker_or_fail 34 "SELFTEST PASS phase-postCreate"
 require_marker_or_fail 34 "SELFTEST PASS github-user-present-in-postCreate"
 
-log "codespaces parity checks passed (including lifecycle phase checks)"
+# Intent: Assert DECOMK_FAIL_NOBOOT policy in both modes so stage-0 failures are
+# visible and deterministic while preserving optional continue-boot behavior.
+# Source: DI-012-20260423-045339 (TODO/012)
+failure_root="$decomk_home/stage0/failure"
+failure_marker="$failure_root/latest-postCreate.marker"
+failure_log="$failure_root/latest-postCreate.log"
+failure_motd_fallback="$failure_root/motd.txt"
+
+if ! run_logged run_stage0_phase_with_stage0_env "postCreate" "TUPLE_PHASE_POST" "$runtime_github_user" "git:https://github.invalid/decomk-conf-does-not-exist.git" "false"; then
+  fail 35 "stage-0 continue-mode failure probe unexpectedly returned non-zero"
+fi
+if ! run_logged codespace_bash "test -f $(printf '%q' "$failure_marker")"; then
+  fail 35 "continue-mode probe did not write failure marker: $failure_marker"
+fi
+if ! run_logged codespace_bash "test -f $(printf '%q' "$failure_log")"; then
+  fail 35 "continue-mode probe did not write failure log: $failure_log"
+fi
+if ! run_logged codespace_bash "if [[ -f /etc/motd.d/80-decomk-stage0 ]] || [[ -f $(printf '%q' "$failure_motd_fallback") ]]; then exit 0; fi; echo 'missing stage-0 motd hint and fallback hint' >&2; exit 1"; then
+  fail 35 "continue-mode probe did not produce MOTD or fallback hint"
+fi
+
+if run_stage0_phase_with_stage0_env "postCreate" "TUPLE_PHASE_POST" "$runtime_github_user" "git:https://github.invalid/decomk-conf-does-not-exist.git" "true"; then
+  fail 36 "expected stage-0 fail-no-boot probe to return non-zero"
+else
+  fail_no_boot_rc=$?
+  log "observed expected DECOMK_FAIL_NOBOOT=true failure rc=$fail_no_boot_rc"
+fi
+if ! run_logged codespace_bash "test -f $(printf '%q' "$failure_marker")"; then
+  fail 36 "fail-no-boot probe did not leave failure marker: $failure_marker"
+fi
+if ! run_logged codespace_bash "test -f $(printf '%q' "$failure_log")"; then
+  fail 36 "fail-no-boot probe did not leave failure log: $failure_log"
+fi
+
+log "codespaces parity checks passed (including lifecycle phase + fail-no-boot checks)"
