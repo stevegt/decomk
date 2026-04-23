@@ -1,4 +1,4 @@
-# Shared decomk config repo starter
+# Shared decomk config repo 
 
 This repository was bootstrapped by `decomk init-conf`.
 
