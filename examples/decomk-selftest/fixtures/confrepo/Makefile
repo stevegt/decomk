@@ -79,6 +79,10 @@ selftest-stamp-verify:
 # checks can distinguish prebuild/common (`updateContent`) from runtime/user
 # (`postCreate`) invocations.
 # Source: DI-001-20260416-223600 (TODO/001)
+#
+# Intent: Emit make-side identity markers with phase labels so selftests can
+# correlate runtime user identity between stage-0 logs and make logs.
+# Source: DI-007-20260423-180202 (TODO/007)
 selftest-phase-update-content:
 >@if [[ "$${DECOMK_STAGE0_PHASE:-}" != "updateContent" ]]; then \
 >  echo "SELFTEST FAIL phase-expected-updateContent actual=$${DECOMK_STAGE0_PHASE:-<unset>}"; \
@@ -90,6 +94,7 @@ selftest-phase-update-content:
 >fi
 >@echo "SELFTEST PASS phase-updateContent"
 >@echo "SELFTEST PASS github-user-empty-in-updateContent"
+>@echo "SELFTEST PASS make-id phase=updateContent uid=$$(id -u) user=$$(id -un) stage0_uid=$${DECOMK_STAGE0_UID:-<unset>} stage0_user=$${DECOMK_STAGE0_USER:-<unset>}"
 >@touch $@
 
 selftest-phase-post-create:
@@ -103,4 +108,5 @@ selftest-phase-post-create:
 >fi
 >@echo "SELFTEST PASS phase-postCreate"
 >@echo "SELFTEST PASS github-user-present-in-postCreate"
+>@echo "SELFTEST PASS make-id phase=postCreate uid=$$(id -u) user=$$(id -un) stage0_uid=$${DECOMK_STAGE0_UID:-<unset>} stage0_user=$${DECOMK_STAGE0_USER:-<unset>}"
 >@touch $@

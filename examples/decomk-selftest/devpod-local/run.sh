@@ -273,6 +273,27 @@ require_no_fail_markers() {
   done
 }
 
+load_stage0_log_lines() {
+  local stage0_log_path="$1"
+  # Intent: Read stage-0 runtime logs separately from make logs so selftest can
+  # prove the stage-0 process identity independently from recipe execution.
+  # Source: DI-007-20260423-180202 (TODO/007)
+  if ! mapfile -t stage0_log_lines < <(devpod ssh "$workspace_name" --command "cat '$stage0_log_path'"); then
+    die "failed to read stage-0 runtime log: $stage0_log_path"
+  fi
+}
+
+require_stage0_marker() {
+  local marker="$1"
+  local line
+  for line in "${stage0_log_lines[@]}"; do
+    if [[ "$line" == *"$marker"* ]]; then
+      return 0
+    fi
+  done
+  die "self-test marker not found in stage-0 runtime log: $marker"
+}
+
 require_no_fail_markers
 
 require_marker "SELFTEST PASS conf-repo-origin"
@@ -319,6 +340,9 @@ mapfile -t make_log_lines < <(devpod ssh "$workspace_name" --command "cat '$phas
 require_no_fail_markers
 require_marker "SELFTEST PASS phase-updateContent"
 require_marker "SELFTEST PASS github-user-empty-in-updateContent"
+require_marker "SELFTEST PASS make-id phase=updateContent"
+load_stage0_log_lines "/tmp/decomk-selftest/log/stage0-updateContent.log"
+require_stage0_marker "SELFTEST PASS stage0-id phase=updateContent"
 
 run_logged devpod ssh "$workspace_name" --command "GITHUB_USER=decomk-selftest-dev .devcontainer/decomk-stage0.sh postCreate TUPLE_PHASE_POST"
 phase_post_log_path="$(latest_make_log_path)"
@@ -332,6 +356,9 @@ mapfile -t make_log_lines < <(devpod ssh "$workspace_name" --command "cat '$phas
 require_no_fail_markers
 require_marker "SELFTEST PASS phase-postCreate"
 require_marker "SELFTEST PASS github-user-present-in-postCreate"
+require_marker "SELFTEST PASS make-id phase=postCreate"
+load_stage0_log_lines "/tmp/decomk-selftest/log/stage0-postCreate.log"
+require_stage0_marker "SELFTEST PASS stage0-id phase=postCreate"
 
 # Intent: Assert DECOMK_FAIL_NOBOOT policy in both modes so stage-0 failures are
 # visible and deterministic while preserving optional continue-boot behavior.

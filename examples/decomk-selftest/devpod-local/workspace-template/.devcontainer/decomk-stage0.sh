@@ -79,6 +79,18 @@ setup_runtime_log() {
   echo "decomk bootstrap: runtime log: $stage0_runtime_log"
 }
 
+emit_stage0_identity_marker() {
+  local stage0_uid stage0_user
+  stage0_uid="$(id -u)"
+  stage0_user="$(id -un)"
+  export DECOMK_STAGE0_UID="$stage0_uid"
+  export DECOMK_STAGE0_USER="$stage0_user"
+  # Intent: Emit explicit stage-0 identity markers for selftest evidence so
+  # operators can prove which user executes stage-0 vs which user executes make.
+  # Source: DI-007-20260423-180202 (TODO/007)
+  echo "SELFTEST PASS stage0-id phase=$stage0_phase uid=$stage0_uid user=$stage0_user"
+}
+
 write_stage0_failure_artifacts() {
   local rc="$1"
   local line="$2"
@@ -434,6 +446,9 @@ mkdir -p "$DECOMK_HOME" "$DECOMK_LOG_DIR"
 
 stage0_error_step="configure-runtime-log"
 setup_runtime_log
+
+stage0_error_step="stage0-identity"
+emit_stage0_identity_marker
 
 stage0_error_step="install-decomk"
 install_decomk

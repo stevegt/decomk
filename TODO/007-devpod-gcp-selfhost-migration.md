@@ -189,6 +189,14 @@ Intent: Separate migration orchestration from image-parity implementation detail
 Constraints: Preserve TODO 007 migration phases and deferred GCP decisions; reference TODO 011 as the source of truth for freeze/parity mechanics.
 Affects: `TODO/007-devpod-gcp-selfhost-migration.md`, `TODO/011-single-path-checkpoints.md`, `doc/image-management.md`, `TODO/TODO.md`.
 
+ID: DI-007-20260423-180202
+Date: 2026-04-23 18:02:02
+Status: active
+Decision: Emit explicit stage-0 and make identity markers (`uid`/`user`) in selftest flows and assert them in both DevPod and Codespaces harnesses.
+Intent: Provide concrete evidence about which user executes stage-0 vs make so root/non-root behavior questions can be answered from harness artifacts instead of inference.
+Constraints: Keep markers deterministic and phase-labeled (`updateContent`/`postCreate`), preserve existing PASS/FAIL marker contract, and avoid introducing silent fallback logic.
+Affects: `cmd/decomk/templates/decomk-stage0.sh.tmpl`, generated `examples/*/decomk-stage0.sh`, `examples/decomk-selftest/fixtures/confrepo/Makefile`, `examples/decomk-selftest/devpod-local/run.sh`, `examples/decomk-selftest/codespaces/run.sh`, `cmd/decomk/stage0_script_test.go`, `TODO/007-devpod-gcp-selfhost-migration.md`.
+
 Related design docs:
 - `doc/isconf-design.md`
 - `doc/decomk-design.md`

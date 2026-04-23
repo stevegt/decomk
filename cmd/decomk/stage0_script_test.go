@@ -26,6 +26,9 @@ func TestStage0ScriptFailNoBootPolicy(t *testing.T) {
 		if !strings.Contains(output, "continuing boot because DECOMK_FAIL_NOBOOT=false") {
 			t.Fatalf("output missing continue-mode warning:\n%s", output)
 		}
+		if !strings.Contains(output, "SELFTEST PASS stage0-id phase=postCreate") {
+			t.Fatalf("output missing stage0 identity marker:\n%s", output)
+		}
 		if !strings.Contains(output, "wrote failure marker: "+baseEnv["STAGE0_MARKER_PATH"]) {
 			t.Fatalf("output missing failure-marker write line:\n%s", output)
 		}
@@ -58,6 +61,9 @@ func TestStage0ScriptFailNoBootPolicy(t *testing.T) {
 		}
 		if !strings.Contains(output, "DECOMK_FAIL_NOBOOT=true; exiting non-zero (rc=17)") {
 			t.Fatalf("output missing fail-mode line:\n%s", output)
+		}
+		if !strings.Contains(output, "SELFTEST PASS stage0-id phase=postCreate") {
+			t.Fatalf("output missing stage0 identity marker:\n%s", output)
 		}
 
 		markerContents, err := os.ReadFile(baseEnv["STAGE0_MARKER_PATH"])
