@@ -130,6 +130,7 @@ Out of scope:
 - Lifecycle evidence baseline: `TODO/009-phase-eval-lifecycle-spike.md`
 - Block profile selection model: `TODO/010-codespaces-block-prebuild-profiles.md`
 - Self-host migration track: `TODO/007-devpod-gcp-selfhost-migration.md`
+- Apt package retention strategy: `TODO/014-apt-package-retention-strategy.md`
 
 ## Subtasks
 
@@ -145,7 +146,7 @@ Out of scope:
 - [x] 011.3.7 Keep temporary checkpoint container cleanup explicit for `build` (`--keep-container` for diagnostics, default cleanup otherwise).
 - [x] 011.3.8 Add focused unit tests for build/push/tag success and failure paths (source resolution errors, tag collision without `-m`, registry/tag move errors, cleanup behavior).
 - [ ] 011.4 Enforce phase separation so checkpoint images exclude runtime/user-phase (`postCreate`) side effects. (Deferred in this pass; see DI-011-20260420-184053.)
-- [ ] 011.5 Add deterministic pinning checks (base digest, package/tool versions, git refs, and other mutable inputs) so checkpoint behavior remains stable. (Deferred in this pass; see DI-011-20260420-214106.)
+- [ ] 011.5 Add deterministic pinning checks (base digest, package/tool versions, git refs, and other mutable inputs) so checkpoint behavior remains stable. (Deferred in this pass; see DI-011-20260420-214106 and TODO 014 for apt package retention dependency.)
 - [ ] 011.6 Add same-path verification evidence capture (lifecycle markers/command traces) to prove checkpoints were created through the shared `updateContent` flow. (Deferred in this pass; see DI-011-20260420-184053.)
 - [x] 011.7 Add repeatable operator/CI entrypoints and documentation for `build -> push -> external test -> tag` block handoff.
 - [ ] 011.8 Execute acceptance runs and record evidence that checkpointed block progression removes repeated setup work from subsequent prebuild/first-boot paths. (Deferred in this pass; see DI-011-20260420-184053.)
