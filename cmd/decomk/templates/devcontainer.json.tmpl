@@ -5,6 +5,8 @@
     "dockerfile": {{json .BuildDockerfile}},
     "context": {{json .BuildContext}}
   },
+{{- else if .Image }}
+  "image": {{json .Image}},
 {{- end }}
 {{- if .RunArgs }}
   "runArgs": {{json .RunArgs}},

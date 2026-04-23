@@ -38,6 +38,14 @@ const (
 	// Source: DI-001-20260423-051500 (TODO/001)
 	DefaultToolURI = "go:github.com/stevegt/decomk/cmd/decomk@latest"
 
+	// DefaultDevcontainerImage is the canonical base image used by stage-0
+	// generated devcontainer.json files when no build dockerfile is configured.
+	//
+	// Intent: Keep `decomk init` output valid for non-Dockerfile devcontainers by
+	// always emitting either a `build` or `image` stanza.
+	// Source: DI-001-20260423-140628 (TODO/001)
+	DefaultDevcontainerImage = "mcr.microsoft.com/devcontainers/base:ubuntu-24.04"
+
 	// DefaultFailNoBoot is the canonical stage-0 failure policy used by generated
 	// devcontainer files. False keeps container startup non-blocking while stage-0
 	// still records diagnostics and hints when bootstrap steps fail.
@@ -53,6 +61,7 @@ const (
 //
 // Optional sections:
 //   - BuildDockerfile/BuildContext: emit "build" only when BuildDockerfile is non-empty.
+//   - Image: emit "image" when BuildDockerfile is empty and Image is non-empty.
 //   - RunArgs: emit "runArgs" only when non-empty.
 //   - RemoteUser: emit "remoteUser" only when non-empty.
 //
@@ -62,6 +71,7 @@ type DevcontainerTemplateData struct {
 	Name                 string
 	BuildDockerfile      string
 	BuildContext         string
+	Image                string
 	RunArgs              []string
 	RemoteUser           string
 	Home                 string
@@ -91,6 +101,16 @@ func (data DevcontainerTemplateData) EnsureDefaults() DevcontainerTemplateData {
 	}
 	if data.FailNoBoot == "" {
 		data.FailNoBoot = DefaultFailNoBoot
+	}
+	if data.BuildDockerfile != "" && data.BuildContext == "" {
+		data.BuildContext = "."
+	}
+	// Intent: Stage-0 generated devcontainer.json must always include a concrete
+	// devcontainer source stanza (`build` or `image`) so non-Dockerfile workflows
+	// have a valid image contract by default.
+	// Source: DI-001-20260423-140628 (TODO/001)
+	if data.BuildDockerfile == "" && data.Image == "" {
+		data.Image = DefaultDevcontainerImage
 	}
 	return data
 }

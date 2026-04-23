@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -19,15 +20,21 @@ import (
 
 // initFlags are the user-facing options for "decomk init".
 type initFlags struct {
-	repoRoot   string
-	name       string
-	confURI    string
-	toolURI    string
-	home       string
-	logDir     string
-	failNoBoot string
-	force      bool
-	noPrompt   bool
+	repoRoot string
+	name     string
+	image    string
+	// buildDockerfile/buildContext are sourced from an existing devcontainer.json
+	// when present so `decomk init -f` can preserve build-based configs while still
+	// using one rendering path.
+	buildDockerfile string
+	buildContext    string
+	confURI         string
+	toolURI         string
+	home            string
+	logDir          string
+	failNoBoot      string
+	force           bool
+	noPrompt        bool
 }
 
 // initWriteResult reports what happened for one stage-0 file.
@@ -51,6 +58,7 @@ func cmdInit(args []string, stdout, stderr io.Writer) (int, error) {
 		repoRoot:   "",
 		confURI:    envi.String("DECOMK_CONF_URI", ""),
 		toolURI:    envi.String("DECOMK_TOOL_URI", stage0.DefaultToolURI),
+		image:      stage0.DefaultDevcontainerImage,
 		home:       envi.String("DECOMK_HOME", state.DefaultHome),
 		logDir:     envi.String("DECOMK_LOG_DIR", state.DefaultLogDir),
 		failNoBoot: envi.String("DECOMK_FAIL_NOBOOT", stage0.DefaultFailNoBoot),
@@ -111,6 +119,19 @@ func cmdInit(args []string, stdout, stderr io.Writer) (int, error) {
 		}
 	}
 
+	// Intent: Reuse existing stage-0 values as interactive/no-prompt defaults when
+	// `decomk init -f` is used, so reruns do not force users to re-enter config by
+	// hand.
+	// Source: DI-001-20260423-140628 (TODO/001)
+	existingDefaults, hasExistingDefaults, err := loadInitExistingDevcontainerDefaults(repoRoot)
+	if err != nil {
+		if writeErr := writeFormat(stderr, "decomk init: warning: unable to parse existing .devcontainer/devcontainer.json for defaults: %v\n", err); writeErr != nil {
+			return 1, writeErr
+		}
+	} else if hasExistingDefaults {
+		applyInitDefaultsFromExistingDevcontainer(&f, setFlags, existingDefaults)
+	}
+
 	if f.name == "" {
 		f.name = filepath.Base(repoRoot)
 	}
@@ -124,6 +145,9 @@ func cmdInit(args []string, stdout, stderr io.Writer) (int, error) {
 
 	if f.name == "" {
 		return 1, fmt.Errorf("devcontainer name cannot be empty")
+	}
+	if strings.TrimSpace(f.buildDockerfile) == "" && strings.TrimSpace(f.image) == "" {
+		return 1, fmt.Errorf("devcontainer image template value cannot be empty when no build.dockerfile is configured")
 	}
 	// Intent: Lock stage-0 source configuration onto URI expressions (`go:`/`git:`)
 	// so generated init scaffolds use one explicit source contract instead of
@@ -154,6 +178,9 @@ func cmdInit(args []string, stdout, stderr io.Writer) (int, error) {
 	// Source: DI-001-20260312-141200 (TODO/001)
 	data := stage0.DevcontainerTemplateData{
 		Name:                 f.name,
+		BuildDockerfile:      f.buildDockerfile,
+		BuildContext:         f.buildContext,
+		Image:                f.image,
 		ConfURI:              f.confURI,
 		ToolURI:              f.toolURI,
 		Home:                 f.home,
@@ -185,6 +212,7 @@ func cmdInit(args []string, stdout, stderr io.Writer) (int, error) {
 func addInitFlags(fs *flag.FlagSet, f *initFlags) {
 	fs.StringVar(&f.repoRoot, "repo-root", f.repoRoot, "target repo root (writes under <repo-root>/.devcontainer; default: current git repo root)")
 	fs.StringVar(&f.name, "name", f.name, "devcontainer name (default: repo basename)")
+	fs.StringVar(&f.image, "image", f.image, "devcontainer image value when no build dockerfile is configured")
 	fs.StringVar(&f.confURI, "conf-uri", f.confURI, "DECOMK_CONF_URI value for devcontainer.json")
 	fs.StringVar(&f.toolURI, "tool-uri", f.toolURI, "DECOMK_TOOL_URI value for devcontainer.json")
 	fs.StringVar(&f.home, "home", f.home, "DECOMK_HOME value for devcontainer.json")
@@ -201,6 +229,12 @@ func promptInitFlags(f *initFlags, setFlags map[string]bool, in io.Reader, out i
 	var err error
 	if !setFlags["name"] {
 		f.name, err = promptWithDefault(reader, out, "Devcontainer name", f.name)
+		if err != nil {
+			return err
+		}
+	}
+	if !setFlags["image"] && strings.TrimSpace(f.buildDockerfile) == "" {
+		f.image, err = promptWithDefault(reader, out, "Image", f.image)
 		if err != nil {
 			return err
 		}
@@ -300,6 +334,132 @@ func gitTopLevelFromDir(dir string) (string, error) {
 		return "", fmt.Errorf("git rev-parse --show-toplevel returned empty output")
 	}
 	return root, nil
+}
+
+// initExistingDevcontainerDefaults captures stage-0 template values recovered
+// from an existing .devcontainer/devcontainer.json.
+type initExistingDevcontainerDefaults struct {
+	Name            string
+	Image           string
+	BuildDockerfile string
+	BuildContext    string
+	ConfURI         string
+	ToolURI         string
+	Home            string
+	LogDir          string
+	FailNoBoot      string
+}
+
+// applyInitDefaultsFromExistingDevcontainer merges existing devcontainer values
+// into init flags when the corresponding CLI flags were not explicitly set.
+func applyInitDefaultsFromExistingDevcontainer(f *initFlags, setFlags map[string]bool, defaults initExistingDevcontainerDefaults) {
+	if !setFlags["name"] && defaults.Name != "" {
+		f.name = defaults.Name
+	}
+	if !setFlags["image"] && defaults.Image != "" {
+		f.image = defaults.Image
+	}
+	if defaults.BuildDockerfile != "" {
+		f.buildDockerfile = defaults.BuildDockerfile
+		f.buildContext = defaults.BuildContext
+		// Build-backed devcontainers should continue to render a build stanza
+		// unless the operator explicitly passes -image to switch modes.
+		if !setFlags["image"] {
+			f.image = ""
+		}
+	}
+	if !setFlags["conf-uri"] && defaults.ConfURI != "" {
+		f.confURI = defaults.ConfURI
+	}
+	if !setFlags["tool-uri"] && defaults.ToolURI != "" {
+		f.toolURI = defaults.ToolURI
+	}
+	if !setFlags["home"] && defaults.Home != "" {
+		f.home = defaults.Home
+	}
+	if !setFlags["log-dir"] && defaults.LogDir != "" {
+		f.logDir = defaults.LogDir
+	}
+	if !setFlags["fail-no-boot"] && defaults.FailNoBoot != "" {
+		f.failNoBoot = defaults.FailNoBoot
+	}
+}
+
+// loadInitExistingDevcontainerDefaults parses .devcontainer/devcontainer.json
+// when present and extracts fields relevant to decomk init prompts/defaults.
+func loadInitExistingDevcontainerDefaults(repoRoot string) (initExistingDevcontainerDefaults, bool, error) {
+	path := filepath.Join(repoRoot, ".devcontainer", "devcontainer.json")
+	content, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return initExistingDevcontainerDefaults{}, false, nil
+		}
+		return initExistingDevcontainerDefaults{}, false, fmt.Errorf("read %s: %w", path, err)
+	}
+
+	stripped, err := stripJSONCLineCommentsForInit(content)
+	if err != nil {
+		return initExistingDevcontainerDefaults{}, false, fmt.Errorf("strip jsonc line comments from %s: %w", path, err)
+	}
+
+	var parsed struct {
+		Name         string         `json:"name"`
+		Image        string         `json:"image"`
+		Build        map[string]any `json:"build"`
+		ContainerEnv map[string]any `json:"containerEnv"`
+	}
+	if err := json.Unmarshal(stripped, &parsed); err != nil {
+		return initExistingDevcontainerDefaults{}, false, fmt.Errorf("parse %s: %w", path, err)
+	}
+
+	defaults := initExistingDevcontainerDefaults{
+		Name:       parsed.Name,
+		Image:      parsed.Image,
+		ConfURI:    stringValueFromAnyMap(parsed.ContainerEnv, "DECOMK_CONF_URI"),
+		ToolURI:    stringValueFromAnyMap(parsed.ContainerEnv, "DECOMK_TOOL_URI"),
+		Home:       stringValueFromAnyMap(parsed.ContainerEnv, "DECOMK_HOME"),
+		LogDir:     stringValueFromAnyMap(parsed.ContainerEnv, "DECOMK_LOG_DIR"),
+		FailNoBoot: stringValueFromAnyMap(parsed.ContainerEnv, "DECOMK_FAIL_NOBOOT"),
+	}
+	if parsed.Build != nil {
+		defaults.BuildDockerfile = stringValueFromAnyMap(parsed.Build, "dockerfile")
+		defaults.BuildContext = stringValueFromAnyMap(parsed.Build, "context")
+	}
+	return defaults, true, nil
+}
+
+// stripJSONCLineCommentsForInit removes full-line // comments from devcontainer
+// JSON so common JSONC files can be decoded as ordinary JSON.
+func stripJSONCLineCommentsForInit(content []byte) ([]byte, error) {
+	scanner := bufio.NewScanner(bytes.NewReader(content))
+	lines := make([]string, 0)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(strings.TrimSpace(line), "//") {
+			continue
+		}
+		lines = append(lines, line)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	return []byte(strings.Join(lines, "\n")), nil
+}
+
+func stringValueFromAnyMap(values map[string]any, key string) string {
+	if values == nil {
+		return ""
+	}
+	raw, ok := values[key]
+	if !ok || raw == nil {
+		return ""
+	}
+	switch typed := raw.(type) {
+	case string:
+		return typed
+	default:
+		return strings.TrimSpace(fmt.Sprint(typed))
+	}
 }
 
 // writeInitStage0 renders embedded templates and writes them to

@@ -135,6 +135,11 @@ If you intentionally want to regenerate/replace files, use force:
 - `-f` (alias)
 - `-force`
 
+When `-f` is used and `.devcontainer/devcontainer.json` already exists,
+`decomk init` reuses existing stage-0 values as defaults (name/image and
+`DECOMK_*` container env values) so reruns do not require re-entering the same
+configuration.
+
 Recommended reconciliation workflow when files already exist:
 
 ```bash
@@ -544,6 +549,7 @@ ARGS:
   Flags for init:
   -repo-root <path>         Repo root where .devcontainer files are written (default: current git repo root)
   -name <string>            devcontainer.json "name" value
+  -image <ref>              devcontainer image value when no build dockerfile is configured
   -conf-uri <uri>           DECOMK_CONF_URI value in devcontainer.json (git:...)
   -tool-uri <uri>           DECOMK_TOOL_URI value in devcontainer.json (go:... or git:...)
   -home <abs-path>          DECOMK_HOME value in devcontainer.json

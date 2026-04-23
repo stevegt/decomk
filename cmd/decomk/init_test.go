@@ -243,6 +243,148 @@ func TestCmdInit_NoPromptWritesFiles(t *testing.T) {
 	if info.Mode().Perm()&0o111 == 0 {
 		t.Fatalf("decomk-stage0.sh should be executable; mode=%#o", info.Mode().Perm())
 	}
+
+	decoded := decodeJSONCObjectFile(t, devcontainerPath)
+	if got, want := decoded["image"], stage0.DefaultDevcontainerImage; got != want {
+		t.Fatalf("image: got %#v want %#v", got, want)
+	}
+	if _, ok := decoded["build"]; ok {
+		t.Fatalf("build: got %#v want omitted for init defaults", decoded["build"])
+	}
+}
+
+func TestCmdInit_ForceNoPromptPreservesExistingImageDefaults(t *testing.T) {
+	t.Parallel()
+
+	repoRoot := t.TempDir()
+	devcontainerDir := filepath.Join(repoRoot, ".devcontainer")
+	if err := os.MkdirAll(devcontainerDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(devcontainerDir): %v", err)
+	}
+	existing := `{
+  // existing defaults should be reused on -f reruns
+  "name": "existing-repo",
+  "image": "ghcr.io/acme/custom-base:testing",
+  "containerEnv": {
+    "DECOMK_HOME": "/var/custom/decomk",
+    "DECOMK_LOG_DIR": "/var/custom/log",
+    "DECOMK_TOOL_URI": "go:github.com/acme/decomk/cmd/decomk@latest",
+    "DECOMK_CONF_URI": "git:https://example.com/conf.git",
+    "DECOMK_FAIL_NOBOOT": "true"
+  },
+  "updateContentCommand": "bash .devcontainer/decomk-stage0.sh updateContent",
+  "postCreateCommand": "bash .devcontainer/decomk-stage0.sh postCreate"
+}`
+	devcontainerPath := filepath.Join(devcontainerDir, "devcontainer.json")
+	if err := os.WriteFile(devcontainerPath, []byte(existing), 0o644); err != nil {
+		t.Fatalf("WriteFile(devcontainer.json): %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(devcontainerDir, "decomk-stage0.sh"), []byte("#!/usr/bin/env bash\n"), 0o755); err != nil {
+		t.Fatalf("WriteFile(decomk-stage0.sh): %v", err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code, err := cmdInit([]string{
+		"-repo-root", repoRoot,
+		"-no-prompt",
+		"-f",
+	}, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("cmdInit() error: %v", err)
+	}
+	if code != 0 {
+		t.Fatalf("cmdInit() code: got %d want 0", code)
+	}
+
+	decoded := decodeJSONCObjectFile(t, devcontainerPath)
+	if got, want := decoded["name"], "existing-repo"; got != want {
+		t.Fatalf("name: got %#v want %#v", got, want)
+	}
+	if got, want := decoded["image"], "ghcr.io/acme/custom-base:testing"; got != want {
+		t.Fatalf("image: got %#v want %#v", got, want)
+	}
+	envMap, ok := decoded["containerEnv"].(map[string]any)
+	if !ok {
+		t.Fatalf("containerEnv: got %#v", decoded["containerEnv"])
+	}
+	if got, want := envMap["DECOMK_HOME"], "/var/custom/decomk"; got != want {
+		t.Fatalf("DECOMK_HOME: got %#v want %#v", got, want)
+	}
+	if got, want := envMap["DECOMK_LOG_DIR"], "/var/custom/log"; got != want {
+		t.Fatalf("DECOMK_LOG_DIR: got %#v want %#v", got, want)
+	}
+	if got, want := envMap["DECOMK_TOOL_URI"], "go:github.com/acme/decomk/cmd/decomk@latest"; got != want {
+		t.Fatalf("DECOMK_TOOL_URI: got %#v want %#v", got, want)
+	}
+	if got, want := envMap["DECOMK_CONF_URI"], "git:https://example.com/conf.git"; got != want {
+		t.Fatalf("DECOMK_CONF_URI: got %#v want %#v", got, want)
+	}
+	if got, want := envMap["DECOMK_FAIL_NOBOOT"], "true"; got != want {
+		t.Fatalf("DECOMK_FAIL_NOBOOT: got %#v want %#v", got, want)
+	}
+}
+
+func TestCmdInit_ForceNoPromptPreservesExistingBuildDefaults(t *testing.T) {
+	t.Parallel()
+
+	repoRoot := t.TempDir()
+	devcontainerDir := filepath.Join(repoRoot, ".devcontainer")
+	if err := os.MkdirAll(devcontainerDir, 0o755); err != nil {
+		t.Fatalf("MkdirAll(devcontainerDir): %v", err)
+	}
+	existing := `{
+  "name": "existing-build",
+  "build": {
+    "dockerfile": "Dockerfile.Block10",
+    "context": "."
+  },
+  "containerEnv": {
+    "DECOMK_HOME": "/var/decomk",
+    "DECOMK_LOG_DIR": "/var/log/decomk",
+    "DECOMK_TOOL_URI": "go:github.com/stevegt/decomk/cmd/decomk@latest",
+    "DECOMK_CONF_URI": "git:https://example.com/conf.git",
+    "DECOMK_FAIL_NOBOOT": "false"
+  },
+  "updateContentCommand": "bash .devcontainer/decomk-stage0.sh updateContent",
+  "postCreateCommand": "bash .devcontainer/decomk-stage0.sh postCreate"
+}`
+	devcontainerPath := filepath.Join(devcontainerDir, "devcontainer.json")
+	if err := os.WriteFile(devcontainerPath, []byte(existing), 0o644); err != nil {
+		t.Fatalf("WriteFile(devcontainer.json): %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(devcontainerDir, "decomk-stage0.sh"), []byte("#!/usr/bin/env bash\n"), 0o755); err != nil {
+		t.Fatalf("WriteFile(decomk-stage0.sh): %v", err)
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code, err := cmdInit([]string{
+		"-repo-root", repoRoot,
+		"-no-prompt",
+		"-f",
+	}, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("cmdInit() error: %v", err)
+	}
+	if code != 0 {
+		t.Fatalf("cmdInit() code: got %d want 0", code)
+	}
+
+	decoded := decodeJSONCObjectFile(t, devcontainerPath)
+	buildMap, ok := decoded["build"].(map[string]any)
+	if !ok {
+		t.Fatalf("build: got %#v want object", decoded["build"])
+	}
+	if got, want := buildMap["dockerfile"], "Dockerfile.Block10"; got != want {
+		t.Fatalf("build.dockerfile: got %#v want %#v", got, want)
+	}
+	if got, want := buildMap["context"], "."; got != want {
+		t.Fatalf("build.context: got %#v want %#v", got, want)
+	}
+	if _, ok := decoded["image"]; ok {
+		t.Fatalf("image: got %#v want omitted when build is preserved", decoded["image"])
+	}
 }
 
 func TestCmdInit_ForceAliasF(t *testing.T) {
@@ -463,4 +605,22 @@ func stripJSONCLineComments(content []byte) ([]byte, error) {
 		return nil, err
 	}
 	return []byte(strings.Join(lines, "\n")), nil
+}
+
+func decodeJSONCObjectFile(t *testing.T, path string) map[string]any {
+	t.Helper()
+
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile(%s): %v", path, err)
+	}
+	withoutComments, err := stripJSONCLineComments(content)
+	if err != nil {
+		t.Fatalf("stripJSONCLineComments(%s): %v", path, err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(withoutComments, &decoded); err != nil {
+		t.Fatalf("json.Unmarshal(%s): %v", path, err)
+	}
+	return decoded
 }

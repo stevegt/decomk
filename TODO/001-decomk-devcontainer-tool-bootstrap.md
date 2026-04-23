@@ -174,6 +174,14 @@ Intent: Keep release versioning deterministic and source-controlled so runtime `
 Constraints: Release script must fail on dirty repos, must refuse duplicate tags, and must update VERSION plus generated version source in one release commit before tagging.
 Affects: `VERSION`, `cmd/versiongen/main.go`, `cmd/decomk/generate_version.go`, `cmd/decomk/version_generated.go`, `cmd/decomk/main.go`, `scripts/release.sh`, `Makefile`, `README.md`, `TODO/001-decomk-devcontainer-tool-bootstrap.md`.
 
+ID: DI-001-20260423-140628
+Date: 2026-04-23 14:06:28
+Status: active
+Decision: Add `image` rendering support to the stage-0 devcontainer template (defaulting to a canonical base image when no build dockerfile is set), and make `decomk init` reuse values from an existing `.devcontainer/devcontainer.json` as defaults when rerunning with `-f`.
+Intent: Keep non-Dockerfile devcontainers valid out of the box while reducing friction and accidental config drift during forced re-init runs.
+Constraints: Preserve non-force overwrite refusal behavior; keep existing build-backed devcontainers in build mode when rerunning `decomk init -f` unless `-image` is explicitly provided.
+Affects: `stage0/stage0.go`, `cmd/decomk/templates/devcontainer.json.tmpl`, `cmd/decomk/init.go`, `cmd/decomk/init_test.go`, `README.md`, `TODO/001-decomk-devcontainer-tool-bootstrap.md`.
+
 ## Goal
 
 Create an isconf-inspired “context -> target groups + vars”
@@ -408,6 +416,7 @@ Pragmatic MVP: define a small set of **capability groups**, then compose per-rep
 - [x] 001.15 Add stage-0 template ownership banners and README onboarding reorganization, plus a canonical legacy-variable migration mapping section.
 - [x] 001.16 Add first-class shared conf repo scaffolding (`decomk init-conf`), tracked in `TODO/013-conf-repo-init-scaffolding.md`.
 - [x] 001.17 Add source-controlled release versioning (`VERSION` + generated version file) and a `make release-minor` workflow.
+- [x] 001.18 Add image fallback rendering for non-build init scaffolds and reuse existing devcontainer values as defaults during `decomk init -f`.
 
 ## Legacy stage-0 variable migration mapping
 
