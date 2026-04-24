@@ -583,16 +583,11 @@ func cmdExecute(args []string, stdout, stderr io.Writer, mode executionMode) (ex
 
 	exitCode, runErr := makeexec.RunWithFlagsCommand(plan.StampDir, plan.Makefile, makeCmd, mode.MakeFlags, makeTuples, targets, makeEnv, out, errOut)
 	if !mode.DryRun {
+		// Intent: Use DECOMK_STAGE0_PHASE as the single phase source and let
+		// DECOMK_MOTD_PHASES decide whether/how that phase maps to a MOTD file.
+		// Source: DI-005-20260424-141017 (TODO/005)
 		phase := strings.TrimSpace(os.Getenv("DECOMK_STAGE0_PHASE"))
-		if phase == "" {
-			phase = mode.Name
-		}
-
-		// Intent: Always publish latest make-run status after invocation completion
-		// so operators can inspect contexts/targets/outcome from MOTD without opening
-		// detailed logs first.
-		// Source: DI-005-20260424-110139 (TODO/005)
-		if motdErr := writeRunMotdSummary(plan, targets, phase, exitCode, runErr, runLogPath); motdErr != nil {
+		if motdErr := writePhaseMotdSummary(plan, cookedTuples, targets, phase, exitCode, runErr, runLogPath); motdErr != nil {
 			if warnErr := writeLine(errOut, "decomk: warning:", motdErr.Error()); warnErr != nil {
 				return 1, warnErr
 			}
@@ -806,14 +801,110 @@ func renderRunMotdBody(stampDir string, contextKeys, targets []string, phase str
 	return []byte(body.String())
 }
 
-// writeRunMotdFallback writes the post-make MOTD summary to the DECOMK_HOME
+// parseMotdPhaseMappings parses DECOMK_MOTD_PHASES CSV entries in the format
+// "NN:phase,NN:phase", returning phase->NN mapping.
+//
+// Intent: Keep phase-to-filename mapping declarative in decomk.conf while
+// validating format strictly to prevent ambiguous or unsafe filenames.
+// Source: DI-005-20260424-141017 (TODO/005)
+func parseMotdPhaseMappings(raw string) (map[string]string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, fmt.Errorf("empty mapping")
+	}
+	mappings := make(map[string]string)
+	priorities := make(map[string]string)
+	entries := strings.Split(raw, ",")
+	for i, entry := range entries {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			return nil, fmt.Errorf("entry %d is empty", i+1)
+		}
+		parts := strings.Split(entry, ":")
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("entry %q must be NN:phase", entry)
+		}
+		priority := strings.TrimSpace(parts[0])
+		phase := strings.TrimSpace(parts[1])
+		if !isTwoDigitDecimal(priority) {
+			return nil, fmt.Errorf("entry %q has invalid NN %q (expected two digits)", entry, priority)
+		}
+		if !isValidMotdPhaseName(phase) {
+			return nil, fmt.Errorf("entry %q has invalid phase %q (allowed: letters, numbers, '-', '_', '.')", entry, phase)
+		}
+		if priorPhase, exists := priorities[priority]; exists {
+			return nil, fmt.Errorf("duplicate NN %q for phases %q and %q", priority, priorPhase, phase)
+		}
+		if priorPriority, exists := mappings[phase]; exists {
+			return nil, fmt.Errorf("duplicate phase %q for NN %q and %q", phase, priorPriority, priority)
+		}
+		priorities[priority] = phase
+		mappings[phase] = priority
+	}
+	return mappings, nil
+}
+
+func isTwoDigitDecimal(value string) bool {
+	return len(value) == 2 && value[0] >= '0' && value[0] <= '9' && value[1] >= '0' && value[1] <= '9'
+}
+
+func isValidMotdPhaseName(value string) bool {
+	if value == "" {
+		return false
+	}
+	for _, r := range value {
+		if r >= 'a' && r <= 'z' {
+			continue
+		}
+		if r >= 'A' && r <= 'Z' {
+			continue
+		}
+		if r >= '0' && r <= '9' {
+			continue
+		}
+		if r == '-' || r == '_' || r == '.' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+// motdFilenameForPhase resolves the MOTD filename from a parsed phase mapping.
+//
+// Intent: Keep filename construction centralized so primary and fallback paths
+// always use the same `<NN>-decomk-<phase>` pattern.
+// Source: DI-005-20260424-141017 (TODO/005)
+func motdFilenameForPhase(mappings map[string]string, phase string) (string, bool) {
+	phase = strings.TrimSpace(phase)
+	if phase == "" {
+		return "", false
+	}
+	priority, ok := mappings[phase]
+	if !ok {
+		return "", false
+	}
+	return fmt.Sprintf("%s-decomk-%s", priority, phase), true
+}
+
+// phaseMotdPath returns the primary MOTD path for one lifecycle phase.
+func phaseMotdPath(filename string) string {
+	return filepath.Join(runMotdRootDir, filename)
+}
+
+// phaseFallbackMotdPath returns the fallback MOTD path under DECOMK_HOME for one
+// lifecycle phase.
+func phaseFallbackMotdPath(home, filename string) string {
+	return filepath.Join(home, runMotdFallbackRelDir, filename)
+}
+
+// writeRunMotdFallback writes the post-make MOTD summary to a DECOMK_HOME
 // fallback path used when /etc/motd.d is not writable.
 //
 // Intent: Keep latest-run status discoverable even in non-root environments
 // where /etc/motd.d cannot be updated directly.
-// Source: DI-005-20260424-110139 (TODO/005)
-func writeRunMotdFallback(home string, body []byte) (string, error) {
-	fallbackPath := filepath.Join(home, runMotdFallbackRelPath)
+// Source: DI-005-20260424-141017 (TODO/005)
+func writeRunMotdFallback(fallbackPath string, body []byte) (string, error) {
 	if err := state.EnsureParentDir(fallbackPath); err != nil {
 		return fallbackPath, fmt.Errorf("ensure fallback parent dir %s: %w", filepath.Dir(fallbackPath), err)
 	}
@@ -904,12 +995,12 @@ func mkdirAndChownDirForUser(dir, username string) error {
 	return nil
 }
 
-// prepareRunMotdParent proactively prepares the parent directory for runMotdPath
+// prepareRunMotdParent proactively prepares the parent directory for one MOTD
 // before the primary write attempt.
 //
 // Intent: Align runtime behavior with the devcontainer expectation that decomk
 // should provision MOTD output paths before writing status files.
-// Source: DI-005-20260424-131352 (TODO/005)
+// Source: DI-005-20260424-141017 (TODO/005)
 func prepareRunMotdParent(path string) error {
 	parentDir := filepath.Dir(path)
 	if parentDir == "." || parentDir == "" {
@@ -929,35 +1020,71 @@ func prepareRunMotdParent(path string) error {
 	return mkdirAndChownDirForUser(parentDir, username)
 }
 
+// writePhaseMotdSummary writes a per-phase post-make status summary when
+// DECOMK_MOTD_PHASES maps the current DECOMK_STAGE0_PHASE to a filename.
+//
+// Intent: Keep phase->filename behavior fully config-driven and skip MOTD
+// writes for unmapped phases or missing phase context.
+// Source: DI-005-20260424-141017 (TODO/005)
+func writePhaseMotdSummary(plan *resolvedPlan, cookedTuples, targets []string, phase string, makeExitCode int, makeErr error, runLogPath string) error {
+	tupleValues := effectiveTupleValues(cookedTuples)
+	rawMapping, hasMapping := tupleValues[motdPhaseMappingTuple]
+	if !hasMapping {
+		return nil
+	}
+	rawMapping = strings.TrimSpace(rawMapping)
+	if rawMapping == "" {
+		return fmt.Errorf("%s is set but empty; expected NN:phase,NN:phase", motdPhaseMappingTuple)
+	}
+	mappings, parseErr := parseMotdPhaseMappings(rawMapping)
+	if parseErr != nil {
+		return fmt.Errorf("parse %s: %w", motdPhaseMappingTuple, parseErr)
+	}
+	filename, mapped := motdFilenameForPhase(mappings, phase)
+	if !mapped {
+		return nil
+	}
+	return writeRunMotdSummary(
+		plan,
+		targets,
+		phase,
+		makeExitCode,
+		makeErr,
+		runLogPath,
+		phaseMotdPath(filename),
+		phaseFallbackMotdPath(plan.Home, filename),
+	)
+}
+
 // writeRunMotdSummary writes the post-make status summary to /etc/motd.d and
 // falls back under DECOMK_HOME when necessary.
 //
-// Intent: Update one canonical "latest status" MOTD file after every make run
-// while preserving make-result semantics when MOTD writes fail.
-// Source: DI-005-20260424-131352 (TODO/005)
-func writeRunMotdSummary(plan *resolvedPlan, targets []string, phase string, makeExitCode int, makeErr error, runLogPath string) error {
+// Intent: Preserve non-fatal MOTD fallback semantics while supporting phase-
+// specific primary/fallback paths selected by DECOMK_MOTD_PHASES.
+// Source: DI-005-20260424-141017 (TODO/005)
+func writeRunMotdSummary(plan *resolvedPlan, targets []string, phase string, makeExitCode int, makeErr error, runLogPath, primaryPath, fallbackPath string) error {
 	body := renderRunMotdBody(plan.StampDir, plan.ContextKeys, targets, phase, makeExitCode, makeErr, runLogPath)
 
-	prepErr := prepareRunMotdParent(runMotdPath)
+	prepErr := prepareRunMotdParent(primaryPath)
 	if prepErr == nil {
-		writeErr := os.WriteFile(runMotdPath, body, 0o644)
+		writeErr := os.WriteFile(primaryPath, body, 0o644)
 		if writeErr == nil {
 			return nil
 		}
-		primaryErr := fmt.Errorf("write %s: %w", runMotdPath, writeErr)
-		fallbackPath, fallbackErr := writeRunMotdFallback(plan.Home, body)
+		primaryErr := fmt.Errorf("write %s: %w", primaryPath, writeErr)
+		writtenFallbackPath, fallbackErr := writeRunMotdFallback(fallbackPath, body)
 		if fallbackErr != nil {
-			return fmt.Errorf("could not update %s: %v; fallback %s failed: %w", runMotdPath, primaryErr, fallbackPath, fallbackErr)
+			return fmt.Errorf("could not update %s: %v; fallback %s failed: %w", primaryPath, primaryErr, fallbackPath, fallbackErr)
 		}
-		return fmt.Errorf("could not update %s: %v; wrote fallback %s", runMotdPath, primaryErr, fallbackPath)
+		return fmt.Errorf("could not update %s: %v; wrote fallback %s", primaryPath, primaryErr, writtenFallbackPath)
 	}
 
-	primaryErr := fmt.Errorf("prepare parent dir for %s: %w", runMotdPath, prepErr)
-	fallbackPath, fallbackErr := writeRunMotdFallback(plan.Home, body)
+	primaryErr := fmt.Errorf("prepare parent dir for %s: %w", primaryPath, prepErr)
+	writtenFallbackPath, fallbackErr := writeRunMotdFallback(fallbackPath, body)
 	if fallbackErr != nil {
-		return fmt.Errorf("could not update %s: %v; fallback %s failed: %w", runMotdPath, primaryErr, fallbackPath, fallbackErr)
+		return fmt.Errorf("could not update %s: %v; fallback %s failed: %w", primaryPath, primaryErr, fallbackPath, fallbackErr)
 	}
-	return fmt.Errorf("could not update %s: %v; wrote fallback %s", runMotdPath, primaryErr, fallbackPath)
+	return fmt.Errorf("could not update %s: %v; wrote fallback %s", primaryPath, primaryErr, writtenFallbackPath)
 }
 
 // applyStartDir changes the current working directory to match -C.
@@ -1020,13 +1147,17 @@ const (
 	// carries into env.sh/make, in addition to resolved config tuples.
 	autoPassThroughPrefix = "DECOMK_"
 
-	// runMotdFallbackRelPath is the fallback status-file location under
-	// DECOMK_HOME when /etc/motd.d is not writable.
-	runMotdFallbackRelPath = "stage0/failure/98-decomk"
+	// motdPhaseMappingTuple is the canonical tuple name for phase->filename
+	// mappings used when writing post-make MOTD summaries.
+	motdPhaseMappingTuple = "DECOMK_MOTD_PHASES"
+
+	// runMotdFallbackRelDir is the fallback directory (under DECOMK_HOME) used
+	// when /etc/motd.d is not writable.
+	runMotdFallbackRelDir = "stage0/failure"
 )
 
-// runMotdPath is the latest-status MOTD summary written after each make run.
-var runMotdPath = "/etc/motd.d/98-decomk"
+// runMotdRootDir is the primary directory for per-phase run summaries.
+var runMotdRootDir = "/etc/motd.d"
 
 // resolveLogRoot determines where decomk should write per-run logs.
 //

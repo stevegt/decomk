@@ -784,17 +784,12 @@ func TestRenderRunMotdBody_ErrorIncludesExitAndLog(t *testing.T) {
 func TestPrepareRunMotdParent_WritableTempPath(t *testing.T) {
 	t.Parallel()
 
-	origRunMotdPath := runMotdPath
-	t.Cleanup(func() {
-		runMotdPath = origRunMotdPath
-	})
-
-	runMotdPath = filepath.Join(t.TempDir(), "motd.d", "98-decomk")
-	if err := prepareRunMotdParent(runMotdPath); err != nil {
+	path := filepath.Join(t.TempDir(), "motd.d", "98-decomk")
+	if err := prepareRunMotdParent(path); err != nil {
 		t.Fatalf("prepareRunMotdParent() error: %v", err)
 	}
 
-	parentDir := filepath.Dir(runMotdPath)
+	parentDir := filepath.Dir(path)
 	if _, err := os.Stat(parentDir); err != nil {
 		t.Fatalf("Stat(parentDir): %v", err)
 	}
@@ -807,10 +802,159 @@ func TestPrepareRunMotdParent_WritableTempPath(t *testing.T) {
 	}
 }
 
-func TestWriteRunMotdSummary_PrimaryAndFallback(t *testing.T) {
-	origRunMotdPath := runMotdPath
+func TestParseMotdPhaseMappings(t *testing.T) {
+	t.Parallel()
+
+	t.Run("valid", func(t *testing.T) {
+		t.Parallel()
+		got, err := parseMotdPhaseMappings("93:updateContent,94:postCreate")
+		if err != nil {
+			t.Fatalf("parseMotdPhaseMappings() error: %v", err)
+		}
+		want := map[string]string{
+			"updateContent": "93",
+			"postCreate":    "94",
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("parseMotdPhaseMappings() got %#v want %#v", got, want)
+		}
+	})
+
+	cases := []struct {
+		name string
+		raw  string
+	}{
+		{name: "empty", raw: ""},
+		{name: "missing colon", raw: "93-updateContent"},
+		{name: "bad NN", raw: "9:updateContent"},
+		{name: "bad phase", raw: "93:post/create"},
+		{name: "duplicate phase", raw: "93:updateContent,94:updateContent"},
+		{name: "duplicate NN", raw: "93:updateContent,93:postCreate"},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if _, err := parseMotdPhaseMappings(tc.raw); err == nil {
+				t.Fatalf("parseMotdPhaseMappings(%q) expected error, got nil", tc.raw)
+			}
+		})
+	}
+}
+
+func TestWritePhaseMotdSummary(t *testing.T) {
+	origRunMotdRootDir := runMotdRootDir
 	t.Cleanup(func() {
-		runMotdPath = origRunMotdPath
+		runMotdRootDir = origRunMotdRootDir
+	})
+
+	t.Run("writes mapped phase primary file", func(t *testing.T) {
+		home := t.TempDir()
+		stampDir := filepath.Join(home, "stamps")
+		if err := os.MkdirAll(stampDir, 0o755); err != nil {
+			t.Fatalf("MkdirAll(stampDir): %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(stampDir, "stamp-ok"), []byte(""), 0o600); err != nil {
+			t.Fatalf("WriteFile(stamp-ok): %v", err)
+		}
+		runMotdRootDir = filepath.Join(t.TempDir(), "motd.d")
+
+		plan := &resolvedPlan{
+			Home:        home,
+			StampDir:    stampDir,
+			ContextKeys: []string{"DEFAULT"},
+		}
+		cookedTuples := []string{motdPhaseMappingTuple + "=93:updateContent,94:postCreate"}
+
+		if err := writePhaseMotdSummary(plan, cookedTuples, []string{"Block00_base"}, "updateContent", 0, nil, ""); err != nil {
+			t.Fatalf("writePhaseMotdSummary() unexpected error: %v", err)
+		}
+
+		primaryPath := phaseMotdPath("93-decomk-updateContent")
+		primaryRaw, err := os.ReadFile(primaryPath)
+		if err != nil {
+			t.Fatalf("ReadFile(primaryPath): %v", err)
+		}
+		if got := string(primaryRaw); !strings.Contains(got, "updateContent success") {
+			t.Fatalf("primary MOTD missing status:\n%s", got)
+		}
+
+		fallbackPath := phaseFallbackMotdPath(home, "93-decomk-updateContent")
+		if _, err := os.Stat(fallbackPath); !os.IsNotExist(err) {
+			t.Fatalf("fallback file should not exist after primary write success: %s (err=%v)", fallbackPath, err)
+		}
+	})
+
+	t.Run("skips when mapping tuple is unset", func(t *testing.T) {
+		home := t.TempDir()
+		stampDir := filepath.Join(home, "stamps")
+		if err := os.MkdirAll(stampDir, 0o755); err != nil {
+			t.Fatalf("MkdirAll(stampDir): %v", err)
+		}
+		runMotdRootDir = filepath.Join(t.TempDir(), "motd.d")
+
+		plan := &resolvedPlan{
+			Home:        home,
+			StampDir:    stampDir,
+			ContextKeys: []string{"DEFAULT"},
+		}
+		if err := writePhaseMotdSummary(plan, nil, []string{"Block00_base"}, "updateContent", 0, nil, ""); err != nil {
+			t.Fatalf("writePhaseMotdSummary() unexpected error: %v", err)
+		}
+		if _, err := os.Stat(phaseMotdPath("93-decomk-updateContent")); !os.IsNotExist(err) {
+			t.Fatalf("phase MOTD file should not exist when mapping is unset")
+		}
+	})
+
+	t.Run("skips when phase is not mapped", func(t *testing.T) {
+		home := t.TempDir()
+		stampDir := filepath.Join(home, "stamps")
+		if err := os.MkdirAll(stampDir, 0o755); err != nil {
+			t.Fatalf("MkdirAll(stampDir): %v", err)
+		}
+		runMotdRootDir = filepath.Join(t.TempDir(), "motd.d")
+
+		plan := &resolvedPlan{
+			Home:        home,
+			StampDir:    stampDir,
+			ContextKeys: []string{"DEFAULT"},
+		}
+		cookedTuples := []string{motdPhaseMappingTuple + "=93:updateContent"}
+		if err := writePhaseMotdSummary(plan, cookedTuples, []string{"Block00_base"}, "postCreate", 0, nil, ""); err != nil {
+			t.Fatalf("writePhaseMotdSummary() unexpected error: %v", err)
+		}
+		if _, err := os.Stat(phaseMotdPath("93-decomk-updateContent")); !os.IsNotExist(err) {
+			t.Fatalf("phase MOTD file should not exist for unmapped phase")
+		}
+	})
+
+	t.Run("fails on invalid mapping", func(t *testing.T) {
+		home := t.TempDir()
+		stampDir := filepath.Join(home, "stamps")
+		if err := os.MkdirAll(stampDir, 0o755); err != nil {
+			t.Fatalf("MkdirAll(stampDir): %v", err)
+		}
+		runMotdRootDir = filepath.Join(t.TempDir(), "motd.d")
+
+		plan := &resolvedPlan{
+			Home:        home,
+			StampDir:    stampDir,
+			ContextKeys: []string{"DEFAULT"},
+		}
+		err := writePhaseMotdSummary(plan, []string{motdPhaseMappingTuple + "=bad"}, []string{"Block00_base"}, "updateContent", 0, nil, "")
+		if err == nil {
+			t.Fatalf("writePhaseMotdSummary() expected error, got nil")
+		}
+		if !strings.Contains(err.Error(), "parse "+motdPhaseMappingTuple) {
+			t.Fatalf("writePhaseMotdSummary() error missing parse context: %v", err)
+		}
+	})
+}
+
+func TestWriteRunMotdSummary_PrimaryAndFallback(t *testing.T) {
+	origRunMotdRootDir := runMotdRootDir
+	t.Cleanup(func() {
+		runMotdRootDir = origRunMotdRootDir
 	})
 
 	t.Run("writes primary MOTD path when writable", func(t *testing.T) {
@@ -824,14 +968,14 @@ func TestWriteRunMotdSummary_PrimaryAndFallback(t *testing.T) {
 		}
 
 		primaryPath := filepath.Join(t.TempDir(), "motd.d", "98-decomk")
-		runMotdPath = primaryPath
+		fallbackPath := phaseFallbackMotdPath(home, "98-decomk")
 		plan := &resolvedPlan{
 			Home:        home,
 			StampDir:    stampDir,
 			ContextKeys: []string{"DEFAULT"},
 		}
 
-		if err := writeRunMotdSummary(plan, []string{"Block00_base"}, "updateContent", 0, nil, ""); err != nil {
+		if err := writeRunMotdSummary(plan, []string{"Block00_base"}, "updateContent", 0, nil, "", primaryPath, fallbackPath); err != nil {
 			t.Fatalf("writeRunMotdSummary() unexpected error: %v", err)
 		}
 
@@ -844,7 +988,6 @@ func TestWriteRunMotdSummary_PrimaryAndFallback(t *testing.T) {
 			t.Fatalf("primary MOTD missing status:\n%s", primary)
 		}
 
-		fallbackPath := filepath.Join(home, runMotdFallbackRelPath)
 		if _, err := os.Stat(fallbackPath); !os.IsNotExist(err) {
 			t.Fatalf("fallback file should not exist after primary write success: %s (err=%v)", fallbackPath, err)
 		}
@@ -864,7 +1007,8 @@ func TestWriteRunMotdSummary_PrimaryAndFallback(t *testing.T) {
 		if err := os.WriteFile(blockedParent, []byte("x"), 0o600); err != nil {
 			t.Fatalf("WriteFile(blockedParent): %v", err)
 		}
-		runMotdPath = filepath.Join(blockedParent, "98-decomk")
+		primaryPath := filepath.Join(blockedParent, "98-decomk")
+		fallbackPath := phaseFallbackMotdPath(home, "98-decomk")
 
 		plan := &resolvedPlan{
 			Home:        home,
@@ -879,6 +1023,8 @@ func TestWriteRunMotdSummary_PrimaryAndFallback(t *testing.T) {
 			17,
 			errors.New("make failed"),
 			"/tmp/decomk/make.log",
+			primaryPath,
+			fallbackPath,
 		)
 		if err == nil {
 			t.Fatalf("writeRunMotdSummary() expected fallback warning error, got nil")
@@ -887,7 +1033,6 @@ func TestWriteRunMotdSummary_PrimaryAndFallback(t *testing.T) {
 			t.Fatalf("writeRunMotdSummary() error missing fallback note: %v", err)
 		}
 
-		fallbackPath := filepath.Join(home, runMotdFallbackRelPath)
 		fallbackRaw, readErr := os.ReadFile(fallbackPath)
 		if readErr != nil {
 			t.Fatalf("ReadFile(fallbackPath): %v", readErr)

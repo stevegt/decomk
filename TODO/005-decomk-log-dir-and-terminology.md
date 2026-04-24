@@ -35,6 +35,15 @@ Constraints: Behavior must remain non-fatal (fallback on failure), no silent err
 Affects: `cmd/decomk/main.go`, `cmd/decomk/main_test.go`, runtime paths `/etc/motd.d`, `/etc/motd.d/98-decomk`, `<DECOMK_HOME>/stage0/failure/98-decomk`.
 Supersedes: DI-005-20260424-110139
 
+ID: DI-005-20260424-141017
+Date: 2026-04-24 14:10:17
+Status: active
+Decision: Replace hardcoded MOTD summary path `98-decomk` with phase-driven mapping from tuple `DECOMK_MOTD_PHASES='NN:phase,...'`, sourced from canonical resolved tuples; if the tuple is unset, or current `DECOMK_STAGE0_PHASE` is unset/not mapped, skip MOTD writes; invalid mapping is a hard error.
+Intent: Make MOTD files explicit per lifecycle phase (`updateContent`, `postCreate`) without hardcoding phase filenames in Go code, while preserving deterministic fallback and strict configuration validation.
+Constraints: Mapping syntax is strict (`NN:phase` CSV); spaced `=` tuple syntax is not supported; fallback filename must mirror the mapped primary filename under `<DECOMK_HOME>/stage0/failure/`; no stale-file cleanup in this patch.
+Affects: `cmd/decomk/main.go`, `cmd/decomk/main_test.go`, runtime paths `/etc/motd.d/<NN>-decomk-<phase>`, `<DECOMK_HOME>/stage0/failure/<NN>-decomk-<phase>`.
+Supersedes: DI-005-20260424-131352
+
 ## Goal
 
 Make decomk’s per-run `make` output logging robust (no hard dependency on
@@ -162,3 +171,6 @@ Rationale:
 - [x] 005.6 Add unit tests for precedence + fallback behavior.
 - [x] 005.7 Update `README.md` and `TODO/002-decomk-architecture.md` for consistency + fix tab-indented bullets.
 - [x] 005.8 Run `gofmt` + `go test ./...`.
+- [x] 005.9 Replace fixed `98-decomk` run-summary path with phase mapping via `DECOMK_MOTD_PHASES` + `DECOMK_STAGE0_PHASE`.
+- [x] 005.10 Add unit tests for mapping parse/skip/error behavior and mirrored fallback filenames.
+- [ ] 005.11 Document `DECOMK_MOTD_PHASES` phase-file mapping in `README.md` and `doc/decomk-design.md` (deferred in this implementation pass).
