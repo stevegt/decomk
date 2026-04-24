@@ -823,17 +823,123 @@ func writeRunMotdFallback(home string, body []byte) (string, error) {
 	return fallbackPath, nil
 }
 
+// runAsRootNoPrompt runs one command as root without interactive prompts.
+//
+// When decomk is already root, the command runs directly; otherwise it runs via
+// "sudo -n". This keeps MOTD parent preparation deterministic in environments
+// where decomk is non-root but has passwordless sudo.
+//
+// Intent: Proactively prepare /etc/motd.d before write attempts to avoid
+// predictable permission warnings when non-root decomk runs in devcontainers.
+// Source: DI-005-20260424-131352 (TODO/005)
+func runAsRootNoPrompt(name string, args ...string) error {
+	commandName := name
+	commandArgs := append([]string(nil), args...)
+	if os.Geteuid() != 0 {
+		commandName = "sudo"
+		commandArgs = append([]string{"-n", name}, commandArgs...)
+	}
+	cmd := exec.Command(commandName, commandArgs...)
+	output, err := cmd.CombinedOutput()
+	if err == nil {
+		return nil
+	}
+	message := strings.TrimSpace(string(output))
+	if message == "" {
+		return fmt.Errorf("run command as root: %s %s: %w", name, strings.Join(args, " "), err)
+	}
+	return fmt.Errorf("run command as root: %s %s: %w: %s", name, strings.Join(args, " "), err, message)
+}
+
+// dirWritableByCurrentUser checks whether the current process user can create a
+// file in dir.
+func dirWritableByCurrentUser(dir string) (bool, error) {
+	f, err := os.CreateTemp(dir, ".decomk-motd-probe-")
+	if err != nil {
+		if os.IsPermission(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("create probe file in %s: %w", dir, err)
+	}
+	probePath := f.Name()
+	if err := f.Close(); err != nil {
+		return false, fmt.Errorf("close probe file %s: %w", probePath, err)
+	}
+	if err := os.Remove(probePath); err != nil {
+		return false, fmt.Errorf("remove probe file %s: %w", probePath, err)
+	}
+	return true, nil
+}
+
+// mkdirAndChownDirForUser ensures dir exists and is owned by username.
+//
+// It first accepts already-writable directories (common temp/test paths), then
+// falls back to root-level mkdir/chown for system paths like /etc/motd.d.
+//
+// Intent: Prepare MOTD parent paths proactively so decomk can write MOTD
+// summaries directly instead of immediately dropping to fallback warnings.
+// Source: DI-005-20260424-131352 (TODO/005)
+func mkdirAndChownDirForUser(dir, username string) error {
+	if err := os.MkdirAll(dir, 0o755); err == nil {
+		writable, writableErr := dirWritableByCurrentUser(dir)
+		if writableErr == nil && writable {
+			return nil
+		}
+	}
+
+	if err := runAsRootNoPrompt("mkdir", "-p", dir); err != nil {
+		return fmt.Errorf("mkdir -p %s as root: %w", dir, err)
+	}
+	if err := runAsRootNoPrompt("chown", username, dir); err != nil {
+		return fmt.Errorf("chown %s %s as root: %w", username, dir, err)
+	}
+
+	writable, writableErr := dirWritableByCurrentUser(dir)
+	if writableErr != nil {
+		return fmt.Errorf("verify writable parent dir %s: %w", dir, writableErr)
+	}
+	if !writable {
+		return fmt.Errorf("parent dir %s is not writable by current user after chown", dir)
+	}
+	return nil
+}
+
+// prepareRunMotdParent proactively prepares the parent directory for runMotdPath
+// before the primary write attempt.
+//
+// Intent: Align runtime behavior with the devcontainer expectation that decomk
+// should provision MOTD output paths before writing status files.
+// Source: DI-005-20260424-131352 (TODO/005)
+func prepareRunMotdParent(path string) error {
+	parentDir := filepath.Dir(path)
+	if parentDir == "." || parentDir == "" {
+		return fmt.Errorf("invalid MOTD parent dir for path %s", path)
+	}
+	username := strings.TrimSpace(resolveDevUser())
+	if username == "" {
+		currentUser, err := user.Current()
+		if err != nil {
+			return fmt.Errorf("resolve current user for MOTD parent prep: %w", err)
+		}
+		username = strings.TrimSpace(currentUser.Username)
+	}
+	if username == "" {
+		return fmt.Errorf("could not determine username for MOTD parent prep (%s)", parentDir)
+	}
+	return mkdirAndChownDirForUser(parentDir, username)
+}
+
 // writeRunMotdSummary writes the post-make status summary to /etc/motd.d and
 // falls back under DECOMK_HOME when necessary.
 //
 // Intent: Update one canonical "latest status" MOTD file after every make run
 // while preserving make-result semantics when MOTD writes fail.
-// Source: DI-005-20260424-110139 (TODO/005)
+// Source: DI-005-20260424-131352 (TODO/005)
 func writeRunMotdSummary(plan *resolvedPlan, targets []string, phase string, makeExitCode int, makeErr error, runLogPath string) error {
 	body := renderRunMotdBody(plan.StampDir, plan.ContextKeys, targets, phase, makeExitCode, makeErr, runLogPath)
 
-	parentErr := state.EnsureParentDir(runMotdPath)
-	if parentErr == nil {
+	prepErr := prepareRunMotdParent(runMotdPath)
+	if prepErr == nil {
 		writeErr := os.WriteFile(runMotdPath, body, 0o644)
 		if writeErr == nil {
 			return nil
@@ -846,7 +952,7 @@ func writeRunMotdSummary(plan *resolvedPlan, targets []string, phase string, mak
 		return fmt.Errorf("could not update %s: %v; wrote fallback %s", runMotdPath, primaryErr, fallbackPath)
 	}
 
-	primaryErr := fmt.Errorf("ensure parent dir for %s: %w", runMotdPath, parentErr)
+	primaryErr := fmt.Errorf("prepare parent dir for %s: %w", runMotdPath, prepErr)
 	fallbackPath, fallbackErr := writeRunMotdFallback(plan.Home, body)
 	if fallbackErr != nil {
 		return fmt.Errorf("could not update %s: %v; fallback %s failed: %w", runMotdPath, primaryErr, fallbackPath, fallbackErr)
@@ -1548,13 +1654,14 @@ func fileExists(path string) bool {
 // Keeping this list centralized prevents subtle drift between "decomk plan"
 // output (env exports), env.sh generation, and the actual make invocation.
 //
-// Intent: Ensure Makefile recipes and nested scripts can reliably see both the
-// dev user identity and the effective make user when privilege-dropping is
-// required.
+// Intent: Ensure Makefile recipes and nested scripts can reliably see decomk's
+// computed runtime metadata (including identity and version) without needing to
+// reconstruct it from logs.
 // Source: DI-001-20260309-172358 (TODO/001)
 var computedVarOrder = []string{
 	"DECOMK_HOME",
 	"DECOMK_STAMPDIR",
+	"DECOMK_VERSION",
 	"DECOMK_DEV_USER",
 	"DECOMK_MAKE_USER",
 	"DECOMK_WORKSPACES",
@@ -1620,9 +1727,10 @@ func resolveMakeUser(makeAsRoot bool, devUser string) string {
 // config-provided tuples, because other processes (and Makefile recipes) rely on
 // them to describe decomk's actual execution environment.
 //
-// Intent: Expose computed helpers for Makefiles/scripts so root-run make can
-// still perform user-scoped work by explicitly dropping privileges.
-// Source: DI-001-20260309-172358 (TODO/001)
+// Intent: Expose computed helpers and runtime metadata for Makefiles/scripts so
+// root-run make can still perform user-scoped work and diagnostics can confirm
+// the exact decomk binary version used for a run.
+// Source: DI-005-20260424-124347 (TODO/005)
 func computedVars(plan *resolvedPlan, targets []string, makeAsRoot bool) map[string]string {
 	devUser := resolveDevUser()
 	var workspaces []string
@@ -1632,6 +1740,7 @@ func computedVars(plan *resolvedPlan, targets []string, makeAsRoot bool) map[str
 	return map[string]string{
 		"DECOMK_HOME":       plan.Home,
 		"DECOMK_STAMPDIR":   plan.StampDir,
+		"DECOMK_VERSION":    decomkVersion,
 		"DECOMK_DEV_USER":   devUser,
 		"DECOMK_MAKE_USER":  resolveMakeUser(makeAsRoot, devUser),
 		"DECOMK_WORKSPACES": strings.Join(workspaces, " "),

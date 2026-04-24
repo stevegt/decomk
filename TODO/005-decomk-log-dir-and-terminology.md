@@ -18,6 +18,23 @@ Intent: Give operators a deterministic, latest-run status banner that survives b
 Constraints: Keep stage-0 MOTD logic unchanged in this patch; status line must be based on make result only; fallback must be explicit and non-silent; no `|| true` behavior.
 Affects: `cmd/decomk/main.go`, `cmd/decomk/main_test.go`, runtime paths `/etc/motd.d/98-decomk` and `<DECOMK_HOME>/stage0/failure/98-decomk`.
 
+ID: DI-005-20260424-124347
+Date: 2026-04-24 12:43:47
+Status: active
+Decision: Record the runtime decomk binary version in `<DECOMK_HOME>/env.sh` as `DECOMK_VERSION`, exported on every `decomk run`.
+Intent: Make it easy to identify which decomk binary version configured a container by checking a persistent, canonical state artifact under `/var/decomk`.
+Constraints: Scope for this change is env export only (no stage-0 failure marker/log schema updates); preserve existing env/make parity semantics by treating version as a decomk-owned computed export.
+Affects: `cmd/decomk/main.go`, `cmd/decomk/main_test.go`, runtime path `<DECOMK_HOME>/env.sh`.
+
+ID: DI-005-20260424-131352
+Date: 2026-04-24 13:13:52
+Status: active
+Decision: Before writing `/etc/motd.d/98-decomk`, proactively prepare the parent directory by ensuring it exists and is owned by the current user (`mkdir -p` + `chown`) so MOTD write attempts succeed in non-root devcontainer runs; if preparation or write still fails, keep fallback-to-`<DECOMK_HOME>/stage0/failure/98-decomk` warning behavior.
+Intent: Eliminate noisy, repeated permission warnings during normal runs by making the primary MOTD path writable up front, while preserving non-fatal fallback semantics.
+Constraints: Behavior must remain non-fatal (fallback on failure), no silent errors, and no reliance on interactive sudo prompts.
+Affects: `cmd/decomk/main.go`, `cmd/decomk/main_test.go`, runtime paths `/etc/motd.d`, `/etc/motd.d/98-decomk`, `<DECOMK_HOME>/stage0/failure/98-decomk`.
+Supersedes: DI-005-20260424-110139
+
 ## Goal
 
 Make decomk’s per-run `make` output logging robust (no hard dependency on

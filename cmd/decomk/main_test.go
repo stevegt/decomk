@@ -273,6 +273,9 @@ func TestCanonicalEnvTuplesAndMakeInvocationParity(t *testing.T) {
 	if got, want := effective["DECOMK_HOME"], plan.Home; got != want {
 		t.Fatalf("DECOMK_HOME: got %q want %q", got, want)
 	}
+	if got, want := effective["DECOMK_VERSION"], decomkVersion; got != want {
+		t.Fatalf("DECOMK_VERSION: got %q want %q", got, want)
+	}
 	if _, ok := effective["NOT_INCLUDED"]; ok {
 		t.Fatalf("NOT_INCLUDED should not be present in canonical env tuples")
 	}
@@ -289,6 +292,30 @@ func TestCanonicalEnvTuplesAndMakeInvocationParity(t *testing.T) {
 		if got := makeEnvMap[name]; got != want {
 			t.Fatalf("make env %s: got %q want %q", name, got, want)
 		}
+	}
+}
+
+func TestWriteEnvExport_IncludesDecomkVersion(t *testing.T) {
+	t.Parallel()
+
+	plan := &resolvedPlan{
+		Home:        "/tmp/decomk-home",
+		StampDir:    "/tmp/decomk-home/stamps",
+		ConfigPaths: []string{"/tmp/decomk-home/conf/decomk.conf"},
+		ContextKeys: []string{"DEFAULT"},
+	}
+	incomingEnv := map[string]string{}
+	targets := []string{"Block00_base"}
+	cookedTuples := canonicalEnvTuples(plan, targets, false, incomingEnv)
+
+	var out bytes.Buffer
+	if err := writeEnvExport(&out, plan, cookedTuples); err != nil {
+		t.Fatalf("writeEnvExport() error: %v", err)
+	}
+
+	wantLine := "export DECOMK_VERSION=" + shellQuote(decomkVersion)
+	if got := out.String(); !strings.Contains(got, wantLine) {
+		t.Fatalf("writeEnvExport() missing %q:\n%s", wantLine, got)
 	}
 }
 
@@ -751,6 +778,32 @@ func TestRenderRunMotdBody_ErrorIncludesExitAndLog(t *testing.T) {
 	))
 	if !strings.Contains(got, "postCreate error (exit 23; log: /tmp/decomk/log/make.log)") {
 		t.Fatalf("renderRunMotdBody() missing error status details:\n%s", got)
+	}
+}
+
+func TestPrepareRunMotdParent_WritableTempPath(t *testing.T) {
+	t.Parallel()
+
+	origRunMotdPath := runMotdPath
+	t.Cleanup(func() {
+		runMotdPath = origRunMotdPath
+	})
+
+	runMotdPath = filepath.Join(t.TempDir(), "motd.d", "98-decomk")
+	if err := prepareRunMotdParent(runMotdPath); err != nil {
+		t.Fatalf("prepareRunMotdParent() error: %v", err)
+	}
+
+	parentDir := filepath.Dir(runMotdPath)
+	if _, err := os.Stat(parentDir); err != nil {
+		t.Fatalf("Stat(parentDir): %v", err)
+	}
+	writable, err := dirWritableByCurrentUser(parentDir)
+	if err != nil {
+		t.Fatalf("dirWritableByCurrentUser() error: %v", err)
+	}
+	if !writable {
+		t.Fatalf("parent dir should be writable after preparation: %s", parentDir)
 	}
 }
 
