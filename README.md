@@ -267,6 +267,30 @@ See `TODO/010-codespaces-block-prebuild-profiles.md` for policy details.
 - run logs: `/var/log/decomk` (override `DECOMK_LOG_DIR` / `-log-dir`)
 - default log-root fallback: `<DECOMK_HOME>/log` when default `/var/log/decomk` is not writable
 
+## MOTD run summaries (`DECOMK_MOTD_PHASES`)
+
+`decomk run` can publish post-run MOTD files when the tuple
+`DECOMK_MOTD_PHASES` is present in resolved config.
+
+Format:
+
+- CSV entries in `NN:phase` form, for example:
+  - `DECOMK_MOTD_PHASES='88:version,93:updateContent,94:postCreate'`
+- `NN` must be exactly two digits.
+- `phase` may contain letters, numbers, `_`, `-`, and `.`.
+
+Behavior:
+
+- If `DECOMK_MOTD_PHASES` is unset, no run-summary MOTD files are written.
+- If the current `DECOMK_STAGE0_PHASE` has a mapping, decomk writes:
+  - `/etc/motd.d/<NN>-decomk-<phase>`
+- If `version` is mapped (for example `88:version`), decomk also writes:
+  - `/etc/motd.d/<NN>-decomk-version`
+  - content starts with a blank line, then `decomk version: <value>`.
+- If `/etc/motd.d` cannot be written, decomk falls back to:
+  - `<DECOMK_HOME>/stage0/failure/<same-filename>`
+- Invalid mapping syntax is surfaced as a run warning.
+
 ## Concepts
 
 ### Context
@@ -435,6 +459,10 @@ the step has succeeded.
       - `make -f <Makefile> <tuples...> <targets...>`
       - working directory = stamp dir
       - stdout/stderr are teed to `make.log` under the per-run log dir
+    - optionally write MOTD summaries when `DECOMK_MOTD_PHASES` is configured:
+      - `<NN>-decomk-<DECOMK_STAGE0_PHASE>` when current phase is mapped
+      - `<NN>-decomk-version` when `version` is mapped
+      - fallback under `<DECOMK_HOME>/stage0/failure/` when `/etc/motd.d` is not writable
 
 ## `decomk.conf` format
 
@@ -458,6 +486,9 @@ the step has succeeded.
 - Incoming `DECOMK_*` environment variables are automatically carried into the
   canonical env export/make contract (unless later tuple/computed values
   override them).
+- `DECOMK_MOTD_PHASES` is a regular tuple value that controls optional run MOTD
+  writes (`NN:phase` CSV); example:
+  - `DEFAULT: DECOMK_MOTD_PHASES='88:version,93:updateContent,94:postCreate'`
 
 ## Makefile expectations and example
 

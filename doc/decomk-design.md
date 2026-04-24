@@ -1,7 +1,8 @@
 # decomk Design
 
 This document captures the current decomk execution model after the
-tuple-only config correction and lifecycle phase selector work.
+tuple-only config correction, lifecycle phase selector work, and
+phase-mapped MOTD summary support.
 
 ## 1) Core model
 
@@ -54,6 +55,11 @@ Ordering is:
 Tuple value sentinel `NAME=$` means: take incoming env `NAME`; if unset, reuse an
 earlier tuple assignment for `NAME`; otherwise fail.
 
+`DECOMK_MOTD_PHASES` participates in this same tuple contract. It is parsed as a
+strict CSV of `NN:phase` entries (for example
+`88:version,93:updateContent,94:postCreate`) and drives optional run-summary
+MOTD output.
+
 ## 5) Stage-0 lifecycle contract
 
 Generated devcontainer hooks call:
@@ -72,6 +78,9 @@ Action args default to the lifecycle phase selector (`updateContent` or
 `postCreate`). Optional extra args passed to `decomk-stage0.sh` override that
 default selector list.
 
+`decomk run` uses `DECOMK_STAGE0_PHASE` as the runtime phase key for mapped MOTD
+output.
+
 Failure policy is explicit via `DECOMK_FAIL_NOBOOT`:
 
 - `true` (`1|yes|on`) => stage-0 exits non-zero on failure.
@@ -83,6 +92,23 @@ In continue-boot mode, stage-0 writes deterministic artifacts:
 - `<DECOMK_HOME>/stage0/failure/latest-<phase>.log`
 - MOTD hint at `/etc/motd.d/80-decomk-stage0` when writable, otherwise fallback
   hint at `<DECOMK_HOME>/stage0/failure/motd.txt`.
+
+## 5.1) Run-summary MOTD contract
+
+When resolved tuples include `DECOMK_MOTD_PHASES`, `decomk run` can write
+phase-specific MOTD summaries after make completes:
+
+- runtime phase mapping:
+  - `/etc/motd.d/<NN>-decomk-<DECOMK_STAGE0_PHASE>`
+- optional version mapping:
+  - `/etc/motd.d/<NN>-decomk-version`
+  - body begins with a blank line and `decomk version: <value>`
+
+If `/etc/motd.d` is unavailable, decomk writes the same filename under:
+
+- `<DECOMK_HOME>/stage0/failure/<filename>`
+
+Mapping parse errors are reported as run warnings.
 
 ## 6) Selftest implications
 

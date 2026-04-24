@@ -191,7 +191,7 @@ Rationale:
 - [x] 005.8 Run `gofmt` + `go test ./...`.
 - [x] 005.9 Replace fixed `98-decomk` run-summary path with phase mapping via `DECOMK_MOTD_PHASES` + `DECOMK_STAGE0_PHASE`.
 - [x] 005.10 Add unit tests for mapping parse/skip/error behavior and mirrored fallback filenames.
-- [ ] 005.11 Document `DECOMK_MOTD_PHASES` phase-file mapping in `README.md` and `doc/decomk-design.md` (deferred in this implementation pass).
+- [x] 005.11 Document `DECOMK_MOTD_PHASES` phase-file mapping in `README.md` and `doc/decomk-design.md`.
 - [x] 005.12 Also write mapped `version` MOTD file when `DECOMK_MOTD_PHASES` includes `NN:version`.
 - [x] 005.13 Add tests that verify `version` MOTD write and fallback behavior.
 - [x] 005.14 Update version MOTD format: leading blank line before `decomk version:`, remove `runtime phase:` line.
