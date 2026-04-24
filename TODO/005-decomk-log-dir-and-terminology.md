@@ -53,6 +53,15 @@ Constraints: Keep existing strict mapping validation and non-fatal primary/fallb
 Affects: `cmd/decomk/main.go`, `cmd/decomk/main_test.go`, runtime paths `/etc/motd.d/<NN>-decomk-version`, `<DECOMK_HOME>/stage0/failure/<NN>-decomk-version`.
 Supersedes: DI-005-20260424-141017
 
+ID: DI-005-20260424-143700
+Date: 2026-04-24 14:37:00
+Status: active
+Decision: Format the `version` MOTD file with a leading blank line before `decomk version:` and do not include a `runtime phase:` line.
+Intent: Keep the version MOTD concise and visually separated while avoiding phase detail in the dedicated version banner.
+Constraints: Applies only to the `version` MOTD body; phase summary MOTD content remains unchanged.
+Affects: `cmd/decomk/main.go`, `cmd/decomk/main_test.go`.
+Supersedes: DI-005-20260424-142032
+
 ## Goal
 
 Make decomk’s per-run `make` output logging robust (no hard dependency on
@@ -185,3 +194,4 @@ Rationale:
 - [ ] 005.11 Document `DECOMK_MOTD_PHASES` phase-file mapping in `README.md` and `doc/decomk-design.md` (deferred in this implementation pass).
 - [x] 005.12 Also write mapped `version` MOTD file when `DECOMK_MOTD_PHASES` includes `NN:version`.
 - [x] 005.13 Add tests that verify `version` MOTD write and fallback behavior.
+- [x] 005.14 Update version MOTD format: leading blank line before `decomk version:`, remove `runtime phase:` line.

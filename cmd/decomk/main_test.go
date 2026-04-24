@@ -883,8 +883,11 @@ func TestWritePhaseMotdSummary(t *testing.T) {
 		if versionReadErr != nil {
 			t.Fatalf("ReadFile(versionPath): %v", versionReadErr)
 		}
-		if got := string(versionRaw); !strings.Contains(got, "decomk version: "+decomkVersion) {
+		if got := string(versionRaw); !strings.HasPrefix(got, "\ndecomk version: "+decomkVersion+"\n") {
 			t.Fatalf("version MOTD missing version string:\n%s", got)
+		}
+		if got := string(versionRaw); strings.Contains(got, "runtime phase:") {
+			t.Fatalf("version MOTD should not include runtime phase line:\n%s", got)
 		}
 
 		fallbackPath := phaseFallbackMotdPath(home, "93-decomk-updateContent")
@@ -962,8 +965,11 @@ func TestWritePhaseMotdSummary(t *testing.T) {
 		if readErr != nil {
 			t.Fatalf("ReadFile(versionPath): %v", readErr)
 		}
-		if got := string(versionRaw); !strings.Contains(got, "runtime phase: postCreate") {
-			t.Fatalf("version MOTD missing runtime phase:\n%s", got)
+		if got := string(versionRaw); !strings.HasPrefix(got, "\ndecomk version: "+decomkVersion+"\n") {
+			t.Fatalf("version MOTD missing leading newline + version line:\n%s", got)
+		}
+		if got := string(versionRaw); strings.Contains(got, "runtime phase:") {
+			t.Fatalf("version MOTD should not include runtime phase line:\n%s", got)
 		}
 	})
 

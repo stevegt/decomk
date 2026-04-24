@@ -806,18 +806,12 @@ func renderRunMotdBody(stampDir string, contextKeys, targets []string, phase str
 //
 // Intent: Keep a dedicated version MOTD entry available when requested via
 // DECOMK_MOTD_PHASES without coupling it to a lifecycle phase name.
-// Source: DI-005-20260424-142032 (TODO/005)
-func renderVersionMotdBody(runtimePhase string) []byte {
-	runtimePhase = strings.TrimSpace(runtimePhase)
-	if runtimePhase == "" {
-		runtimePhase = "(none)"
-	}
+// Source: DI-005-20260424-143700 (TODO/005)
+func renderVersionMotdBody() []byte {
 	var body strings.Builder
+	body.WriteString("\n")
 	body.WriteString("decomk version: ")
 	body.WriteString(decomkVersion)
-	body.WriteString("\n")
-	body.WriteString("runtime phase: ")
-	body.WriteString(runtimePhase)
 	body.WriteString("\n")
 	return []byte(body.String())
 }
@@ -1110,7 +1104,7 @@ func writePhaseMotdSummary(plan *resolvedPlan, cookedTuples, targets []string, p
 	versionFilename, versionMapped := motdFilenameForPhase(mappings, motdVersionPhase)
 	if versionMapped {
 		versionErr := writeMotdSummaryBody(
-			renderVersionMotdBody(phase),
+			renderVersionMotdBody(),
 			phaseMotdPath(versionFilename),
 			phaseFallbackMotdPath(plan.Home, versionFilename),
 		)
