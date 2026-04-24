@@ -864,7 +864,7 @@ func TestWritePhaseMotdSummary(t *testing.T) {
 			StampDir:    stampDir,
 			ContextKeys: []string{"DEFAULT"},
 		}
-		cookedTuples := []string{motdPhaseMappingTuple + "=93:updateContent,94:postCreate"}
+		cookedTuples := []string{motdPhaseMappingTuple + "=88:version,93:updateContent,94:postCreate"}
 
 		if err := writePhaseMotdSummary(plan, cookedTuples, []string{"Block00_base"}, "updateContent", 0, nil, ""); err != nil {
 			t.Fatalf("writePhaseMotdSummary() unexpected error: %v", err)
@@ -878,10 +878,22 @@ func TestWritePhaseMotdSummary(t *testing.T) {
 		if got := string(primaryRaw); !strings.Contains(got, "updateContent success") {
 			t.Fatalf("primary MOTD missing status:\n%s", got)
 		}
+		versionPath := phaseMotdPath("88-decomk-version")
+		versionRaw, versionReadErr := os.ReadFile(versionPath)
+		if versionReadErr != nil {
+			t.Fatalf("ReadFile(versionPath): %v", versionReadErr)
+		}
+		if got := string(versionRaw); !strings.Contains(got, "decomk version: "+decomkVersion) {
+			t.Fatalf("version MOTD missing version string:\n%s", got)
+		}
 
 		fallbackPath := phaseFallbackMotdPath(home, "93-decomk-updateContent")
 		if _, err := os.Stat(fallbackPath); !os.IsNotExist(err) {
 			t.Fatalf("fallback file should not exist after primary write success: %s (err=%v)", fallbackPath, err)
+		}
+		versionFallbackPath := phaseFallbackMotdPath(home, "88-decomk-version")
+		if _, err := os.Stat(versionFallbackPath); !os.IsNotExist(err) {
+			t.Fatalf("version fallback file should not exist after primary write success: %s (err=%v)", versionFallbackPath, err)
 		}
 	})
 
@@ -928,6 +940,33 @@ func TestWritePhaseMotdSummary(t *testing.T) {
 		}
 	})
 
+	t.Run("writes version file when only version is mapped", func(t *testing.T) {
+		home := t.TempDir()
+		stampDir := filepath.Join(home, "stamps")
+		if err := os.MkdirAll(stampDir, 0o755); err != nil {
+			t.Fatalf("MkdirAll(stampDir): %v", err)
+		}
+		runMotdRootDir = filepath.Join(t.TempDir(), "motd.d")
+
+		plan := &resolvedPlan{
+			Home:        home,
+			StampDir:    stampDir,
+			ContextKeys: []string{"DEFAULT"},
+		}
+		cookedTuples := []string{motdPhaseMappingTuple + "=88:version"}
+		if err := writePhaseMotdSummary(plan, cookedTuples, []string{"Block00_base"}, "postCreate", 0, nil, ""); err != nil {
+			t.Fatalf("writePhaseMotdSummary() unexpected error: %v", err)
+		}
+		versionPath := phaseMotdPath("88-decomk-version")
+		versionRaw, readErr := os.ReadFile(versionPath)
+		if readErr != nil {
+			t.Fatalf("ReadFile(versionPath): %v", readErr)
+		}
+		if got := string(versionRaw); !strings.Contains(got, "runtime phase: postCreate") {
+			t.Fatalf("version MOTD missing runtime phase:\n%s", got)
+		}
+	})
+
 	t.Run("fails on invalid mapping", func(t *testing.T) {
 		home := t.TempDir()
 		stampDir := filepath.Join(home, "stamps")
@@ -947,6 +986,41 @@ func TestWritePhaseMotdSummary(t *testing.T) {
 		}
 		if !strings.Contains(err.Error(), "parse "+motdPhaseMappingTuple) {
 			t.Fatalf("writePhaseMotdSummary() error missing parse context: %v", err)
+		}
+	})
+
+	t.Run("falls back for both run and version files when primary path is invalid", func(t *testing.T) {
+		home := t.TempDir()
+		stampDir := filepath.Join(home, "stamps")
+		if err := os.MkdirAll(stampDir, 0o755); err != nil {
+			t.Fatalf("MkdirAll(stampDir): %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(stampDir, "stamp-probe"), []byte(""), 0o600); err != nil {
+			t.Fatalf("WriteFile(stamp-probe): %v", err)
+		}
+		blockedParent := filepath.Join(t.TempDir(), "not-a-directory")
+		if err := os.WriteFile(blockedParent, []byte("x"), 0o600); err != nil {
+			t.Fatalf("WriteFile(blockedParent): %v", err)
+		}
+		runMotdRootDir = blockedParent
+
+		plan := &resolvedPlan{
+			Home:        home,
+			StampDir:    stampDir,
+			ContextKeys: []string{"DEFAULT"},
+		}
+		cookedTuples := []string{motdPhaseMappingTuple + "=88:version,93:updateContent"}
+		err := writePhaseMotdSummary(plan, cookedTuples, []string{"Block00_base"}, "updateContent", 0, nil, "")
+		if err == nil {
+			t.Fatalf("writePhaseMotdSummary() expected fallback warning error, got nil")
+		}
+		runFallbackPath := phaseFallbackMotdPath(home, "93-decomk-updateContent")
+		if _, statErr := os.Stat(runFallbackPath); statErr != nil {
+			t.Fatalf("Stat(runFallbackPath): %v", statErr)
+		}
+		versionFallbackPath := phaseFallbackMotdPath(home, "88-decomk-version")
+		if _, statErr := os.Stat(versionFallbackPath); statErr != nil {
+			t.Fatalf("Stat(versionFallbackPath): %v", statErr)
 		}
 	})
 }

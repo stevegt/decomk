@@ -801,6 +801,27 @@ func renderRunMotdBody(stampDir string, contextKeys, targets []string, phase str
 	return []byte(body.String())
 }
 
+// renderVersionMotdBody renders the MOTD body for the special `version` phase
+// mapping entry.
+//
+// Intent: Keep a dedicated version MOTD entry available when requested via
+// DECOMK_MOTD_PHASES without coupling it to a lifecycle phase name.
+// Source: DI-005-20260424-142032 (TODO/005)
+func renderVersionMotdBody(runtimePhase string) []byte {
+	runtimePhase = strings.TrimSpace(runtimePhase)
+	if runtimePhase == "" {
+		runtimePhase = "(none)"
+	}
+	var body strings.Builder
+	body.WriteString("decomk version: ")
+	body.WriteString(decomkVersion)
+	body.WriteString("\n")
+	body.WriteString("runtime phase: ")
+	body.WriteString(runtimePhase)
+	body.WriteString("\n")
+	return []byte(body.String())
+}
+
 // parseMotdPhaseMappings parses DECOMK_MOTD_PHASES CSV entries in the format
 // "NN:phase,NN:phase", returning phase->NN mapping.
 //
@@ -912,6 +933,34 @@ func writeRunMotdFallback(fallbackPath string, body []byte) (string, error) {
 		return fallbackPath, fmt.Errorf("write fallback MOTD summary %s: %w", fallbackPath, err)
 	}
 	return fallbackPath, nil
+}
+
+// writeMotdSummaryBody writes one MOTD body with primary and fallback behavior.
+//
+// Intent: Keep fallback/warning semantics consistent for run-phase and
+// version-phase MOTD outputs.
+// Source: DI-005-20260424-142032 (TODO/005)
+func writeMotdSummaryBody(body []byte, primaryPath, fallbackPath string) error {
+	prepErr := prepareRunMotdParent(primaryPath)
+	if prepErr == nil {
+		writeErr := os.WriteFile(primaryPath, body, 0o644)
+		if writeErr == nil {
+			return nil
+		}
+		primaryErr := fmt.Errorf("write %s: %w", primaryPath, writeErr)
+		writtenFallbackPath, fallbackErr := writeRunMotdFallback(fallbackPath, body)
+		if fallbackErr != nil {
+			return fmt.Errorf("could not update %s: %v; fallback %s failed: %w", primaryPath, primaryErr, fallbackPath, fallbackErr)
+		}
+		return fmt.Errorf("could not update %s: %v; wrote fallback %s", primaryPath, primaryErr, writtenFallbackPath)
+	}
+
+	primaryErr := fmt.Errorf("prepare parent dir for %s: %w", primaryPath, prepErr)
+	writtenFallbackPath, fallbackErr := writeRunMotdFallback(fallbackPath, body)
+	if fallbackErr != nil {
+		return fmt.Errorf("could not update %s: %v; fallback %s failed: %w", primaryPath, primaryErr, fallbackPath, fallbackErr)
+	}
+	return fmt.Errorf("could not update %s: %v; wrote fallback %s", primaryPath, primaryErr, writtenFallbackPath)
 }
 
 // runAsRootNoPrompt runs one command as root without interactive prompts.
@@ -1041,19 +1090,39 @@ func writePhaseMotdSummary(plan *resolvedPlan, cookedTuples, targets []string, p
 		return fmt.Errorf("parse %s: %w", motdPhaseMappingTuple, parseErr)
 	}
 	filename, mapped := motdFilenameForPhase(mappings, phase)
-	if !mapped {
+	var errs []error
+	if mapped {
+		runErr := writeRunMotdSummary(
+			plan,
+			targets,
+			phase,
+			makeExitCode,
+			makeErr,
+			runLogPath,
+			phaseMotdPath(filename),
+			phaseFallbackMotdPath(plan.Home, filename),
+		)
+		if runErr != nil {
+			errs = append(errs, runErr)
+		}
+	}
+
+	versionFilename, versionMapped := motdFilenameForPhase(mappings, motdVersionPhase)
+	if versionMapped {
+		versionErr := writeMotdSummaryBody(
+			renderVersionMotdBody(phase),
+			phaseMotdPath(versionFilename),
+			phaseFallbackMotdPath(plan.Home, versionFilename),
+		)
+		if versionErr != nil {
+			errs = append(errs, versionErr)
+		}
+	}
+
+	if len(errs) == 0 {
 		return nil
 	}
-	return writeRunMotdSummary(
-		plan,
-		targets,
-		phase,
-		makeExitCode,
-		makeErr,
-		runLogPath,
-		phaseMotdPath(filename),
-		phaseFallbackMotdPath(plan.Home, filename),
-	)
+	return errors.Join(errs...)
 }
 
 // writeRunMotdSummary writes the post-make status summary to /etc/motd.d and
@@ -1064,27 +1133,7 @@ func writePhaseMotdSummary(plan *resolvedPlan, cookedTuples, targets []string, p
 // Source: DI-005-20260424-141017 (TODO/005)
 func writeRunMotdSummary(plan *resolvedPlan, targets []string, phase string, makeExitCode int, makeErr error, runLogPath, primaryPath, fallbackPath string) error {
 	body := renderRunMotdBody(plan.StampDir, plan.ContextKeys, targets, phase, makeExitCode, makeErr, runLogPath)
-
-	prepErr := prepareRunMotdParent(primaryPath)
-	if prepErr == nil {
-		writeErr := os.WriteFile(primaryPath, body, 0o644)
-		if writeErr == nil {
-			return nil
-		}
-		primaryErr := fmt.Errorf("write %s: %w", primaryPath, writeErr)
-		writtenFallbackPath, fallbackErr := writeRunMotdFallback(fallbackPath, body)
-		if fallbackErr != nil {
-			return fmt.Errorf("could not update %s: %v; fallback %s failed: %w", primaryPath, primaryErr, fallbackPath, fallbackErr)
-		}
-		return fmt.Errorf("could not update %s: %v; wrote fallback %s", primaryPath, primaryErr, writtenFallbackPath)
-	}
-
-	primaryErr := fmt.Errorf("prepare parent dir for %s: %w", primaryPath, prepErr)
-	writtenFallbackPath, fallbackErr := writeRunMotdFallback(fallbackPath, body)
-	if fallbackErr != nil {
-		return fmt.Errorf("could not update %s: %v; fallback %s failed: %w", primaryPath, primaryErr, fallbackPath, fallbackErr)
-	}
-	return fmt.Errorf("could not update %s: %v; wrote fallback %s", primaryPath, primaryErr, writtenFallbackPath)
+	return writeMotdSummaryBody(body, primaryPath, fallbackPath)
 }
 
 // applyStartDir changes the current working directory to match -C.
@@ -1150,6 +1199,10 @@ const (
 	// motdPhaseMappingTuple is the canonical tuple name for phase->filename
 	// mappings used when writing post-make MOTD summaries.
 	motdPhaseMappingTuple = "DECOMK_MOTD_PHASES"
+
+	// motdVersionPhase is the special mapping key that requests a dedicated
+	// decomk-version MOTD file in addition to the runtime phase summary.
+	motdVersionPhase = "version"
 
 	// runMotdFallbackRelDir is the fallback directory (under DECOMK_HOME) used
 	// when /etc/motd.d is not writable.

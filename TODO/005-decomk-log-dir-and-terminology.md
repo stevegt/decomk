@@ -44,6 +44,15 @@ Constraints: Mapping syntax is strict (`NN:phase` CSV); spaced `=` tuple syntax 
 Affects: `cmd/decomk/main.go`, `cmd/decomk/main_test.go`, runtime paths `/etc/motd.d/<NN>-decomk-<phase>`, `<DECOMK_HOME>/stage0/failure/<NN>-decomk-<phase>`.
 Supersedes: DI-005-20260424-131352
 
+ID: DI-005-20260424-142032
+Date: 2026-04-24 14:20:32
+Status: active
+Decision: If `DECOMK_MOTD_PHASES` includes a `version` mapping (for example `88:version`), `decomk run` writes that MOTD file in addition to the phase-mapped run summary file.
+Intent: Make the running decomk binary version visible in MOTD through a dedicated configurable entry without requiring a separate hardcoded path.
+Constraints: Keep existing strict mapping validation and non-fatal primary/fallback write semantics; if no `version` mapping exists, behavior is unchanged.
+Affects: `cmd/decomk/main.go`, `cmd/decomk/main_test.go`, runtime paths `/etc/motd.d/<NN>-decomk-version`, `<DECOMK_HOME>/stage0/failure/<NN>-decomk-version`.
+Supersedes: DI-005-20260424-141017
+
 ## Goal
 
 Make decomk’s per-run `make` output logging robust (no hard dependency on
@@ -174,3 +183,5 @@ Rationale:
 - [x] 005.9 Replace fixed `98-decomk` run-summary path with phase mapping via `DECOMK_MOTD_PHASES` + `DECOMK_STAGE0_PHASE`.
 - [x] 005.10 Add unit tests for mapping parse/skip/error behavior and mirrored fallback filenames.
 - [ ] 005.11 Document `DECOMK_MOTD_PHASES` phase-file mapping in `README.md` and `doc/decomk-design.md` (deferred in this implementation pass).
+- [x] 005.12 Also write mapped `version` MOTD file when `DECOMK_MOTD_PHASES` includes `NN:version`.
+- [x] 005.13 Add tests that verify `version` MOTD write and fallback behavior.
