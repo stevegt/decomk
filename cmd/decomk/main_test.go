@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -693,4 +694,154 @@ func TestCmdRun_StampDirAndIdempotentTarget(t *testing.T) {
 	if _, err := os.Stat(unexpectedLocalStampPath); !os.IsNotExist(err) {
 		t.Fatalf("unexpected local stamp path exists: %s (err=%v)", unexpectedLocalStampPath, err)
 	}
+}
+
+func TestRenderRunMotdBody_Success(t *testing.T) {
+	t.Parallel()
+
+	stampDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(stampDir, "alpha"), []byte(""), 0o600); err != nil {
+		t.Fatalf("WriteFile(alpha): %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stampDir, "beta"), []byte(""), 0o600); err != nil {
+		t.Fatalf("WriteFile(beta): %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(stampDir, ".hidden"), []byte(""), 0o600); err != nil {
+		t.Fatalf("WriteFile(.hidden): %v", err)
+	}
+
+	got := string(renderRunMotdBody(
+		stampDir,
+		[]string{"DEFAULT", "repo1"},
+		[]string{"Block00_base", "Block10_common"},
+		"updateContent",
+		0,
+		nil,
+		"",
+	))
+
+	if !strings.Contains(got, "alpha\n") || !strings.Contains(got, "beta\n") {
+		t.Fatalf("renderRunMotdBody() missing stamp listing:\n%s", got)
+	}
+	if strings.Contains(got, ".hidden\n") {
+		t.Fatalf("renderRunMotdBody() should not list hidden stamp files:\n%s", got)
+	}
+	if !strings.Contains(got, "decomk.conf keys: DEFAULT repo1") {
+		t.Fatalf("renderRunMotdBody() missing context summary:\n%s", got)
+	}
+	if !strings.Contains(got, "Makefile targets: Block00_base Block10_common") {
+		t.Fatalf("renderRunMotdBody() missing target summary:\n%s", got)
+	}
+	if !strings.Contains(got, "updateContent success") {
+		t.Fatalf("renderRunMotdBody() missing success status:\n%s", got)
+	}
+}
+
+func TestRenderRunMotdBody_ErrorIncludesExitAndLog(t *testing.T) {
+	t.Parallel()
+
+	got := string(renderRunMotdBody(
+		t.TempDir(),
+		[]string{"DEFAULT"},
+		[]string{"Block20_user"},
+		"postCreate",
+		23,
+		errors.New("boom"),
+		"/tmp/decomk/log/make.log",
+	))
+	if !strings.Contains(got, "postCreate error (exit 23; log: /tmp/decomk/log/make.log)") {
+		t.Fatalf("renderRunMotdBody() missing error status details:\n%s", got)
+	}
+}
+
+func TestWriteRunMotdSummary_PrimaryAndFallback(t *testing.T) {
+	origRunMotdPath := runMotdPath
+	t.Cleanup(func() {
+		runMotdPath = origRunMotdPath
+	})
+
+	t.Run("writes primary MOTD path when writable", func(t *testing.T) {
+		home := t.TempDir()
+		stampDir := filepath.Join(home, "stamps")
+		if err := os.MkdirAll(stampDir, 0o755); err != nil {
+			t.Fatalf("MkdirAll(stampDir): %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(stampDir, "stamp-ok"), []byte(""), 0o600); err != nil {
+			t.Fatalf("WriteFile(stamp-ok): %v", err)
+		}
+
+		primaryPath := filepath.Join(t.TempDir(), "motd.d", "98-decomk")
+		runMotdPath = primaryPath
+		plan := &resolvedPlan{
+			Home:        home,
+			StampDir:    stampDir,
+			ContextKeys: []string{"DEFAULT"},
+		}
+
+		if err := writeRunMotdSummary(plan, []string{"Block00_base"}, "updateContent", 0, nil, ""); err != nil {
+			t.Fatalf("writeRunMotdSummary() unexpected error: %v", err)
+		}
+
+		primaryRaw, err := os.ReadFile(primaryPath)
+		if err != nil {
+			t.Fatalf("ReadFile(primaryPath): %v", err)
+		}
+		primary := string(primaryRaw)
+		if !strings.Contains(primary, "updateContent success") {
+			t.Fatalf("primary MOTD missing status:\n%s", primary)
+		}
+
+		fallbackPath := filepath.Join(home, runMotdFallbackRelPath)
+		if _, err := os.Stat(fallbackPath); !os.IsNotExist(err) {
+			t.Fatalf("fallback file should not exist after primary write success: %s (err=%v)", fallbackPath, err)
+		}
+	})
+
+	t.Run("falls back under DECOMK_HOME when primary path is invalid", func(t *testing.T) {
+		home := t.TempDir()
+		stampDir := filepath.Join(home, "stamps")
+		if err := os.MkdirAll(stampDir, 0o755); err != nil {
+			t.Fatalf("MkdirAll(stampDir): %v", err)
+		}
+		if err := os.WriteFile(filepath.Join(stampDir, "stamp-probe"), []byte(""), 0o600); err != nil {
+			t.Fatalf("WriteFile(stamp-probe): %v", err)
+		}
+
+		blockedParent := filepath.Join(t.TempDir(), "not-a-directory")
+		if err := os.WriteFile(blockedParent, []byte("x"), 0o600); err != nil {
+			t.Fatalf("WriteFile(blockedParent): %v", err)
+		}
+		runMotdPath = filepath.Join(blockedParent, "98-decomk")
+
+		plan := &resolvedPlan{
+			Home:        home,
+			StampDir:    stampDir,
+			ContextKeys: []string{"DEFAULT", "repo1"},
+		}
+
+		err := writeRunMotdSummary(
+			plan,
+			[]string{"Block10_common"},
+			"postCreate",
+			17,
+			errors.New("make failed"),
+			"/tmp/decomk/make.log",
+		)
+		if err == nil {
+			t.Fatalf("writeRunMotdSummary() expected fallback warning error, got nil")
+		}
+		if !strings.Contains(err.Error(), "wrote fallback") {
+			t.Fatalf("writeRunMotdSummary() error missing fallback note: %v", err)
+		}
+
+		fallbackPath := filepath.Join(home, runMotdFallbackRelPath)
+		fallbackRaw, readErr := os.ReadFile(fallbackPath)
+		if readErr != nil {
+			t.Fatalf("ReadFile(fallbackPath): %v", readErr)
+		}
+		fallback := string(fallbackRaw)
+		if !strings.Contains(fallback, "postCreate error (exit 17; log: /tmp/decomk/make.log)") {
+			t.Fatalf("fallback MOTD missing error status:\n%s", fallback)
+		}
+	})
 }

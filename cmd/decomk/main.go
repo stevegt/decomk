@@ -582,6 +582,22 @@ func cmdExecute(args []string, stdout, stderr io.Writer, mode executionMode) (ex
 	}
 
 	exitCode, runErr := makeexec.RunWithFlagsCommand(plan.StampDir, plan.Makefile, makeCmd, mode.MakeFlags, makeTuples, targets, makeEnv, out, errOut)
+	if !mode.DryRun {
+		phase := strings.TrimSpace(os.Getenv("DECOMK_STAGE0_PHASE"))
+		if phase == "" {
+			phase = mode.Name
+		}
+
+		// Intent: Always publish latest make-run status after invocation completion
+		// so operators can inspect contexts/targets/outcome from MOTD without opening
+		// detailed logs first.
+		// Source: DI-005-20260424-110139 (TODO/005)
+		if motdErr := writeRunMotdSummary(plan, targets, phase, exitCode, runErr, runLogPath); motdErr != nil {
+			if warnErr := writeLine(errOut, "decomk: warning:", motdErr.Error()); warnErr != nil {
+				return 1, warnErr
+			}
+		}
+	}
 	if makeUsesSudo {
 		// Make may have created or updated stamp files as root. Return ownership to
 		// the dev user so future runs can touch/check stamps without sudo.
@@ -728,6 +744,116 @@ func createRunLogDir(plan *resolvedPlan, runID string, stderr io.Writer) (string
 	return "", fmt.Errorf("create run log dir: tried %s: %v; fallback %s: %v", base, err, fallbackBase, fallbackErr)
 }
 
+// renderRunMotdBody renders the post-make status summary body for MOTD.
+//
+// The content intentionally mirrors an operator-oriented quick status template:
+//   - visible stamp names (ls-like listing from DECOMK_STAMPDIR)
+//   - resolved context keys
+//   - resolved make targets
+//   - lifecycle phase + success/error status
+//
+// Intent: Publish a deterministic, latest-run status summary that operators can
+// inspect at login without opening make logs first.
+// Source: DI-005-20260424-110139 (TODO/005)
+func renderRunMotdBody(stampDir string, contextKeys, targets []string, phase string, makeExitCode int, makeErr error, runLogPath string) []byte {
+	entries, readErr := os.ReadDir(stampDir)
+	var stampNames []string
+	if readErr == nil {
+		for _, entry := range entries {
+			name := entry.Name()
+			if strings.HasPrefix(name, ".") {
+				continue
+			}
+			stampNames = append(stampNames, name)
+		}
+		sort.Strings(stampNames)
+	}
+
+	phase = strings.TrimSpace(phase)
+	if phase == "" {
+		phase = "run"
+	}
+
+	status := "success"
+	if makeErr != nil {
+		logPath := strings.TrimSpace(runLogPath)
+		if logPath == "" {
+			logPath = "(none)"
+		}
+		status = fmt.Sprintf("error (exit %d; log: %s)", makeExitCode, logPath)
+	}
+
+	var body strings.Builder
+	if readErr == nil {
+		for _, stampName := range stampNames {
+			body.WriteString(stampName)
+			body.WriteString("\n")
+		}
+	} else {
+		body.WriteString(fmt.Sprintf("(unable to list stamp dir %s: %v)\n", stampDir, readErr))
+	}
+	body.WriteString("\n")
+	body.WriteString("decomk.conf keys: ")
+	body.WriteString(strings.Join(contextKeys, " "))
+	body.WriteString("\n")
+	body.WriteString("Makefile targets: ")
+	body.WriteString(strings.Join(targets, " "))
+	body.WriteString("\n")
+	body.WriteString(phase)
+	body.WriteString(" ")
+	body.WriteString(status)
+	body.WriteString("\n")
+	return []byte(body.String())
+}
+
+// writeRunMotdFallback writes the post-make MOTD summary to the DECOMK_HOME
+// fallback path used when /etc/motd.d is not writable.
+//
+// Intent: Keep latest-run status discoverable even in non-root environments
+// where /etc/motd.d cannot be updated directly.
+// Source: DI-005-20260424-110139 (TODO/005)
+func writeRunMotdFallback(home string, body []byte) (string, error) {
+	fallbackPath := filepath.Join(home, runMotdFallbackRelPath)
+	if err := state.EnsureParentDir(fallbackPath); err != nil {
+		return fallbackPath, fmt.Errorf("ensure fallback parent dir %s: %w", filepath.Dir(fallbackPath), err)
+	}
+	if err := os.WriteFile(fallbackPath, body, 0o644); err != nil {
+		return fallbackPath, fmt.Errorf("write fallback MOTD summary %s: %w", fallbackPath, err)
+	}
+	return fallbackPath, nil
+}
+
+// writeRunMotdSummary writes the post-make status summary to /etc/motd.d and
+// falls back under DECOMK_HOME when necessary.
+//
+// Intent: Update one canonical "latest status" MOTD file after every make run
+// while preserving make-result semantics when MOTD writes fail.
+// Source: DI-005-20260424-110139 (TODO/005)
+func writeRunMotdSummary(plan *resolvedPlan, targets []string, phase string, makeExitCode int, makeErr error, runLogPath string) error {
+	body := renderRunMotdBody(plan.StampDir, plan.ContextKeys, targets, phase, makeExitCode, makeErr, runLogPath)
+
+	parentErr := state.EnsureParentDir(runMotdPath)
+	if parentErr == nil {
+		writeErr := os.WriteFile(runMotdPath, body, 0o644)
+		if writeErr == nil {
+			return nil
+		}
+		primaryErr := fmt.Errorf("write %s: %w", runMotdPath, writeErr)
+		fallbackPath, fallbackErr := writeRunMotdFallback(plan.Home, body)
+		if fallbackErr != nil {
+			return fmt.Errorf("could not update %s: %v; fallback %s failed: %w", runMotdPath, primaryErr, fallbackPath, fallbackErr)
+		}
+		return fmt.Errorf("could not update %s: %v; wrote fallback %s", runMotdPath, primaryErr, fallbackPath)
+	}
+
+	primaryErr := fmt.Errorf("ensure parent dir for %s: %w", runMotdPath, parentErr)
+	fallbackPath, fallbackErr := writeRunMotdFallback(plan.Home, body)
+	if fallbackErr != nil {
+		return fmt.Errorf("could not update %s: %v; fallback %s failed: %w", runMotdPath, primaryErr, fallbackPath, fallbackErr)
+	}
+	return fmt.Errorf("could not update %s: %v; wrote fallback %s", runMotdPath, primaryErr, fallbackPath)
+}
+
 // applyStartDir changes the current working directory to match -C.
 //
 // This mirrors the common expectation of tools like make: relative paths provided
@@ -787,7 +913,14 @@ const (
 	// autoPassThroughPrefix is the env-var namespace that decomk automatically
 	// carries into env.sh/make, in addition to resolved config tuples.
 	autoPassThroughPrefix = "DECOMK_"
+
+	// runMotdFallbackRelPath is the fallback status-file location under
+	// DECOMK_HOME when /etc/motd.d is not writable.
+	runMotdFallbackRelPath = "stage0/failure/98-decomk"
 )
+
+// runMotdPath is the latest-status MOTD summary written after each make run.
+var runMotdPath = "/etc/motd.d/98-decomk"
 
 // resolveLogRoot determines where decomk should write per-run logs.
 //

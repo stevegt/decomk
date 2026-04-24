@@ -10,6 +10,14 @@ Intent: Keep logs in conventional system locations by default while preventing `
 Constraints: Explicit log-root settings must be strict (no implicit fallback); defaults must remain usable without requiring root; docs and identifiers must avoid mixed “audit/log” wording.
 Affects: `cmd/decomk/main.go`, `state/*`, `README.md`, `TODO/002-decomk-architecture.md`, unit tests for log root selection/fallback.
 
+ID: DI-005-20260424-110139
+Date: 2026-04-24 11:01:39
+Status: active
+Decision: After each `decomk run` make invocation completes (success or failure), write `/etc/motd.d/98-decomk` with a stamp/context/target summary and phase-scoped status line; if `/etc/motd.d` is not writable, write a fallback status file at `<DECOMK_HOME>/stage0/failure/98-decomk` and warn without changing make-result exit semantics.
+Intent: Give operators a deterministic, latest-run status banner that survives both success and failure paths while preserving existing stage-0 pre-make failure hints and keeping make outcome as the authoritative run result.
+Constraints: Keep stage-0 MOTD logic unchanged in this patch; status line must be based on make result only; fallback must be explicit and non-silent; no `|| true` behavior.
+Affects: `cmd/decomk/main.go`, `cmd/decomk/main_test.go`, runtime paths `/etc/motd.d/98-decomk` and `<DECOMK_HOME>/stage0/failure/98-decomk`.
+
 ## Goal
 
 Make decomk’s per-run `make` output logging robust (no hard dependency on
