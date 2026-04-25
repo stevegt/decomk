@@ -227,23 +227,6 @@ codespace_bash_root() {
   codespace_bash "sudo -n bash -lc $(printf '%q' "$script")"
 }
 
-codespace_bash_with_root_fallback() {
-  local script="$1"
-  local output=""
-  if output="$(codespace_bash "$script" 2>/dev/null)"; then
-    printf '%s' "$output"
-    return 0
-  fi
-  # Intent: Keep diagnostics and marker reads working when stage-0 root execution
-  # creates root-owned log trees under DECOMK_LOG_DIR.
-  # Source: DI-007-20260424-200248 (TODO/007)
-  if output="$(codespace_bash_root "$script" 2>/dev/null)"; then
-    printf '%s' "$output"
-    return 0
-  fi
-  codespace_bash_root "$script"
-}
-
 log_root_candidates() {
   local root
   local seen=()
@@ -272,7 +255,10 @@ resolve_remote_log_root() {
   while IFS= read -r root; do
     local root_q
     root_q="$(printf '%q' "$root")"
-    if codespace_bash_with_root_fallback "set -euo pipefail; [[ -d $root_q ]]" >/dev/null; then
+    # Intent: Keep diagnostics deterministic by reading decomk logs as root,
+    # because stage-0 runs as root and can leave root-owned log trees.
+    # Source: DI-007-20260424-200248 (TODO/007)
+    if codespace_bash_root "set -euo pipefail; [[ -d $root_q ]]" >/dev/null; then
       printf '%s' "$root"
       return 0
     fi
@@ -286,7 +272,10 @@ latest_make_log_path() {
     local root_q
     local latest_path
     root_q="$(printf '%q' "$root")"
-    if ! latest_path="$(codespace_bash_with_root_fallback "set -euo pipefail; if [[ -d $root_q ]]; then find $root_q -type f -name make.log | sort | tail -n1; fi")"; then
+    # Intent: Read make logs explicitly as root so diagnostics do not depend on
+    # workspace-user readability of root-owned log trees.
+    # Source: DI-007-20260424-200248 (TODO/007)
+    if ! latest_path="$(codespace_bash_root "set -euo pipefail; test -d $root_q; find $root_q -type f -name make.log | sort | tail -n1")"; then
       continue
     fi
     if [[ -n "$latest_path" ]]; then
@@ -305,7 +294,10 @@ list_make_log_paths() {
     local root_q
     local found_paths
     root_q="$(printf '%q' "$root")"
-    if ! found_paths="$(codespace_bash_with_root_fallback "set -euo pipefail; if [[ -d $root_q ]]; then find $root_q -type f -name make.log | sort; fi")"; then
+    # Intent: Keep diagnostic log listing consistent with runtime log discovery
+    # by reading both from root-owned log trees.
+    # Source: DI-007-20260424-200248 (TODO/007)
+    if ! found_paths="$(codespace_bash_root "set -euo pipefail; test -d $root_q; find $root_q -type f -name make.log | sort")"; then
       continue
     fi
     if [[ -n "$found_paths" ]]; then
@@ -331,6 +323,10 @@ prepare_remote_log_dir_copy() {
 
   source_log_dir_q="$(printf '%q' "$source_log_dir")"
   remote_log_copy_dir_q="$(printf '%q' "$remote_log_copy_dir")"
+  if ! codespace_bash_root "set -euo pipefail; test -d $source_log_dir_q" >/dev/null; then
+    echo "remote log dir missing or inaccessible: $source_log_dir" >&2
+    return 1
+  fi
   script="$(cat <<EOF
 set -euo pipefail
 src=$source_log_dir_q
@@ -341,15 +337,19 @@ if [[ ! -d "\$src" ]]; then
   exit 1
 fi
 
-if rm -rf "\$dst" && mkdir -p "\$dst" && cp -a "\$src/." "\$dst"; then
-  :
-elif sudo -n rm -rf "\$dst" && sudo -n mkdir -p "\$dst" && sudo -n cp -a "\$src/." "\$dst"; then
-  if ! sudo -n chown -R "\$(id -un):\$(id -gn)" "\$dst"; then
-    echo "failed to chown copied remote log dir: \$dst" >&2
+rm -rf "\$dst"
+mkdir -p "\$dst"
+cp -a "\$src/." "\$dst"
+
+if [[ -n "\${SUDO_USER:-}" ]]; then
+  if ! chown -R "\$SUDO_USER:\$SUDO_USER" "\$dst"; then
+    echo "failed to chown copied remote log dir for \$SUDO_USER: \$dst" >&2
     exit 1
   fi
-else
-  echo "failed to copy remote log dir from \$src to \$dst" >&2
+fi
+
+if ! chmod -R a+rX "\$dst"; then
+  echo "failed to grant read access to copied remote log dir: \$dst" >&2
   exit 1
 fi
 EOF
@@ -357,7 +357,7 @@ EOF
   # Intent: Capture remote logs into a copy path that gh codespace cp can read
   # even when original logs are root-owned.
   # Source: DI-007-20260424-200248 (TODO/007)
-  codespace_bash "$script"
+  codespace_bash_root "$script"
 }
 
 sanitize_diag_step_name() {
@@ -399,7 +399,7 @@ load_make_log_or_fail() {
   local log_path="$2"
   local log_content
 
-  if ! log_content="$(codespace_bash_with_root_fallback "cat $(printf '%q' "$log_path")")"; then
+  if ! log_content="$(codespace_bash_root "cat $(printf '%q' "$log_path")")"; then
     fail "$exit_code" "failed to read make.log at $log_path"
   fi
 
@@ -419,7 +419,7 @@ load_stage0_log_or_fail() {
   # Intent: Validate stage-0 identity markers from stage-0 runtime logs, not
   # just make logs, so user identity evidence is explicit per process boundary.
   # Source: DI-007-20260423-180202 (TODO/007)
-  if ! log_content="$(codespace_bash_with_root_fallback "cat $(printf '%q' "$stage0_log_path")")"; then
+  if ! log_content="$(codespace_bash_root "cat $(printf '%q' "$stage0_log_path")")"; then
     fail "$exit_code" "failed to read stage-0 runtime log at $stage0_log_path"
   fi
 
