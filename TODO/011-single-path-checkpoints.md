@@ -94,6 +94,14 @@ Constraints: Keep deferred scope unchanged for 011.4/011.5/011.6/011.8; avoid ad
 Affects: `TODO/011-single-path-checkpoints.md`.
 Supersedes: DI-011-20260420-214841
 
+ID: DI-011-20260424-160516
+Date: 2026-04-24 16:05:16
+Status: active
+Decision: Make `decomk checkpoint build` verbose by default for devcontainer lifecycle logs, and add `-q` to suppress those logs.
+Intent: Improve operator troubleshooting ergonomics without requiring an opt-in verbose flag.
+Constraints: Keep checkpoint JSON artifact on stdout unchanged; route verbose lifecycle logs to stderr; preserve existing build/push/tag command contract.
+Affects: `cmd/decomk/checkpoint.go`, `cmd/decomk/checkpoint_test.go`, `README.md`, `TODO/011-single-path-checkpoints.md`.
+
 ## Goal
 
 Implement single-path checkpoints that reduce prebuild and first-boot
@@ -156,6 +164,7 @@ Out of scope:
 - `decomk checkpoint build [flags]`
   - runs prebuild/common lifecycle and creates a local candidate image.
   - outputs JSON with source digest/ref metadata for downstream steps.
+  - lifecycle logs are verbose by default; `-q` suppresses lifecycle log output.
 - `decomk checkpoint push [-m] <source> <tag...>`
   - publishes one resolved source (digest/ref/image ID) to one-or-more tags.
   - typically used for immutable + `testing`/`unstable` tags.

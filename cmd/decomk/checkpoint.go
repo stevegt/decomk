@@ -20,6 +20,9 @@ const (
 	checkpointSubcommandBuild = "build"
 	checkpointSubcommandPush  = "push"
 	checkpointSubcommandTag   = "tag"
+
+	checkpointBuildVerboseLogLevel = "trace"
+	checkpointBuildQuietLogLevel   = "info"
 )
 
 var dockerPushDigestPattern = regexp.MustCompile(`(?i)digest:\s*(sha256:[0-9a-f]{64})`)
@@ -67,6 +70,7 @@ type checkpointBuildFlags struct {
 	configPath      string
 	tag             string
 	keepContainer   bool
+	quiet           bool
 }
 
 type checkpointPublishFlags struct {
@@ -144,6 +148,7 @@ Subcommands:
         -config <path>             devcontainer.json path relative to workspace folder unless absolute (default ".devcontainer/devcontainer.json")
         -tag <image:tag>           local candidate tag (default "decomk-checkpoint:<UTC timestamp>-<pid>")
         -keep-container            keep the prebuild container for diagnostics
+        -q                         quiet mode (suppress lifecycle log output)
 
   push
       Publish one source image to one-or-more destination tags.
@@ -167,6 +172,7 @@ func cmdCheckpointBuild(args []string, stdout, stderr io.Writer, deps checkpoint
 	fs.StringVar(&flags.configPath, "config", flags.configPath, "devcontainer.json path relative to workspace folder unless absolute")
 	fs.StringVar(&flags.tag, "tag", "", "local candidate image tag (default decomk-checkpoint:<UTC timestamp>-<pid>)")
 	fs.BoolVar(&flags.keepContainer, "keep-container", false, "keep checkpoint container instead of removing it after commit")
+	fs.BoolVar(&flags.quiet, "q", false, "quiet mode (suppress lifecycle log output)")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0, nil
@@ -229,10 +235,19 @@ func cmdCheckpointBuild(args []string, stdout, stderr io.Writer, deps checkpoint
 		"--workspace-folder", workspaceFolder,
 		"--config", devcontainerPath,
 		"--prebuild",
+		"--log-level", checkpointBuildLogLevel(flags.quiet),
 		"--log-format", "json",
 	)
 	if err != nil {
 		return 1, err
+	}
+	if !flags.quiet {
+		// Intent: Make checkpoint-build lifecycle troubleshooting visible by
+		// default while keeping machine-readable checkpoint JSON on stdout.
+		// Source: DI-011-20260424-160516 (TODO/011)
+		if err := writeCheckpointBuildLogs(stderr, devcontainerOut); err != nil {
+			return 1, err
+		}
 	}
 	containerID, err = parseContainerIDFromDevcontainerOutput(devcontainerOut.Stdout)
 	if err != nil {
@@ -273,6 +288,40 @@ func cmdCheckpointBuild(args []string, stdout, stderr io.Writer, deps checkpoint
 		return 1, err
 	}
 	return 0, nil
+}
+
+func checkpointBuildLogLevel(quiet bool) string {
+	if quiet {
+		return checkpointBuildQuietLogLevel
+	}
+	return checkpointBuildVerboseLogLevel
+}
+
+// writeCheckpointBuildLogs writes captured devcontainer lifecycle logs to
+// stderr in checkpoint-build verbose mode.
+//
+// Intent: Keep checkpoint artifacts deterministic on stdout while making verbose
+// lifecycle logs directly visible to operators on stderr.
+// Source: DI-011-20260424-160516 (TODO/011)
+func writeCheckpointBuildLogs(stderr io.Writer, out checkpointCommandOutput) error {
+	if err := writeCheckpointLogStream(stderr, out.Stdout); err != nil {
+		return err
+	}
+	if err := writeCheckpointLogStream(stderr, out.Stderr); err != nil {
+		return err
+	}
+	return nil
+}
+
+func writeCheckpointLogStream(w io.Writer, stream string) error {
+	stream = strings.TrimSpace(stream)
+	if stream == "" {
+		return nil
+	}
+	if err := writeLine(w, stream); err != nil {
+		return err
+	}
+	return nil
 }
 
 func cmdCheckpointPublish(args []string, stdout, stderr io.Writer, deps checkpointDeps, mode string) (int, error) {

@@ -74,6 +74,7 @@ func TestCmdCheckpointBuild_SuccessCleansContainerByDefault(t *testing.T) {
 					"--workspace-folder", workspace,
 					"--config", configPath,
 					"--prebuild",
+					"--log-level", checkpointBuildQuietLogLevel,
 					"--log-format", "json",
 				},
 				output: checkpointCommandOutput{
@@ -112,6 +113,7 @@ func TestCmdCheckpointBuild_SuccessCleansContainerByDefault(t *testing.T) {
 			"-workspace-folder", workspace,
 			"-config", ".devcontainer/devcontainer.json",
 			"-tag", "registry.example/decomk:test-candidate",
+			"-q",
 		},
 		&stdout,
 		&stderr,
@@ -165,6 +167,7 @@ func TestCmdCheckpointBuild_KeepContainerSkipsCleanup(t *testing.T) {
 					"--workspace-folder", workspace,
 					"--config", configPath,
 					"--prebuild",
+					"--log-level", checkpointBuildQuietLogLevel,
 					"--log-format", "json",
 				},
 				output: checkpointCommandOutput{Stdout: `{"containerId":"container-keep"}` + "\n"},
@@ -191,6 +194,7 @@ func TestCmdCheckpointBuild_KeepContainerSkipsCleanup(t *testing.T) {
 			"-config", ".devcontainer/devcontainer.json",
 			"-tag", "registry.example/decomk:keep-me",
 			"-keep-container",
+			"-q",
 		},
 		&stdout,
 		&stderr,
@@ -210,6 +214,82 @@ func TestCmdCheckpointBuild_KeepContainerSkipsCleanup(t *testing.T) {
 	if !out.KeepContainer {
 		t.Fatalf("keepContainer: got false want true")
 	}
+	runner.assertDone()
+}
+
+func TestCmdCheckpointBuild_DefaultVerboseWritesLifecycleLogs(t *testing.T) {
+	t.Parallel()
+
+	workspace := t.TempDir()
+	configPath := filepath.Join(workspace, ".devcontainer", "devcontainer.json")
+	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
+		t.Fatalf("MkdirAll(config): %v", err)
+	}
+	if err := os.WriteFile(configPath, []byte("{}\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile(config): %v", err)
+	}
+
+	runner := &scriptedCheckpointRunner{
+		t: t,
+		steps: []scriptedCommand{
+			{
+				name: "devcontainer",
+				args: []string{
+					"up",
+					"--workspace-folder", workspace,
+					"--config", configPath,
+					"--prebuild",
+					"--log-level", checkpointBuildVerboseLogLevel,
+					"--log-format", "json",
+				},
+				output: checkpointCommandOutput{
+					Stdout: `{"msg":"phase-start"}` + "\n" + `{"containerId":"container-verbose"}` + "\n",
+					Stderr: "verbose-side-channel\n",
+				},
+			},
+			{
+				name: "docker",
+				args: []string{"commit", "container-verbose", "registry.example/decomk:verbose"},
+			},
+			{
+				name:   "docker",
+				args:   []string{"image", "inspect", "--format", "{{.Id}}", "registry.example/decomk:verbose"},
+				output: checkpointCommandOutput{Stdout: "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\n"},
+			},
+			{
+				name: "docker",
+				args: []string{"rm", "-f", "container-verbose"},
+			},
+		},
+	}
+
+	deps := checkpointDeps{runner: runner, now: time.Now, pid: os.Getpid}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code, err := cmdCheckpointWithDeps(
+		[]string{
+			"build",
+			"-workspace-folder", workspace,
+			"-config", ".devcontainer/devcontainer.json",
+			"-tag", "registry.example/decomk:verbose",
+		},
+		&stdout,
+		&stderr,
+		deps,
+	)
+	if err != nil {
+		t.Fatalf("cmdCheckpointWithDeps(build verbose default) error: %v", err)
+	}
+	if code != 0 {
+		t.Fatalf("cmdCheckpointWithDeps(build verbose default) code: got %d want 0", code)
+	}
+	if got := stderr.String(); !strings.Contains(got, `{"containerId":"container-verbose"}`) {
+		t.Fatalf("stderr missing devcontainer stdout logs: %q", got)
+	}
+	if got := stderr.String(); !strings.Contains(got, "verbose-side-channel") {
+		t.Fatalf("stderr missing devcontainer stderr logs: %q", got)
+	}
+
 	runner.assertDone()
 }
 

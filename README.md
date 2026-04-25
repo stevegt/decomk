@@ -241,6 +241,8 @@ decomk checkpoint tag -m ghcr.io/acme/base:block10-20260420 ghcr.io/acme/base:st
 ```
 
 `push`/`tag` fail if a destination tag already exists unless `-m` is set.
+`checkpoint build` is verbose by default (lifecycle logs on stderr); pass `-q`
+to suppress lifecycle log output.
 
 For operator/CI checkpoint rollout handoff details:
 
