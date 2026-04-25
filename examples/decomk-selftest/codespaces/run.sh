@@ -222,10 +222,142 @@ codespace_bash() {
   gh codespace ssh -c "$codespace_name" -- "bash -lc $(printf '%q' "$script")"
 }
 
+codespace_bash_root() {
+  local script="$1"
+  codespace_bash "sudo -n bash -lc $(printf '%q' "$script")"
+}
+
+codespace_bash_with_root_fallback() {
+  local script="$1"
+  local output=""
+  if output="$(codespace_bash "$script" 2>/dev/null)"; then
+    printf '%s' "$output"
+    return 0
+  fi
+  # Intent: Keep diagnostics and marker reads working when stage-0 root execution
+  # creates root-owned log trees under DECOMK_LOG_DIR.
+  # Source: DI-007-20260424-200248 (TODO/007)
+  if output="$(codespace_bash_root "$script" 2>/dev/null)"; then
+    printf '%s' "$output"
+    return 0
+  fi
+  codespace_bash_root "$script"
+}
+
+log_root_candidates() {
+  local root
+  local seen=()
+  for root in "$effective_decomk_log_dir" "$decomk_log_dir" "/var/log/decomk"; do
+    local already_seen="false"
+    local existing
+    if [[ -z "$root" ]]; then
+      continue
+    fi
+    for existing in "${seen[@]}"; do
+      if [[ "$existing" == "$root" ]]; then
+        already_seen="true"
+        break
+      fi
+    done
+    if [[ "$already_seen" == "true" ]]; then
+      continue
+    fi
+    seen+=("$root")
+    printf '%s\n' "$root"
+  done
+}
+
+resolve_remote_log_root() {
+  local root
+  while IFS= read -r root; do
+    local root_q
+    root_q="$(printf '%q' "$root")"
+    if codespace_bash_with_root_fallback "set -euo pipefail; [[ -d $root_q ]]" >/dev/null; then
+      printf '%s' "$root"
+      return 0
+    fi
+  done < <(log_root_candidates)
+  return 1
+}
+
 latest_make_log_path() {
-  local decomk_log_dir_q
-  decomk_log_dir_q="$(printf '%q' "$decomk_log_dir")"
-  codespace_bash "find $decomk_log_dir_q -type f -name make.log | sort | tail -n1"
+  local root
+  while IFS= read -r root; do
+    local root_q
+    local latest_path
+    root_q="$(printf '%q' "$root")"
+    if ! latest_path="$(codespace_bash_with_root_fallback "set -euo pipefail; if [[ -d $root_q ]]; then find $root_q -type f -name make.log | sort | tail -n1; fi")"; then
+      continue
+    fi
+    if [[ -n "$latest_path" ]]; then
+      effective_decomk_log_dir="$root"
+      printf '%s\n' "$latest_path"
+      return 0
+    fi
+  done < <(log_root_candidates)
+  return 0
+}
+
+list_make_log_paths() {
+  local root
+  local printed_any="false"
+  while IFS= read -r root; do
+    local root_q
+    local found_paths
+    root_q="$(printf '%q' "$root")"
+    if ! found_paths="$(codespace_bash_with_root_fallback "set -euo pipefail; if [[ -d $root_q ]]; then find $root_q -type f -name make.log | sort; fi")"; then
+      continue
+    fi
+    if [[ -n "$found_paths" ]]; then
+      printf '%s\n' "$found_paths"
+      printed_any="true"
+    fi
+  done < <(log_root_candidates)
+  if [[ "$printed_any" == "true" ]]; then
+    return 0
+  fi
+  return 1
+}
+
+prepare_remote_log_dir_copy() {
+  local source_log_dir
+  local source_log_dir_q
+  local remote_log_copy_dir_q
+  local script
+  if ! source_log_dir="$(resolve_remote_log_root)"; then
+    echo "remote log dir missing; tried: $decomk_log_dir, ${effective_decomk_log_dir:-<none>}, /var/log/decomk" >&2
+    return 1
+  fi
+
+  source_log_dir_q="$(printf '%q' "$source_log_dir")"
+  remote_log_copy_dir_q="$(printf '%q' "$remote_log_copy_dir")"
+  script="$(cat <<EOF
+set -euo pipefail
+src=$source_log_dir_q
+dst=$remote_log_copy_dir_q
+
+if [[ ! -d "\$src" ]]; then
+  echo "remote log dir missing: \$src" >&2
+  exit 1
+fi
+
+if rm -rf "\$dst" && mkdir -p "\$dst" && cp -a "\$src/." "\$dst"; then
+  :
+elif sudo -n rm -rf "\$dst" && sudo -n mkdir -p "\$dst" && sudo -n cp -a "\$src/." "\$dst"; then
+  if ! sudo -n chown -R "\$(id -un):\$(id -gn)" "\$dst"; then
+    echo "failed to chown copied remote log dir: \$dst" >&2
+    exit 1
+  fi
+else
+  echo "failed to copy remote log dir from \$src to \$dst" >&2
+  exit 1
+fi
+EOF
+)"
+  # Intent: Capture remote logs into a copy path that gh codespace cp can read
+  # even when original logs are root-owned.
+  # Source: DI-007-20260424-200248 (TODO/007)
+  codespace_bash "$script"
 }
 
 sanitize_diag_step_name() {
@@ -267,7 +399,7 @@ load_make_log_or_fail() {
   local log_path="$2"
   local log_content
 
-  if ! log_content="$(codespace_bash "cat $(printf '%q' "$log_path")")"; then
+  if ! log_content="$(codespace_bash_with_root_fallback "cat $(printf '%q' "$log_path")")"; then
     fail "$exit_code" "failed to read make.log at $log_path"
   fi
 
@@ -277,13 +409,17 @@ load_make_log_or_fail() {
 load_stage0_log_or_fail() {
   local exit_code="$1"
   local stage0_phase="$2"
-  local stage0_log_path="$decomk_log_dir/stage0-${stage0_phase}.log"
+  local stage0_log_root=""
+  if ! stage0_log_root="$(resolve_remote_log_root)"; then
+    fail "$exit_code" "failed to resolve remote decomk log root for stage0 markers (tried $decomk_log_dir and /var/log/decomk)"
+  fi
+  local stage0_log_path="$stage0_log_root/stage0-${stage0_phase}.log"
   local log_content
 
   # Intent: Validate stage-0 identity markers from stage-0 runtime logs, not
   # just make logs, so user identity evidence is explicit per process boundary.
   # Source: DI-007-20260423-180202 (TODO/007)
-  if ! log_content="$(codespace_bash "cat $(printf '%q' "$stage0_log_path")")"; then
+  if ! log_content="$(codespace_bash_with_root_fallback "cat $(printf '%q' "$stage0_log_path")")"; then
     fail "$exit_code" "failed to read stage-0 runtime log at $stage0_log_path"
   fi
 
@@ -363,6 +499,12 @@ keep_on_fail="false"
 cleanup_on_success="false"
 decomk_home="/tmp/decomk-selftest/home"
 decomk_log_dir="/tmp/decomk-selftest/log"
+remote_log_copy_dir="/tmp/decomk-selftest/log-copy"
+effective_decomk_log_dir=""
+# Intent: Make harness bootstrap failures fail fast instead of silently
+# continuing to "no make.log" states; dedicated probes still override this.
+# Source: DI-007-20260424-200248 (TODO/007)
+stage0_fail_noboot_default="true"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -570,9 +712,7 @@ cleanup() {
     fi
 
     if [[ "$codespace_ready" == "true" ]]; then
-      local decomk_log_dir_q
-      decomk_log_dir_q="$(printf '%q' "$decomk_log_dir")"
-      if record_diag_step "list-make-log-paths" codespace_bash "find $decomk_log_dir_q -type f -name make.log | sort"; then
+      if record_diag_step "list-make-log-paths" list_make_log_paths; then
         if ! cp "$temp_root/diag-list-make-log-paths.stdout.log" "$temp_root/make-log-paths.txt"; then
           log "diagnostics step failed: persist-make-log-path-copy"
           diagnostics_failed="true"
@@ -582,7 +722,9 @@ cleanup() {
         diagnostics_failed="true"
       fi
 
-      if ! record_diag_step "copy-remote-log-dir" gh codespace cp -c "$codespace_name" -r "remote:$decomk_log_dir" "$temp_root/remote-log-dir"; then
+      if ! record_diag_step "prepare-remote-log-dir-copy" prepare_remote_log_dir_copy; then
+        diagnostics_failed="true"
+      elif ! record_diag_step "copy-remote-log-dir" gh codespace cp -c "$codespace_name" -r "remote:$remote_log_copy_dir" "$temp_root/remote-log-dir"; then
         diagnostics_failed="true"
       fi
     fi
@@ -676,6 +818,7 @@ decomk_home_q="$(printf '%q' "$decomk_home")"
 decomk_log_dir_q="$(printf '%q' "$decomk_log_dir")"
 tool_uri_q="$(printf '%q' "$tool_uri")"
 conf_uri_override_q="$(printf '%q' "$conf_uri")"
+stage0_fail_noboot_default_q="$(printf '%q' "$stage0_fail_noboot_default")"
 decomk_run_args_shell=""
 for arg in "${decomk_args[@]}"; do
   decomk_run_args_shell+=" $(printf '%q' "$arg")"
@@ -717,6 +860,7 @@ export DECOMK_HOME=$decomk_home_q
 export DECOMK_LOG_DIR=$decomk_log_dir_q
 export DECOMK_TOOL_URI=$tool_uri_q
 export DECOMK_CONF_URI="\$resolved_conf_uri"
+export DECOMK_FAIL_NOBOOT=$stage0_fail_noboot_default_q
 bash examples/devcontainer/decomk-stage0.sh postCreate$decomk_run_args_shell
 EOF
 )"
@@ -727,7 +871,7 @@ fi
 
 make_log_path="$(latest_make_log_path)"
 if [[ -z "$make_log_path" ]]; then
-  fail 31 "could not find make.log under $decomk_log_dir"
+  fail 31 "could not find make.log under candidates: $decomk_log_dir, ${effective_decomk_log_dir:-<none>}, /var/log/decomk"
 fi
 log "using make log: $make_log_path"
 load_make_log_or_fail 31 "$make_log_path"
@@ -761,6 +905,7 @@ cd "\$workspace_dir"
 export DECOMK_HOME=$decomk_home_q
 export DECOMK_LOG_DIR=$decomk_log_dir_q
 export DECOMK_TOOL_URI=$tool_uri_q
+export DECOMK_FAIL_NOBOOT=$stage0_fail_noboot_default_q
 bash examples/devcontainer/decomk-stage0.sh postCreate $decomk_run_action_args
 EOF
 )"
@@ -781,7 +926,7 @@ run_stage0_phase_with_stage0_env() {
   local stage0_conf_uri_override_q
   local stage0_fail_noboot_override_q
   local conf_uri_export_snippet=""
-  local fail_noboot_export_snippet=""
+  local fail_noboot_export_snippet="export DECOMK_FAIL_NOBOOT=$stage0_fail_noboot_default_q"
   stage0_phase_q="$(printf '%q' "$stage0_phase")"
   stage0_action_arg_q="$(printf '%q' "$stage0_action_arg")"
   github_user_value_q="$(printf '%q' "$github_user_value")"
