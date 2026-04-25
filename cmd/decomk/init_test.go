@@ -256,11 +256,11 @@ func TestCmdInit_NoPromptWritesFiles(t *testing.T) {
 	if !ok {
 		t.Fatalf("containerEnv: got %#v want object", decoded["containerEnv"])
 	}
-	if got, want := containerEnv["DECOMK_DEV_USER"], stage0.DefaultDevcontainerUser; got != want {
-		t.Fatalf("DECOMK_DEV_USER: got %#v want %#v", got, want)
+	if got, want := containerEnv["DECOMK_REMOTE_USER"], stage0.DefaultDevcontainerUser; got != want {
+		t.Fatalf("DECOMK_REMOTE_USER: got %#v want %#v", got, want)
 	}
-	if got, want := containerEnv["DECOMK_DEV_UID"], stage0.DefaultDevcontainerUID; got != want {
-		t.Fatalf("DECOMK_DEV_UID: got %#v want %#v", got, want)
+	if got, want := containerEnv["DECOMK_REMOTE_UID"], stage0.DefaultDevcontainerUID; got != want {
+		t.Fatalf("DECOMK_REMOTE_UID: got %#v want %#v", got, want)
 	}
 }
 
@@ -332,11 +332,11 @@ func TestCmdInit_ForceNoPromptPreservesExistingImageDefaults(t *testing.T) {
 	if got, want := envMap["DECOMK_CONF_URI"], confURI; got != want {
 		t.Fatalf("DECOMK_CONF_URI: got %#v want %#v", got, want)
 	}
-	if got, want := envMap["DECOMK_DEV_USER"], stage0.DefaultDevcontainerUser; got != want {
-		t.Fatalf("DECOMK_DEV_USER: got %#v want %#v", got, want)
+	if got, want := envMap["DECOMK_REMOTE_USER"], stage0.DefaultDevcontainerUser; got != want {
+		t.Fatalf("DECOMK_REMOTE_USER: got %#v want %#v", got, want)
 	}
-	if got, want := envMap["DECOMK_DEV_UID"], stage0.DefaultDevcontainerUID; got != want {
-		t.Fatalf("DECOMK_DEV_UID: got %#v want %#v", got, want)
+	if got, want := envMap["DECOMK_REMOTE_UID"], stage0.DefaultDevcontainerUID; got != want {
+		t.Fatalf("DECOMK_REMOTE_UID: got %#v want %#v", got, want)
 	}
 	if got, want := envMap["DECOMK_FAIL_NOBOOT"], "true"; got != want {
 		t.Fatalf("DECOMK_FAIL_NOBOOT: got %#v want %#v", got, want)
@@ -635,8 +635,8 @@ func createTestProducerConfURI(t *testing.T) string {
     "DECOMK_TOOL_URI": "go:github.com/stevegt/decomk/cmd/decomk@latest",
     "DECOMK_CONF_URI": "git:https://example.invalid/conf.git",
     "DECOMK_FAIL_NOBOOT": "false",
-    "DECOMK_DEV_USER": "dev",
-    "DECOMK_DEV_UID": "1000"
+    "DECOMK_REMOTE_USER": "dev",
+    "DECOMK_REMOTE_UID": "1000"
   },
   "remoteUser": "dev",
   "containerUser": "dev",

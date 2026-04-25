@@ -16,8 +16,8 @@
       "DECOMK_TOOL_URI": "go:github.com/stevegt/decomk/cmd/decomk@latest",
       "DECOMK_CONF_URI": "git:https://github.com/\u003corg\u003e/\u003cconf-repo\u003e.git?ref=main",
       "DECOMK_FAIL_NOBOOT": "false",
-      "DECOMK_DEV_USER": "dev",
-      "DECOMK_DEV_UID": "1000"
+      "DECOMK_REMOTE_USER": "dev",
+      "DECOMK_REMOTE_UID": "1000"
     },
   "remoteUser": "dev",
   "containerUser": "dev",

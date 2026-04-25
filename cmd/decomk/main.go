@@ -526,10 +526,10 @@ func cmdExecute(args []string, stdout, stderr io.Writer, mode executionMode) (ex
 	//
 	// Intent: Provide a clear, early signal when user-scoped recipe patterns are
 	// likely to fail in root-make mode.
-	// Source: DI-001-20260309-172358 (TODO/001)
-	devUser := resolveDevUser()
-	if devUser == "" {
-		if err := writeLine(errOut, "decomk: warning: DECOMK_DEV_USER is empty; Makefile recipes that drop privileges (runuser/su) may fail"); err != nil {
+	// Source: DI-001-20260424-215415 (TODO/001)
+	remoteUser := resolveRemoteUser()
+	if remoteUser == "" {
+		if err := writeLine(errOut, "decomk: warning: DECOMK_REMOTE_USER is empty; Makefile recipes that drop privileges (runuser/su) may fail"); err != nil {
 			return 1, err
 		}
 	}
@@ -996,7 +996,7 @@ func prepareRunMotdParent(path string) error {
 	if parentDir == "." || parentDir == "" {
 		return fmt.Errorf("invalid MOTD parent dir for path %s", path)
 	}
-	username := strings.TrimSpace(resolveDevUser())
+	username := strings.TrimSpace(resolveRemoteUser())
 	if username == "" {
 		currentUser, err := user.Current()
 		if err != nil {
@@ -1660,19 +1660,19 @@ func fileExists(path string) bool {
 // Intent: Ensure Makefile recipes and nested scripts can reliably see decomk's
 // computed runtime metadata (including identity and version) without needing to
 // reconstruct it from logs.
-// Source: DI-001-20260309-172358 (TODO/001)
+// Source: DI-001-20260424-215415 (TODO/001)
 var computedVarOrder = []string{
 	"DECOMK_HOME",
 	"DECOMK_STAMPDIR",
 	"DECOMK_VERSION",
-	"DECOMK_DEV_USER",
+	"DECOMK_REMOTE_USER",
 	"DECOMK_MAKE_USER",
 	"DECOMK_WORKSPACES",
 	"DECOMK_CONTEXTS",
 	"DECOMK_PACKAGES",
 }
 
-// resolveDevUser reports the non-root username that "owns" decomk's state for
+// resolveRemoteUser reports the non-root username that "owns" decomk's state for
 // this invocation.
 //
 // In the common case, decomk itself runs as the dev user and this returns that
@@ -1681,8 +1681,8 @@ var computedVarOrder = []string{
 //
 // Intent: Provide a stable non-root identity for user-scoped recipe steps when
 // make is running as root.
-// Source: DI-001-20260309-172358 (TODO/001)
-func resolveDevUser() string {
+// Source: DI-001-20260424-215415 (TODO/001)
+func resolveRemoteUser() string {
 	if u := strings.TrimSpace(os.Getenv("SUDO_USER")); u != "" && u != "root" {
 		return u
 	}
@@ -1716,22 +1716,22 @@ func resolveDevUser() string {
 // Intent: Expose computed helpers and runtime metadata for Makefiles/scripts so
 // root-run make can still perform user-scoped work and diagnostics can confirm
 // the exact decomk binary version used for a run.
-// Source: DI-001-20260424-200248 (TODO/001)
+// Source: DI-001-20260424-215415 (TODO/001)
 func computedVars(plan *resolvedPlan, targets []string) map[string]string {
-	devUser := resolveDevUser()
+	remoteUser := resolveRemoteUser()
 	var workspaces []string
 	for _, repo := range plan.WorkspaceRepos {
 		workspaces = append(workspaces, repo.Name)
 	}
 	return map[string]string{
-		"DECOMK_HOME":       plan.Home,
-		"DECOMK_STAMPDIR":   plan.StampDir,
-		"DECOMK_VERSION":    decomkVersion,
-		"DECOMK_DEV_USER":   devUser,
-		"DECOMK_MAKE_USER":  "root",
-		"DECOMK_WORKSPACES": strings.Join(workspaces, " "),
-		"DECOMK_CONTEXTS":   strings.Join(plan.ContextKeys, " "),
-		"DECOMK_PACKAGES":   strings.Join(targets, " "),
+		"DECOMK_HOME":        plan.Home,
+		"DECOMK_STAMPDIR":    plan.StampDir,
+		"DECOMK_VERSION":     decomkVersion,
+		"DECOMK_REMOTE_USER": remoteUser,
+		"DECOMK_MAKE_USER":   "root",
+		"DECOMK_WORKSPACES":  strings.Join(workspaces, " "),
+		"DECOMK_CONTEXTS":    strings.Join(plan.ContextKeys, " "),
+		"DECOMK_PACKAGES":    strings.Join(targets, " "),
 	}
 }
 

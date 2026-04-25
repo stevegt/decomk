@@ -36,8 +36,8 @@ func ProducerDevcontainerData(name string) stage0.DevcontainerTemplateData {
 	if name == "" {
 		name = DefaultName
 	}
-	devUser := stage0.DefaultDevcontainerUser
-	devUID := stage0.DefaultDevcontainerUID
+	remoteIdentityUser := stage0.DefaultDevcontainerUser
+	remoteIdentityUID := stage0.DefaultDevcontainerUID
 	// Intent: Keep producer prebuild/runtime identity deterministic by pinning one
 	// configured non-root user/UID and disabling runtime UID remap.
 	// Source: DI-001-20260424-190437 (TODO/001)
@@ -46,10 +46,10 @@ func ProducerDevcontainerData(name string) stage0.DevcontainerTemplateData {
 		Name:                 name,
 		BuildDockerfile:      "Dockerfile",
 		BuildContext:         "..",
-		DevUser:              devUser,
-		DevUID:               devUID,
-		RemoteUser:           devUser,
-		ContainerUser:        devUser,
+		RemoteIdentityUser:   remoteIdentityUser,
+		RemoteIdentityUID:    remoteIdentityUID,
+		RemoteUser:           remoteIdentityUser,
+		ContainerUser:        remoteIdentityUser,
 		UpdateRemoteUserUID:  &disableUIDRemap,
 		Home:                 DefaultHome,
 		LogDir:               DefaultLogDir,
@@ -63,18 +63,18 @@ func ProducerDevcontainerData(name string) stage0.DevcontainerTemplateData {
 
 // ProducerDevcontainerDataWithIdentity returns canonical starter data for the
 // conf-repo producer devcontainer scaffold with explicit identity values.
-func ProducerDevcontainerDataWithIdentity(name, devUser, devUID string) stage0.DevcontainerTemplateData {
+func ProducerDevcontainerDataWithIdentity(name, remoteIdentityUser, remoteIdentityUID string) stage0.DevcontainerTemplateData {
 	// Intent: Keep producer identity overrides centralized so both interactive
 	// init paths and generators apply one consistent user/UID mapping contract.
 	// Source: DI-001-20260424-190437 (TODO/001)
 	data := ProducerDevcontainerData(name)
-	if devUser != "" {
-		data.DevUser = devUser
-		data.RemoteUser = devUser
-		data.ContainerUser = devUser
+	if remoteIdentityUser != "" {
+		data.RemoteIdentityUser = remoteIdentityUser
+		data.RemoteUser = remoteIdentityUser
+		data.ContainerUser = remoteIdentityUser
 	}
-	if devUID != "" {
-		data.DevUID = devUID
+	if remoteIdentityUID != "" {
+		data.RemoteIdentityUID = remoteIdentityUID
 	}
 	return data
 }

@@ -11,8 +11,8 @@
       "DECOMK_TOOL_URI": "__DECOMK_TOOL_URI__",
       "DECOMK_CONF_URI": "__DECOMK_CONF_URI__",
       "DECOMK_FAIL_NOBOOT": "false",
-      "DECOMK_DEV_USER": "dev",
-      "DECOMK_DEV_UID": "1000"
+      "DECOMK_REMOTE_USER": "dev",
+      "DECOMK_REMOTE_UID": "1000"
     },
   "remoteUser": "dev",
   "containerUser": "dev",

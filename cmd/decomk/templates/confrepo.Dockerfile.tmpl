@@ -18,9 +18,9 @@ RUN apt-get update \
       sudo \
  && rm -rf /var/lib/apt/lists/*
 
-RUN useradd --create-home --shell /bin/bash --uid {{.DevUID}} {{.DevUser}} \
- && echo '{{.DevUser}} ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/{{.DevUser}} \
- && chmod 0440 /etc/sudoers.d/{{.DevUser}}
+RUN useradd --create-home --shell /bin/bash --uid {{.RemoteIdentityUID}} {{.RemoteIdentityUser}} \
+ && echo '{{.RemoteIdentityUser}} ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/{{.RemoteIdentityUser}} \
+ && chmod 0440 /etc/sudoers.d/{{.RemoteIdentityUser}}
 
 RUN mkdir -p /workspaces /var/decomk /var/log/decomk \
- && chown -R {{.DevUser}}:{{.DevUser}} /workspaces /var/decomk /var/log/decomk
+ && chown -R {{.RemoteIdentityUser}}:{{.RemoteIdentityUser}} /workspaces /var/decomk /var/log/decomk

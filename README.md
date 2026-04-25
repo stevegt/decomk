@@ -141,9 +141,13 @@ When `-f` is used and `.devcontainer/devcontainer.json` already exists,
 configuration.
 
 Consumer `decomk init` requires a reachable `DECOMK_CONF_URI` (`git:...`) and
-loads `DECOMK_DEV_USER` / `DECOMK_DEV_UID` from the shared conf producer repo’s
+loads `DECOMK_REMOTE_USER` / `DECOMK_REMOTE_UID` from the shared conf producer repo’s
 `.devcontainer/devcontainer.json`. If clone/read/validation fails, init fails
 fast rather than guessing identity.
+
+Generated stage-0 scripts verify that the runtime process identity matches
+`DECOMK_REMOTE_USER` / `DECOMK_REMOTE_UID` before escalating to root; mismatches
+fail fast to avoid ambiguous ownership drift.
 
 Recommended reconciliation workflow when files already exist:
 
@@ -591,8 +595,8 @@ ARGS:
   -tool-uri <uri>           DECOMK_TOOL_URI value in devcontainer.json (go:... or git:...)
   -home <abs-path>          DECOMK_HOME value in devcontainer.json
   -log-dir <abs-path>       DECOMK_LOG_DIR value in devcontainer.json
-  -dev-user <name>          DECOMK_DEV_USER metadata value (producer mode)
-  -dev-uid <uid>            DECOMK_DEV_UID metadata value (producer mode)
+  -remote-user <name>       DECOMK_REMOTE_USER metadata value (producer mode)
+  -remote-uid <uid>         DECOMK_REMOTE_UID metadata value (producer mode)
   -fail-no-boot <value>     DECOMK_FAIL_NOBOOT value in devcontainer.json (true/false/1/0/yes/no/on/off)
   -force                    Overwrite existing stage-0 files even when they already exist
   -f                        Alias for -force
@@ -613,15 +617,15 @@ When you need a user-scoped step (for example: dotfiles, `pipx` installs, or
 other `$HOME` writes) while `make` is running as root, explicitly drop
 privileges inside the Makefile using `runuser` (or `su`). decomk exports:
 
-- `DECOMK_DEV_USER`: the dev user (the non-root user decomk expects to own state)
+- `DECOMK_REMOTE_USER`: the dev user (the non-root user decomk expects to own state)
 - `DECOMK_MAKE_USER`: the effective user `make` is running as (`root`)
 
 Example pattern:
 
 ```make
 AS_DEV :=
-ifneq ($(DECOMK_MAKE_USER),$(DECOMK_DEV_USER))
-AS_DEV = runuser -u $(DECOMK_DEV_USER) --
+ifneq ($(DECOMK_MAKE_USER),$(DECOMK_REMOTE_USER))
+AS_DEV = runuser -u $(DECOMK_REMOTE_USER) --
 endif
 
 install-user-stuff:

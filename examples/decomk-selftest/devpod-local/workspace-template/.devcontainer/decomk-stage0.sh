@@ -34,10 +34,12 @@ DECOMK_HOME="${DECOMK_HOME:-/var/decomk}"
 DECOMK_LOG_DIR="${DECOMK_LOG_DIR:-/var/log/decomk}"
 DECOMK_TOOL_URI="${DECOMK_TOOL_URI:-go:github.com/stevegt/decomk/cmd/decomk@latest}"
 DECOMK_CONF_URI="${DECOMK_CONF_URI:-}"
+DECOMK_REMOTE_USER="${DECOMK_REMOTE_USER:-}"
+DECOMK_REMOTE_UID="${DECOMK_REMOTE_UID:-}"
 DECOMK_FAIL_NOBOOT="${DECOMK_FAIL_NOBOOT:-false}"
 DECOMK_STAGE0_PHASE="$stage0_phase"
 
-export DECOMK_HOME DECOMK_LOG_DIR DECOMK_TOOL_URI DECOMK_CONF_URI DECOMK_FAIL_NOBOOT
+export DECOMK_HOME DECOMK_LOG_DIR DECOMK_TOOL_URI DECOMK_CONF_URI DECOMK_REMOTE_USER DECOMK_REMOTE_UID DECOMK_FAIL_NOBOOT
 export DECOMK_STAGE0_PHASE
 
 stage0_runtime_log=""
@@ -133,6 +135,8 @@ decomk_home=$DECOMK_HOME
 decomk_log_dir=$DECOMK_LOG_DIR
 decomk_tool_uri=$DECOMK_TOOL_URI
 decomk_conf_uri=$DECOMK_CONF_URI
+decomk_remote_user=$DECOMK_REMOTE_USER
+decomk_remote_uid=$DECOMK_REMOTE_UID
 runtime_log=$stage0_runtime_log
 EOF
 )"
@@ -229,6 +233,35 @@ require_root_stage0() {
   exec sudo -n -E -- bash "$0" "$stage0_phase" "$@"
 }
 
+validate_remote_identity_before_escalation() {
+  # Intent: Enforce that stage-0 begins as the configured remote user/UID before
+  # self-escalating to root, so identity drift fails immediately instead of
+  # causing confusing downstream ownership/permission behavior.
+  # Source: DI-001-20260424-215415 (TODO/001)
+  if [[ "${DECOMK_STAGE0_ESCALATED:-}" == "1" ]]; then
+    return 0
+  fi
+  if [[ -z "$DECOMK_REMOTE_USER" ]]; then
+    die "DECOMK_REMOTE_USER is empty; expected non-root remote identity before stage-0 escalation"
+  fi
+  if [[ -z "$DECOMK_REMOTE_UID" ]]; then
+    die "DECOMK_REMOTE_UID is empty; expected non-root remote identity before stage-0 escalation"
+  fi
+  if [[ "$DECOMK_REMOTE_UID" =~ [^0-9] ]]; then
+    die "DECOMK_REMOTE_UID must be numeric (got: $DECOMK_REMOTE_UID)"
+  fi
+
+  local current_user current_uid
+  current_user="$(id -un)"
+  current_uid="$(id -u)"
+  if [[ "$current_user" != "$DECOMK_REMOTE_USER" ]]; then
+    die "stage-0 identity mismatch: current user is $current_user but DECOMK_REMOTE_USER=$DECOMK_REMOTE_USER"
+  fi
+  if [[ "$current_uid" != "$DECOMK_REMOTE_UID" ]]; then
+    die "stage-0 identity mismatch: current uid is $current_uid but DECOMK_REMOTE_UID=$DECOMK_REMOTE_UID"
+  fi
+}
+
 stage0_error_handler() {
   local rc="$1"
   local line="$2"
@@ -245,6 +278,15 @@ stage0_error_handler() {
   # to choose non-blocking continuation vs hard startup failure.
   # Source: DI-012-20260423-045339 (TODO/012)
   write_stage0_failure_artifacts "$rc" "$line"
+
+  # Intent: Identity mismatches must fail startup even when DECOMK_FAIL_NOBOOT is
+  # false, because continuing after a remote-user/UID contract violation would let
+  # stage-0 proceed under the wrong ownership assumptions.
+  # Source: DI-001-20260424-215415 (TODO/001)
+  if [[ "$stage0_error_step" == "validate-remote-identity" ]]; then
+    echo "decomk bootstrap: remote identity validation failed; exiting non-zero (rc=$rc)" >&2
+    exit "$rc"
+  fi
 
   if [[ "$stage0_fail_no_boot" == "true" ]]; then
     echo "decomk bootstrap: DECOMK_FAIL_NOBOOT=true; exiting non-zero (rc=$rc)" >&2
@@ -479,6 +521,9 @@ resolve_decomk_binary() {
 
 stage0_fail_no_boot="$(normalize_fail_no_boot "$DECOMK_FAIL_NOBOOT")"
 trap 'stage0_error_handler "$?" "$LINENO"' ERR
+
+stage0_error_step="validate-remote-identity"
+validate_remote_identity_before_escalation
 
 stage0_error_step="require-root"
 require_root_stage0 "$@"

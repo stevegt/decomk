@@ -30,17 +30,17 @@ type initFlags struct {
 	// buildDockerfile/buildContext are sourced from an existing devcontainer.json
 	// when present so `decomk init -f` can preserve build-based configs while still
 	// using one rendering path.
-	buildDockerfile string
-	buildContext    string
-	confURI         string
-	toolURI         string
-	home            string
-	logDir          string
-	devUser         string
-	devUID          string
-	failNoBoot      string
-	force           bool
-	noPrompt        bool
+	buildDockerfile    string
+	buildContext       string
+	confURI            string
+	toolURI            string
+	home               string
+	logDir             string
+	remoteIdentityUser string
+	remoteIdentityUID  string
+	failNoBoot         string
+	force              bool
+	noPrompt           bool
 }
 
 // initWriteResult reports what happened for one stage-0 file.
@@ -61,16 +61,16 @@ func cmdInit(args []string, stdout, stderr io.Writer) (int, error) {
 	fs.SetOutput(stderr)
 
 	f := initFlags{
-		confMode:   false,
-		repoRoot:   "",
-		confURI:    envi.String("DECOMK_CONF_URI", ""),
-		toolURI:    envi.String("DECOMK_TOOL_URI", stage0.DefaultToolURI),
-		image:      stage0.DefaultDevcontainerImage,
-		home:       envi.String("DECOMK_HOME", state.DefaultHome),
-		logDir:     envi.String("DECOMK_LOG_DIR", state.DefaultLogDir),
-		devUser:    stage0.DefaultDevcontainerUser,
-		devUID:     stage0.DefaultDevcontainerUID,
-		failNoBoot: envi.String("DECOMK_FAIL_NOBOOT", stage0.DefaultFailNoBoot),
+		confMode:           false,
+		repoRoot:           "",
+		confURI:            envi.String("DECOMK_CONF_URI", ""),
+		toolURI:            envi.String("DECOMK_TOOL_URI", stage0.DefaultToolURI),
+		image:              stage0.DefaultDevcontainerImage,
+		home:               envi.String("DECOMK_HOME", state.DefaultHome),
+		logDir:             envi.String("DECOMK_LOG_DIR", state.DefaultLogDir),
+		remoteIdentityUser: stage0.DefaultDevcontainerUser,
+		remoteIdentityUID:  stage0.DefaultDevcontainerUID,
+		failNoBoot:         envi.String("DECOMK_FAIL_NOBOOT", stage0.DefaultFailNoBoot),
 	}
 	addInitFlags(fs, &f)
 
@@ -193,7 +193,7 @@ func cmdInit(args []string, stdout, stderr io.Writer) (int, error) {
 	}
 	identity, err := loadIdentityFromConfURI(f.confURI)
 	if err != nil {
-		return 1, fmt.Errorf("resolve DECOMK_DEV_USER/DECOMK_DEV_UID from producer conf repo %q: %w", f.confURI, err)
+		return 1, fmt.Errorf("resolve DECOMK_REMOTE_USER/DECOMK_REMOTE_UID from producer conf repo %q: %w", f.confURI, err)
 	}
 
 	// Use the shared stage-0 data model so `decomk init` and generated examples
@@ -205,10 +205,10 @@ func cmdInit(args []string, stdout, stderr io.Writer) (int, error) {
 		BuildDockerfile:      f.buildDockerfile,
 		BuildContext:         f.buildContext,
 		Image:                f.image,
-		DevUser:              identity.DevUser,
-		DevUID:               identity.DevUID,
-		RemoteUser:           identity.DevUser,
-		ContainerUser:        identity.DevUser,
+		RemoteIdentityUser:   identity.RemoteIdentityUser,
+		RemoteIdentityUID:    identity.RemoteIdentityUID,
+		RemoteUser:           identity.RemoteIdentityUser,
+		ContainerUser:        identity.RemoteIdentityUser,
 		UpdateRemoteUserUID:  boolPointer(false),
 		ConfURI:              f.confURI,
 		ToolURI:              f.toolURI,
@@ -310,11 +310,11 @@ func runInitConfMode(f *initFlags, setFlags map[string]bool, repoRoot string, st
 	if err := validateFailNoBootValue(f.failNoBoot); err != nil {
 		return 1, err
 	}
-	if err := validateDevIdentity(f.devUser, f.devUID); err != nil {
+	if err := validateRemoteIdentity(f.remoteIdentityUser, f.remoteIdentityUID); err != nil {
 		return 1, err
 	}
 
-	data := confrepo.ProducerDevcontainerDataWithIdentity(f.name, f.devUser, f.devUID)
+	data := confrepo.ProducerDevcontainerDataWithIdentity(f.name, f.remoteIdentityUser, f.remoteIdentityUID)
 	data.ConfURI = f.confURI
 	data.ToolURI = f.toolURI
 	data.Home = f.home
@@ -343,8 +343,8 @@ func addInitFlags(fs *flag.FlagSet, f *initFlags) {
 	fs.StringVar(&f.toolURI, "tool-uri", f.toolURI, "DECOMK_TOOL_URI value for devcontainer.json")
 	fs.StringVar(&f.home, "home", f.home, "DECOMK_HOME value for devcontainer.json")
 	fs.StringVar(&f.logDir, "log-dir", f.logDir, "DECOMK_LOG_DIR value for devcontainer.json")
-	fs.StringVar(&f.devUser, "dev-user", f.devUser, "DECOMK_DEV_USER value for generated devcontainer metadata (producer mode)")
-	fs.StringVar(&f.devUID, "dev-uid", f.devUID, "DECOMK_DEV_UID value for generated devcontainer metadata (producer mode)")
+	fs.StringVar(&f.remoteIdentityUser, "remote-user", f.remoteIdentityUser, "DECOMK_REMOTE_USER value for generated devcontainer metadata (producer mode)")
+	fs.StringVar(&f.remoteIdentityUID, "remote-uid", f.remoteIdentityUID, "DECOMK_REMOTE_UID value for generated devcontainer metadata (producer mode)")
 	fs.StringVar(&f.failNoBoot, "fail-no-boot", f.failNoBoot, "DECOMK_FAIL_NOBOOT value for devcontainer.json (true fails startup on stage-0 errors)")
 	fs.BoolVar(&f.force, "force", false, "overwrite existing stage-0 files even when they already exist")
 	fs.BoolVar(&f.force, "f", false, "alias for -force")
@@ -397,14 +397,14 @@ func promptInitFlags(f *initFlags, setFlags map[string]bool, in io.Reader, out i
 			return err
 		}
 	}
-	if f.confMode && !setFlags["dev-user"] {
-		f.devUser, err = promptWithDefault(reader, out, "DECOMK_DEV_USER", f.devUser)
+	if f.confMode && !setFlags["remote-user"] {
+		f.remoteIdentityUser, err = promptWithDefault(reader, out, "DECOMK_REMOTE_USER", f.remoteIdentityUser)
 		if err != nil {
 			return err
 		}
 	}
-	if f.confMode && !setFlags["dev-uid"] {
-		f.devUID, err = promptWithDefault(reader, out, "DECOMK_DEV_UID", f.devUID)
+	if f.confMode && !setFlags["remote-uid"] {
+		f.remoteIdentityUID, err = promptWithDefault(reader, out, "DECOMK_REMOTE_UID", f.remoteIdentityUID)
 		if err != nil {
 			return err
 		}
@@ -450,26 +450,33 @@ func validateFailNoBootValue(value string) error {
 	}
 }
 
-func validateDevIdentity(devUser, devUID string) error {
-	if strings.TrimSpace(devUser) == "" {
-		return fmt.Errorf("DECOMK_DEV_USER template value cannot be empty")
+// validateRemoteIdentity enforces the producer/consumer stage-0 identity values
+// rendered into devcontainer metadata.
+//
+// Intent: Keep init-time identity validation explicit so invalid
+// DECOMK_REMOTE_USER/DECOMK_REMOTE_UID values fail during scaffolding instead of
+// producing stage-0 runtime failures.
+// Source: DI-001-20260424-215415 (TODO/001)
+func validateRemoteIdentity(remoteIdentityUser, remoteIdentityUID string) error {
+	if strings.TrimSpace(remoteIdentityUser) == "" {
+		return fmt.Errorf("DECOMK_REMOTE_USER template value cannot be empty")
 	}
-	if strings.ContainsAny(devUser, " \t\r\n") {
-		return fmt.Errorf("DECOMK_DEV_USER must not contain whitespace (got %q)", devUser)
+	if strings.ContainsAny(remoteIdentityUser, " \t\r\n") {
+		return fmt.Errorf("DECOMK_REMOTE_USER must not contain whitespace (got %q)", remoteIdentityUser)
 	}
-	uidValue, err := strconv.Atoi(strings.TrimSpace(devUID))
+	uidValue, err := strconv.Atoi(strings.TrimSpace(remoteIdentityUID))
 	if err != nil {
-		return fmt.Errorf("DECOMK_DEV_UID must be an integer (got %q)", devUID)
+		return fmt.Errorf("DECOMK_REMOTE_UID must be an integer (got %q)", remoteIdentityUID)
 	}
 	if uidValue <= 0 {
-		return fmt.Errorf("DECOMK_DEV_UID must be positive (got %d)", uidValue)
+		return fmt.Errorf("DECOMK_REMOTE_UID must be positive (got %d)", uidValue)
 	}
 	return nil
 }
 
 type initConfIdentity struct {
-	DevUser string
-	DevUID  string
+	RemoteIdentityUser string
+	RemoteIdentityUID  string
 }
 
 func loadIdentityFromConfURI(confURI string) (initConfIdentity, error) {
@@ -505,24 +512,24 @@ func loadIdentityFromConfURI(confURI string) (initConfIdentity, error) {
 		return initConfIdentity{}, fmt.Errorf("producer conf repo does not contain .devcontainer/devcontainer.json")
 	}
 
-	devUser := strings.TrimSpace(firstNonEmpty(defaults.DevUser, defaults.RemoteUser, defaults.ContainerUser))
-	devUID := strings.TrimSpace(defaults.DevUID)
-	if err := validateDevIdentity(devUser, devUID); err != nil {
+	remoteIdentityUser := strings.TrimSpace(firstNonEmpty(defaults.RemoteIdentityUser, defaults.RemoteUser, defaults.ContainerUser))
+	remoteIdentityUID := strings.TrimSpace(defaults.RemoteIdentityUID)
+	if err := validateRemoteIdentity(remoteIdentityUser, remoteIdentityUID); err != nil {
 		return initConfIdentity{}, err
 	}
-	if defaults.RemoteUser != "" && defaults.RemoteUser != devUser {
-		return initConfIdentity{}, fmt.Errorf("producer remoteUser=%q does not match DECOMK_DEV_USER=%q", defaults.RemoteUser, devUser)
+	if defaults.RemoteUser != "" && defaults.RemoteUser != remoteIdentityUser {
+		return initConfIdentity{}, fmt.Errorf("producer remoteUser=%q does not match DECOMK_REMOTE_USER=%q", defaults.RemoteUser, remoteIdentityUser)
 	}
-	if defaults.ContainerUser != "" && defaults.ContainerUser != devUser {
-		return initConfIdentity{}, fmt.Errorf("producer containerUser=%q does not match DECOMK_DEV_USER=%q", defaults.ContainerUser, devUser)
+	if defaults.ContainerUser != "" && defaults.ContainerUser != remoteIdentityUser {
+		return initConfIdentity{}, fmt.Errorf("producer containerUser=%q does not match DECOMK_REMOTE_USER=%q", defaults.ContainerUser, remoteIdentityUser)
 	}
 	if defaults.UpdateRemoteUserUID != nil && *defaults.UpdateRemoteUserUID {
 		return initConfIdentity{}, fmt.Errorf("producer updateRemoteUserUID must be false for deterministic identity")
 	}
 
 	return initConfIdentity{
-		DevUser: devUser,
-		DevUID:  devUID,
+		RemoteIdentityUser: remoteIdentityUser,
+		RemoteIdentityUID:  remoteIdentityUID,
 	}, nil
 }
 
@@ -639,8 +646,8 @@ type initExistingDevcontainerDefaults struct {
 	ToolURI             string
 	Home                string
 	LogDir              string
-	DevUser             string
-	DevUID              string
+	RemoteIdentityUser  string
+	RemoteIdentityUID   string
 	FailNoBoot          string
 }
 
@@ -674,16 +681,16 @@ func applyInitDefaultsFromExistingDevcontainer(f *initFlags, setFlags map[string
 	if !setFlags["log-dir"] && defaults.LogDir != "" {
 		f.logDir = defaults.LogDir
 	}
-	if !setFlags["dev-user"] {
-		for _, candidate := range []string{defaults.DevUser, defaults.RemoteUser, defaults.ContainerUser} {
+	if !setFlags["remote-user"] {
+		for _, candidate := range []string{defaults.RemoteIdentityUser, defaults.RemoteUser, defaults.ContainerUser} {
 			if candidate != "" {
-				f.devUser = candidate
+				f.remoteIdentityUser = candidate
 				break
 			}
 		}
 	}
-	if !setFlags["dev-uid"] && defaults.DevUID != "" {
-		f.devUID = defaults.DevUID
+	if !setFlags["remote-uid"] && defaults.RemoteIdentityUID != "" {
+		f.remoteIdentityUID = defaults.RemoteIdentityUID
 	}
 	if !setFlags["fail-no-boot"] && defaults.FailNoBoot != "" {
 		f.failNoBoot = defaults.FailNoBoot
@@ -730,8 +737,8 @@ func loadInitExistingDevcontainerDefaults(repoRoot string) (initExistingDevconta
 		ToolURI:             stringValueFromAnyMap(parsed.ContainerEnv, "DECOMK_TOOL_URI"),
 		Home:                stringValueFromAnyMap(parsed.ContainerEnv, "DECOMK_HOME"),
 		LogDir:              stringValueFromAnyMap(parsed.ContainerEnv, "DECOMK_LOG_DIR"),
-		DevUser:             stringValueFromAnyMap(parsed.ContainerEnv, "DECOMK_DEV_USER"),
-		DevUID:              stringValueFromAnyMap(parsed.ContainerEnv, "DECOMK_DEV_UID"),
+		RemoteIdentityUser:  stringValueFromAnyMap(parsed.ContainerEnv, "DECOMK_REMOTE_USER"),
+		RemoteIdentityUID:   stringValueFromAnyMap(parsed.ContainerEnv, "DECOMK_REMOTE_UID"),
 		FailNoBoot:          stringValueFromAnyMap(parsed.ContainerEnv, "DECOMK_FAIL_NOBOOT"),
 	}
 	if parsed.Build != nil {

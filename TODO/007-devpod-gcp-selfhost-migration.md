@@ -2,6 +2,24 @@
 
 ## Decision Intent Log
 
+ID: DI-007-20260424-215415
+Date: 2026-04-24 21:54:15
+Status: active
+Decision: Keep the Codespaces selftest Dockerfile on `mcr.microsoft.com/devcontainers/base:ubuntu-24.04` with explicit tool installs, and enforce one identity contract: `dev` must be uid `1000`; when uid `1000` belongs to another user, rename that user/group to `dev`; fail when `dev` already exists with a non-1000 uid.
+Intent: Remove nondeterministic user identity outcomes while still handling base images that pre-seed uid 1000 users (for example `vscode`) without Docker build failures.
+Constraints: Preserve passwordless sudo for `dev`, keep `/workspaces` owned by `dev`, and fail loudly instead of silently accepting mismatched uid contracts.
+Affects: `.devcontainer/codespaces-selftest/Dockerfile`, Codespaces selftest reliability and identity assertions.
+Supersedes: DI-007-20260424-212555
+
+ID: DI-007-20260424-212555
+Date: 2026-04-24 21:25:55
+Status: active
+Decision: Make the Codespaces selftest Dockerfile idempotent on `mcr.microsoft.com/devcontainers/base:ubuntu-24.04` by reusing or renaming the pre-existing `uid 1000` user to `dev` instead of blindly creating a new `dev` user.
+Intent: Keep the harness user contract (`remoteUser=dev`) stable while avoiding Docker build failures on base images that already define `uid 1000` (for example `vscode`).
+Constraints: Preserve passwordless sudo for `dev`, keep workspace ownership on `dev`, avoid silent shell fallbacks, and keep required tools installed explicitly.
+Affects: `.devcontainer/codespaces-selftest/Dockerfile`, Codespaces selftest bootstrap reliability.
+Supersedes: DI-007-20260424-212300
+
 ID: DI-007-20260424-212300
 Date: 2026-04-24 21:23:00
 Status: active

@@ -88,6 +88,21 @@ func TestStage0ScriptFailNoBootPolicy(t *testing.T) {
 			t.Fatalf("output missing invalid-policy message:\n%s", output)
 		}
 	})
+
+	t.Run("remote identity mismatch fails before escalation", func(t *testing.T) {
+		env := cloneEnvMap(baseEnv)
+		env["DECOMK_REMOTE_USER"] = "dev"
+		env["DECOMK_REMOTE_UID"] = "1000"
+		env["FAKE_DECOMK_RC"] = "0"
+
+		exitCode, output := runStage0Script(t, scriptPath, env)
+		if exitCode == 0 {
+			t.Fatalf("exit code: got 0 want non-zero\noutput:\n%s", output)
+		}
+		if !strings.Contains(output, "stage-0 identity mismatch: current user is root but DECOMK_REMOTE_USER=dev") {
+			t.Fatalf("output missing remote-identity mismatch message:\n%s", output)
+		}
+	})
 }
 
 func writeStage0ScriptFixture(t *testing.T) (string, map[string]string) {
@@ -156,9 +171,9 @@ exit 1
 	}
 
 	// Intent: Keep stage-0 template tests hermetic in non-root CI sandboxes by
-	// stubbing `id` to the root identity that stage-0 now requires before it runs
-	// bootstrap steps.
-	// Source: DI-001-20260424-200248 (TODO/001)
+	// stubbing `id` and setting deterministic DECOMK_REMOTE_* defaults that match
+	// the stubbed process identity for the pre-escalation identity gate.
+	// Source: DI-001-20260424-215415 (TODO/001)
 	fakeIDPath := filepath.Join(binDir, "id")
 	if err := os.WriteFile(fakeIDPath, []byte(`#!/usr/bin/env bash
 set -euo pipefail
@@ -187,6 +202,8 @@ exec /usr/bin/id "$@"
 		"DECOMK_LOG_DIR":       logDir,
 		"DECOMK_TOOL_URI":      "go:example.com/fake/decomk@v0.0.1",
 		"DECOMK_CONF_URI":      "",
+		"DECOMK_REMOTE_USER":   "root",
+		"DECOMK_REMOTE_UID":    "0",
 		"GOBIN":                gobin,
 		"GOPATH":               filepath.Join(root, "gopath"),
 		"PATH":                 binDir + string(os.PathListSeparator) + os.Getenv("PATH"),

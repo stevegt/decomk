@@ -16,8 +16,8 @@
       "DECOMK_TOOL_URI": {{json .ToolURI}},
       "DECOMK_CONF_URI": {{json .ConfURI}},
       "DECOMK_FAIL_NOBOOT": {{json .FailNoBoot}},
-      "DECOMK_DEV_USER": {{json .DevUser}},
-      "DECOMK_DEV_UID": {{json .DevUID}}
+      "DECOMK_REMOTE_USER": {{json .RemoteIdentityUser}},
+      "DECOMK_REMOTE_UID": {{json .RemoteIdentityUID}}
     },
 {{- if .RemoteUser }}
   "remoteUser": {{json .RemoteUser}},

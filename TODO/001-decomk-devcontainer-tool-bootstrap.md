@@ -2,6 +2,15 @@
 
 ## Decision Intent Log
 
+ID: DI-001-20260424-215415
+Date: 2026-04-24 21:54:15
+Status: active
+Decision: Replace `DECOMK_DEV_USER`/`DECOMK_DEV_UID` with `DECOMK_REMOTE_USER`/`DECOMK_REMOTE_UID` across init templates, init flags/prompts, stage-0 env contracts, and computed make metadata; add a pre-escalation stage-0 identity gate that fails when runtime user/uid do not match `DECOMK_REMOTE_*`.
+Intent: Make remote identity semantics explicit and deterministic from `decomk init -conf` through stage-0 execution and make invocation, while catching user/UID drift before privileged bootstrap steps run.
+Constraints: Keep escalation at stage-0 startup (do not move escalation later), keep consumer init identity sourced from the conf repo, and remove old `-dev-user`/`-dev-uid` flag names instead of supporting dual naming.
+Affects: `cmd/decomk/init.go`, `stage0/stage0.go`, `cmd/decomk/main.go`, `cmd/decomk/templates/*.tmpl`, `confrepo/confrepo.go`, generated examples, tests, `README.md`.
+Supersedes: DI-001-20260424-190437 (identity variable naming only), DI-001-20260309-172358 (computed variable naming only)
+
 ID: DI-001-20260424-211213
 Date: 2026-04-24 21:12:13
 Status: active

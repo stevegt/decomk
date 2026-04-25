@@ -77,11 +77,11 @@ func TestCmdInitConf_WritesStarterTree(t *testing.T) {
 	if got, want := containerEnv["DECOMK_FAIL_NOBOOT"], stage0.DefaultFailNoBoot; got != want {
 		t.Fatalf("DECOMK_FAIL_NOBOOT: got %#v want %#v", got, want)
 	}
-	if got, want := containerEnv["DECOMK_DEV_USER"], stage0.DefaultDevcontainerUser; got != want {
-		t.Fatalf("DECOMK_DEV_USER: got %#v want %#v", got, want)
+	if got, want := containerEnv["DECOMK_REMOTE_USER"], stage0.DefaultDevcontainerUser; got != want {
+		t.Fatalf("DECOMK_REMOTE_USER: got %#v want %#v", got, want)
 	}
-	if got, want := containerEnv["DECOMK_DEV_UID"], stage0.DefaultDevcontainerUID; got != want {
-		t.Fatalf("DECOMK_DEV_UID: got %#v want %#v", got, want)
+	if got, want := containerEnv["DECOMK_REMOTE_UID"], stage0.DefaultDevcontainerUID; got != want {
+		t.Fatalf("DECOMK_REMOTE_UID: got %#v want %#v", got, want)
 	}
 	if got, want := decoded["remoteUser"], stage0.DefaultDevcontainerUser; got != want {
 		t.Fatalf("remoteUser: got %#v want %#v", got, want)

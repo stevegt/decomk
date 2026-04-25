@@ -80,7 +80,8 @@ const (
 //   - BuildDockerfile/BuildContext: emit "build" only when BuildDockerfile is non-empty.
 //   - Image: emit "image" when BuildDockerfile is empty and Image is non-empty.
 //   - RunArgs: emit "runArgs" only when non-empty.
-//   - DevUser/DevUID: emitted in containerEnv as decomk metadata keys.
+//   - RemoteIdentityUser/RemoteIdentityUID: emitted in containerEnv as decomk
+//     metadata keys.
 //   - RemoteUser: emit "remoteUser" only when non-empty.
 //   - ContainerUser: emit "containerUser" only when non-empty.
 //   - UpdateRemoteUserUID: emit "updateRemoteUserUID" only when non-nil.
@@ -93,8 +94,8 @@ type DevcontainerTemplateData struct {
 	BuildContext         string
 	Image                string
 	RunArgs              []string
-	DevUser              string
-	DevUID               string
+	RemoteIdentityUser   string
+	RemoteIdentityUID    string
 	RemoteUser           string
 	ContainerUser        string
 	UpdateRemoteUserUID  *bool
@@ -136,11 +137,11 @@ func (data DevcontainerTemplateData) EnsureDefaults() DevcontainerTemplateData {
 	if data.BuildDockerfile == "" && data.Image == "" {
 		data.Image = DefaultDevcontainerImage
 	}
-	if data.DevUser == "" {
-		data.DevUser = DefaultDevcontainerUser
+	if data.RemoteIdentityUser == "" {
+		data.RemoteIdentityUser = DefaultDevcontainerUser
 	}
-	if data.DevUID == "" {
-		data.DevUID = DefaultDevcontainerUID
+	if data.RemoteIdentityUID == "" {
+		data.RemoteIdentityUID = DefaultDevcontainerUID
 	}
 	// Intent: Keep container/runtime identity explicit when a caller sets only
 	// one user field by mirroring `remoteUser` into `containerUser`.
@@ -162,8 +163,8 @@ func ProductionExampleDevcontainerData() DevcontainerTemplateData {
 		Name:                 "decomk (example; set DECOMK_CONF_URI)",
 		BuildDockerfile:      "Dockerfile",
 		BuildContext:         ".",
-		DevUser:              DefaultDevcontainerUser,
-		DevUID:               DefaultDevcontainerUID,
+		RemoteIdentityUser:   DefaultDevcontainerUser,
+		RemoteIdentityUID:    DefaultDevcontainerUID,
 		RemoteUser:           DefaultDevcontainerUser,
 		ContainerUser:        DefaultDevcontainerUser,
 		UpdateRemoteUserUID:  boolPtr(false),
@@ -185,8 +186,8 @@ func SelftestDevcontainerData() DevcontainerTemplateData {
 		BuildDockerfile:      "Dockerfile",
 		BuildContext:         "..",
 		RunArgs:              []string{"--add-host=host.docker.internal:host-gateway"},
-		DevUser:              DefaultDevcontainerUser,
-		DevUID:               DefaultDevcontainerUID,
+		RemoteIdentityUser:   DefaultDevcontainerUser,
+		RemoteIdentityUID:    DefaultDevcontainerUID,
 		RemoteUser:           DefaultDevcontainerUser,
 		ContainerUser:        DefaultDevcontainerUser,
 		UpdateRemoteUserUID:  boolPtr(false),
