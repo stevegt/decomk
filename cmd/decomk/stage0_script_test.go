@@ -155,6 +155,28 @@ exit 1
 		t.Fatalf("WriteFile(fake go): %v", err)
 	}
 
+	// Intent: Keep stage-0 template tests hermetic in non-root CI sandboxes by
+	// stubbing `id` to the root identity that stage-0 now requires before it runs
+	// bootstrap steps.
+	// Source: DI-001-20260424-200248 (TODO/001)
+	fakeIDPath := filepath.Join(binDir, "id")
+	if err := os.WriteFile(fakeIDPath, []byte(`#!/usr/bin/env bash
+set -euo pipefail
+case "${1:-}" in
+  -u)
+    printf '0\n'
+    exit 0
+    ;;
+  -un)
+    printf 'root\n'
+    exit 0
+    ;;
+esac
+exec /usr/bin/id "$@"
+`), 0o755); err != nil {
+		t.Fatalf("WriteFile(fake id): %v", err)
+	}
+
 	scriptPath := filepath.Join(root, "decomk-stage0.sh")
 	if err := os.WriteFile(scriptPath, rendered, 0o755); err != nil {
 		t.Fatalf("WriteFile(stage0 script): %v", err)

@@ -16,11 +16,11 @@ export DECOMK_LOG_DIR
 export DECOMK_TOOL_URI
 export DECOMK_CONF_URI
 
-# Intent: Lock selftest identity expectations to one deterministic non-root user
-# contract so harness runs can fail fast on user/UID drift across providers.
-# Source: DI-001-20260425-005155 (TODO/001)
-SELFTEST_EXPECTED_USER ?= dev
-SELFTEST_EXPECTED_UID ?= 1000
+# Intent: Lock selftest identity expectations to root for both stage-0 and make
+# so harness runs verify the root-only execution contract across providers.
+# Source: DI-007-20260424-200248 (TODO/007)
+SELFTEST_EXPECTED_USER ?= root
+SELFTEST_EXPECTED_UID ?= 0
 
 # Intent: Keep idempotent fixture targets as real file targets (not .PHONY), and
 # keep stamp-regression state inside DECOMK_STAMPDIR so all make-run artifacts

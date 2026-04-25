@@ -740,10 +740,9 @@ require_marker_or_fail 31 "SELFTEST PASS default-tuple-available"
 run_decomk_with_stage0_env() {
   local decomk_run_action_args="$1"
 
-  # Intent: Keep post-bootstrap `decomk run` invocations on the same DECOMK_HOME
-  # and DECOMK_LOG_DIR used during stage-0 bootstrap, so stamp regression checks
-  # operate on the same config/stamp/log state instead of falling back to /var paths.
-  # Source: DI-007-20260413-053500 (TODO/007)
+  # Intent: Re-enter through stage-0 for post-bootstrap actions so root
+  # escalation and env setup match lifecycle-hook execution exactly.
+  # Source: DI-007-20260424-200248 (TODO/007)
   local run_script
   run_script="$(cat <<EOF
 set -euo pipefail
@@ -761,7 +760,8 @@ fi
 cd "\$workspace_dir"
 export DECOMK_HOME=$decomk_home_q
 export DECOMK_LOG_DIR=$decomk_log_dir_q
-decomk run $decomk_run_action_args
+export DECOMK_TOOL_URI=$tool_uri_q
+bash examples/devcontainer/decomk-stage0.sh postCreate $decomk_run_action_args
 EOF
 )"
 
@@ -867,11 +867,11 @@ load_make_log_or_fail 33 "$phase_update_log_path"
 require_no_fail_markers_or_fail 33
 require_marker_or_fail 33 "SELFTEST PASS phase-updateContent"
 require_marker_or_fail 33 "SELFTEST PASS github-user-empty-in-updateContent"
-require_marker_or_fail 33 "SELFTEST PASS identity-match phase=updateContent user=dev uid=1000"
+require_marker_or_fail 33 "SELFTEST PASS identity-match phase=updateContent user=root uid=0"
 require_marker_or_fail 33 "SELFTEST PASS make-id phase=updateContent"
 load_stage0_log_or_fail 33 "updateContent"
 require_stage0_marker_or_fail 33 "SELFTEST PASS stage0-id phase=updateContent"
-require_stage0_marker_or_fail 33 "SELFTEST PASS stage0-id phase=updateContent uid=1000 user=dev"
+require_stage0_marker_or_fail 33 "SELFTEST PASS stage0-id phase=updateContent uid=0 user=root"
 
 runtime_github_user="$(codespace_bash 'printf %s "${GITHUB_USER:-}"')"
 if [[ -z "$runtime_github_user" ]]; then
@@ -891,11 +891,11 @@ load_make_log_or_fail 34 "$phase_post_log_path"
 require_no_fail_markers_or_fail 34
 require_marker_or_fail 34 "SELFTEST PASS phase-postCreate"
 require_marker_or_fail 34 "SELFTEST PASS github-user-present-in-postCreate"
-require_marker_or_fail 34 "SELFTEST PASS identity-match phase=postCreate user=dev uid=1000"
+require_marker_or_fail 34 "SELFTEST PASS identity-match phase=postCreate user=root uid=0"
 require_marker_or_fail 34 "SELFTEST PASS make-id phase=postCreate"
 load_stage0_log_or_fail 34 "postCreate"
 require_stage0_marker_or_fail 34 "SELFTEST PASS stage0-id phase=postCreate"
-require_stage0_marker_or_fail 34 "SELFTEST PASS stage0-id phase=postCreate uid=1000 user=dev"
+require_stage0_marker_or_fail 34 "SELFTEST PASS stage0-id phase=postCreate uid=0 user=root"
 
 # Intent: Assert DECOMK_FAIL_NOBOOT policy in both modes so stage-0 failures are
 # visible and deterministic while preserving optional continue-boot behavior.

@@ -2,6 +2,15 @@
 
 ## Decision Intent Log
 
+ID: DI-001-20260424-200248
+Date: 2026-04-24 20:02:48
+Status: active
+Decision: Move privilege escalation to stage-0 startup (`sudo -n -E` self-exec), remove `decomk run` sudo/make-as-root controls, and require root for `decomk run`.
+Intent: Keep root execution deterministic with one escalation boundary at stage-0 entry so make always runs as root without scattered sudo logic.
+Constraints: Stage-0 must fail fast when escalation is unavailable; `decomk run` must emit a clear non-root error; remove `-make-as-root` and `DECOMK_MAKE_AS_ROOT` from code/docs/tests.
+Affects: `cmd/decomk/templates/decomk-stage0.sh.tmpl`, `cmd/decomk/main.go`, `cmd/decomk/main_test.go`, `README.md`, selftest harness scripts and fixture Makefile.
+Supersedes: DI-001-20260309-172358, DI-001-20260422-130000
+
 ID: DI-001-20260424-193612
 Date: 2026-04-24 19:36:12
 Status: active

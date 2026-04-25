@@ -210,6 +210,24 @@ clear_stage0_failure_artifacts() {
   fi
 }
 
+require_root_stage0() {
+  if [[ "$(id -u)" -eq 0 ]]; then
+    return 0
+  fi
+  if [[ "${DECOMK_STAGE0_ESCALATED:-}" == "1" ]]; then
+    die "stage-0 root escalation failed: already retried with sudo -n -E"
+  fi
+  if ! command -v sudo >/dev/null 2>&1; then
+    die "stage-0 requires root but sudo is not in PATH"
+  fi
+
+  # Intent: Centralize privilege escalation at stage-0 startup so decomk itself
+  # does not need to carry sudo fallback logic for make execution.
+  # Source: DI-001-20260424-200248 (TODO/001)
+  export DECOMK_STAGE0_ESCALATED=1
+  exec sudo -n -E -- bash "$0" "$stage0_phase" "$@"
+}
+
 stage0_error_handler() {
   local rc="$1"
   local line="$2"
@@ -440,6 +458,9 @@ resolve_decomk_binary() {
 
 stage0_fail_no_boot="$(normalize_fail_no_boot "$DECOMK_FAIL_NOBOOT")"
 trap 'stage0_error_handler "$?" "$LINENO"' ERR
+
+stage0_error_step="require-root"
+require_root_stage0 "$@"
 
 stage0_error_step="prepare-paths"
 mkdir -p "$DECOMK_HOME" "$DECOMK_LOG_DIR"

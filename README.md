@@ -574,7 +574,6 @@ ARGS:
   Common flags for plan/run:
   -home <abs-path>          Override DECOMK_HOME
   -log-dir <abs-path>       Override DECOMK_LOG_DIR (default /var/log/decomk)
-  -make-as-root=<bool>      Run make as root (default true; overrides DECOMK_MAKE_AS_ROOT)
   -C <dir>                  Starting directory (like make -C)
   -workspaces <dir>         Workspaces root directory to scan (default /workspaces; overrides DECOMK_WORKSPACES_DIR)
   -context <key>            Override context selection
@@ -602,8 +601,9 @@ ARGS:
 
 ## Makefile privilege model
 
-By default, `decomk run` executes `make` as root via passwordless `sudo -n`
-(unless `-make-as-root=false` / `DECOMK_MAKE_AS_ROOT=false`).
+`decomk run` now requires root and does not do its own sudo fallback logic.
+The generated stage-0 hook (`.devcontainer/decomk-stage0.sh`) handles one
+non-interactive re-exec via `sudo -n -E` before calling `decomk run`.
 
 decomk intentionally uses a single privilege mode per invocation (it does not
 split targets into “root phase” and “user phase”); this keeps stamp semantics
@@ -614,7 +614,7 @@ other `$HOME` writes) while `make` is running as root, explicitly drop
 privileges inside the Makefile using `runuser` (or `su`). decomk exports:
 
 - `DECOMK_DEV_USER`: the dev user (the non-root user decomk expects to own state)
-- `DECOMK_MAKE_USER`: the effective user `make` is running as (`root` or `DECOMK_DEV_USER`)
+- `DECOMK_MAKE_USER`: the effective user `make` is running as (`root`)
 
 Example pattern:
 

@@ -258,7 +258,7 @@ func TestCanonicalEnvTuplesAndMakeInvocationParity(t *testing.T) {
 	}
 	targets := []string{"Block00_base", "Block10_common"}
 
-	cookedTuples := canonicalEnvTuples(plan, targets, false, incomingEnv)
+	cookedTuples := canonicalEnvTuples(plan, targets, incomingEnv)
 	effective := effectiveTupleValues(cookedTuples)
 
 	// Config tuples must override incoming DECOMK_* pass-through values.
@@ -306,7 +306,7 @@ func TestWriteEnvExport_IncludesDecomkVersion(t *testing.T) {
 	}
 	incomingEnv := map[string]string{}
 	targets := []string{"Block00_base"}
-	cookedTuples := canonicalEnvTuples(plan, targets, false, incomingEnv)
+	cookedTuples := canonicalEnvTuples(plan, targets, incomingEnv)
 
 	var out bytes.Buffer
 	if err := writeEnvExport(&out, plan, cookedTuples); err != nil {
@@ -319,74 +319,24 @@ func TestWriteEnvExport_IncludesDecomkVersion(t *testing.T) {
 	}
 }
 
-func TestSelectSudoMakeCommand(t *testing.T) {
+func TestCmdRun_RequiresRoot(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
-		name    string
-		support sudoPreserveEnvSupport
-		want    []string
-	}{
-		{
-			name: "preserve PATH and GITHUB_USER when supported",
-			support: sudoPreserveEnvSupport{
-				pathAndGitHubUser: true,
-			},
-			want: []string{"sudo", "-n", "--preserve-env=PATH,GITHUB_USER", "make"},
-		},
-		{
-			name: "fall back to PATH-only preserve",
-			support: sudoPreserveEnvSupport{
-				pathOnly: true,
-			},
-			want: []string{"sudo", "-n", "--preserve-env=PATH", "make"},
-		},
-		{
-			name:    "fall back to plain sudo make",
-			support: sudoPreserveEnvSupport{},
-			want:    []string{"sudo", "-n", "make"},
-		},
+	if os.Geteuid() == 0 {
+		t.Skip("test is meaningful only when not running as root")
 	}
 
-	for _, tc := range cases {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			got := selectSudoMakeCommand(tc.support)
-			if !reflect.DeepEqual(got, tc.want) {
-				t.Fatalf("selectSudoMakeCommand(): got %#v want %#v", got, tc.want)
-			}
-		})
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code, err := cmdRun([]string{"TEST_ACTION"}, &stdout, &stderr)
+	if code != 1 {
+		t.Fatalf("cmdRun() code: got %d want 1", code)
 	}
-}
-
-func TestResolveMakeCommand_DryRunBypassesSudo(t *testing.T) {
-	t.Parallel()
-
-	got, usesSudo, err := resolveMakeCommand(true, true)
-	if err != nil {
-		t.Fatalf("resolveMakeCommand() error: %v", err)
+	if err == nil {
+		t.Fatalf("cmdRun() error: got nil want non-nil")
 	}
-	if usesSudo {
-		t.Fatalf("usesSudo: got true want false")
-	}
-	if want := []string{"make"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("command: got %#v want %#v", got, want)
-	}
-}
-
-func TestResolveMakeCommand_NoRootModeBypassesSudo(t *testing.T) {
-	t.Parallel()
-
-	got, usesSudo, err := resolveMakeCommand(false, false)
-	if err != nil {
-		t.Fatalf("resolveMakeCommand() error: %v", err)
-	}
-	if usesSudo {
-		t.Fatalf("usesSudo: got true want false")
-	}
-	if want := []string{"make"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("command: got %#v want %#v", got, want)
+	if got, want := err.Error(), "decomk run must execute as root"; !strings.Contains(got, want) {
+		t.Fatalf("cmdRun() error: got %q want substring %q", got, want)
 	}
 }
 
@@ -625,6 +575,10 @@ func TestCreateRunLogDir_ExplicitDoesNotFallback(t *testing.T) {
 }
 
 func TestCmdRun_StampDirAndIdempotentTarget(t *testing.T) {
+	if os.Geteuid() != 0 {
+		t.Skip("cmdRun now requires root; this integration test runs only as root")
+	}
+
 	origWD, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("Getwd: %v", err)
@@ -673,7 +627,6 @@ func TestCmdRun_StampDirAndIdempotentTarget(t *testing.T) {
 		"-workspaces", workspacesDir,
 		"-config", configPath,
 		"-makefile", makefilePath,
-		"-make-as-root=false",
 		"stamp-idempotent",
 	}
 

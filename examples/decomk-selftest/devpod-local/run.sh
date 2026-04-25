@@ -233,7 +233,10 @@ render_devcontainer_json "$conf_uri" "$tool_uri" "$workspace_copy/.devcontainer/
 
 active_workspaces+=("$workspace_name")
 run_logged run_devpod_up "$workspace_name" "$workspace_copy"
-run_logged devpod ssh "$workspace_name" --command "decomk run $decomk_run_args"
+# Intent: Keep all runtime make executions on the same stage-0 root path used by
+# lifecycle hooks so selftest behavior matches production privilege flow.
+# Source: DI-007-20260424-200248 (TODO/007)
+run_logged devpod ssh "$workspace_name" --command "bash .devcontainer/decomk-stage0.sh postCreate $decomk_run_args"
 
 make_log_path="$(latest_make_log_path)"
 if [[ -z "$make_log_path" ]]; then
@@ -305,7 +308,7 @@ require_marker "SELFTEST PASS default-tuple-available"
 # first invocation executes and stamps; second invocation must skip that target,
 # and the verifier target must confirm the probe ran exactly once.
 # Source: DI-007-20260313-101500 (TODO/007)
-run_logged devpod ssh "$workspace_name" --command "decomk run TUPLE_STAMP_PROBE"
+run_logged devpod ssh "$workspace_name" --command "bash .devcontainer/decomk-stage0.sh postCreate TUPLE_STAMP_PROBE"
 stamp_probe_log_path="$(latest_make_log_path)"
 if [[ -z "$stamp_probe_log_path" ]]; then
   die "self-test could not find stamp-probe make.log"
@@ -314,7 +317,7 @@ mapfile -t make_log_lines < <(devpod ssh "$workspace_name" --command "cat '$stam
 require_marker "SELFTEST PASS stamp-dir-working-dir"
 require_marker "SELFTEST PASS stamp-probe-ran"
 
-run_logged devpod ssh "$workspace_name" --command "decomk run TUPLE_STAMP_PROBE TUPLE_STAMP_VERIFY"
+run_logged devpod ssh "$workspace_name" --command "bash .devcontainer/decomk-stage0.sh postCreate TUPLE_STAMP_PROBE TUPLE_STAMP_VERIFY"
 stamp_verify_log_path="$(latest_make_log_path)"
 if [[ -z "$stamp_verify_log_path" ]]; then
   die "self-test could not find stamp-verify make.log"
@@ -340,11 +343,11 @@ mapfile -t make_log_lines < <(devpod ssh "$workspace_name" --command "cat '$phas
 require_no_fail_markers
 require_marker "SELFTEST PASS phase-updateContent"
 require_marker "SELFTEST PASS github-user-empty-in-updateContent"
-require_marker "SELFTEST PASS identity-match phase=updateContent user=dev uid=1000"
+require_marker "SELFTEST PASS identity-match phase=updateContent user=root uid=0"
 require_marker "SELFTEST PASS make-id phase=updateContent"
 load_stage0_log_lines "/tmp/decomk-selftest/log/stage0-updateContent.log"
 require_stage0_marker "SELFTEST PASS stage0-id phase=updateContent"
-require_stage0_marker "SELFTEST PASS stage0-id phase=updateContent uid=1000 user=dev"
+require_stage0_marker "SELFTEST PASS stage0-id phase=updateContent uid=0 user=root"
 
 run_logged devpod ssh "$workspace_name" --command "GITHUB_USER=decomk-selftest-dev .devcontainer/decomk-stage0.sh postCreate TUPLE_PHASE_POST"
 phase_post_log_path="$(latest_make_log_path)"
@@ -358,11 +361,11 @@ mapfile -t make_log_lines < <(devpod ssh "$workspace_name" --command "cat '$phas
 require_no_fail_markers
 require_marker "SELFTEST PASS phase-postCreate"
 require_marker "SELFTEST PASS github-user-present-in-postCreate"
-require_marker "SELFTEST PASS identity-match phase=postCreate user=dev uid=1000"
+require_marker "SELFTEST PASS identity-match phase=postCreate user=root uid=0"
 require_marker "SELFTEST PASS make-id phase=postCreate"
 load_stage0_log_lines "/tmp/decomk-selftest/log/stage0-postCreate.log"
 require_stage0_marker "SELFTEST PASS stage0-id phase=postCreate"
-require_stage0_marker "SELFTEST PASS stage0-id phase=postCreate uid=1000 user=dev"
+require_stage0_marker "SELFTEST PASS stage0-id phase=postCreate uid=0 user=root"
 
 # Intent: Assert DECOMK_FAIL_NOBOOT policy in both modes so stage-0 failures are
 # visible and deterministic while preserving optional continue-boot behavior.

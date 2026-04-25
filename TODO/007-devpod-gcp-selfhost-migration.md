@@ -197,6 +197,14 @@ Intent: Provide concrete evidence about which user executes stage-0 vs make so r
 Constraints: Keep markers deterministic and phase-labeled (`updateContent`/`postCreate`), preserve existing PASS/FAIL marker contract, and avoid introducing silent fallback logic.
 Affects: `cmd/decomk/templates/decomk-stage0.sh.tmpl`, generated `examples/*/decomk-stage0.sh`, `examples/decomk-selftest/fixtures/confrepo/Makefile`, `examples/decomk-selftest/devpod-local/run.sh`, `examples/decomk-selftest/codespaces/run.sh`, `cmd/decomk/stage0_script_test.go`, `TODO/007-devpod-gcp-selfhost-migration.md`.
 
+ID: DI-007-20260424-200248
+Date: 2026-04-24 20:02:48
+Status: active
+Decision: Update selftest identity assertions to require root execution for both stage-0 and make after stage-0 self-escalates.
+Intent: Align harness PASS/FAIL criteria with the root-only execution contract so identity checks confirm policy instead of legacy non-root expectations.
+Constraints: Preserve phase markers and GITHUB_USER checks; keep marker strings deterministic and explicit (`user=root uid=0`).
+Affects: `examples/decomk-selftest/fixtures/confrepo/Makefile`, `examples/decomk-selftest/devpod-local/run.sh`, `examples/decomk-selftest/codespaces/run.sh`, `TODO/007-devpod-gcp-selfhost-migration.md`.
+
 Related design docs:
 - `doc/isconf-design.md`
 - `doc/decomk-design.md`
