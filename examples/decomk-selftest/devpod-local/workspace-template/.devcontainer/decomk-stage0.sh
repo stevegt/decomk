@@ -49,6 +49,7 @@ stage0_failure_marker="$stage0_failure_dir/latest-${stage0_phase}.marker"
 stage0_failure_log="$stage0_failure_dir/latest-${stage0_phase}.log"
 stage0_motd_hint="/etc/motd.d/80-decomk-stage0"
 stage0_motd_fallback="$stage0_failure_dir/motd.txt"
+stage0_go_cmd="go"
 
 timestamp_utc() {
   date -u +"%Y-%m-%dT%H:%M:%SZ"
@@ -383,7 +384,7 @@ sync_git_repo() {
 
 resolve_go_bin_dir() {
   local gobin
-  gobin="$(go env GOBIN)"
+  gobin="$("$stage0_go_cmd" env GOBIN)"
   if [[ -n "$gobin" ]]; then
     printf '%s' "$gobin"
     return 0
@@ -391,12 +392,32 @@ resolve_go_bin_dir() {
 
   local gopath
   local gopath_first
-  gopath="$(go env GOPATH)"
+  gopath="$("$stage0_go_cmd" env GOPATH)"
   gopath_first="${gopath%%:*}"
   if [[ -z "$gopath_first" ]]; then
     return 1
   fi
   printf '%s/bin' "$gopath_first"
+}
+
+resolve_go_command() {
+  if command -v go >/dev/null 2>&1; then
+    command -v go
+    return 0
+  fi
+
+  # Intent: Keep stage-0 bootstrap deterministic under sudo policies that
+  # rewrite PATH (for example secure_path) by probing common absolute Go paths
+  # before failing with an actionable message.
+  # Source: DI-001-20260424-211213 (TODO/001)
+  local candidate
+  for candidate in /usr/bin/go /usr/local/go/bin/go; do
+    if [[ -x "$candidate" ]]; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+  die "go command not found after root escalation (PATH=$PATH); install golang or ensure sudo secure_path includes go"
 }
 
 install_decomk() {
@@ -406,7 +427,7 @@ install_decomk() {
       if [[ -z "$install_spec" ]]; then
         die "go source URI must include module@version after go:"
       fi
-      go install "$install_spec"
+      "$stage0_go_cmd" install "$install_spec"
       ;;
     git:*)
       local parsed tool_repo_url tool_git_ref
@@ -415,7 +436,7 @@ install_decomk() {
       tool_git_ref="${parsed[1]:-}"
       local tool_src_dir="$DECOMK_HOME/src/decomk"
       sync_git_repo "$tool_repo_url" "$tool_src_dir" "$tool_git_ref"
-      (cd "$tool_src_dir" && go install ./cmd/decomk)
+      (cd "$tool_src_dir" && "$stage0_go_cmd" install ./cmd/decomk)
       ;;
     *)
       die "invalid DECOMK_TOOL_URI=$DECOMK_TOOL_URI (expected go:... or git:...)"
@@ -461,6 +482,9 @@ trap 'stage0_error_handler "$?" "$LINENO"' ERR
 
 stage0_error_step="require-root"
 require_root_stage0 "$@"
+
+stage0_error_step="resolve-go-command"
+stage0_go_cmd="$(resolve_go_command)"
 
 stage0_error_step="prepare-paths"
 mkdir -p "$DECOMK_HOME" "$DECOMK_LOG_DIR"

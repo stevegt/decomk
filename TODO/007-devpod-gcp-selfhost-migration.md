@@ -2,6 +2,23 @@
 
 ## Decision Intent Log
 
+ID: DI-007-20260424-212300
+Date: 2026-04-24 21:23:00
+Status: active
+Decision: Pin the Codespaces selftest base image to `mcr.microsoft.com/devcontainers/base:ubuntu-24.04` (not plain `ubuntu:24.04`) and continue explicit apt installation of required bootstrap/runtime tools.
+Intent: Align the selftest environment with devcontainer-native base behavior while keeping toolchain availability deterministic for root stage-0 execution.
+Constraints: Preserve non-root `dev` user identity (`uid 1000`) with passwordless sudo and keep workspace ownership unchanged.
+Affects: `.devcontainer/codespaces-selftest/Dockerfile`, selftest environment assumptions.
+Supersedes: DI-007-20260424-211213
+
+ID: DI-007-20260424-211213
+Date: 2026-04-24 21:12:13
+Status: active
+Decision: Switch Codespaces selftest base image from `golang:1.24-bookworm` to `ubuntu:24.04` and install required bootstrap/runtime tools with apt (`golang-go`, `make`, `git`, `sudo`, `ca-certificates`).
+Intent: Keep codespaces selftest toolchain availability explicit and aligned with root stage-0 execution so bootstrap does not depend on inherited base-image PATH behavior.
+Constraints: Preserve non-root `dev` user identity (`uid 1000`) with passwordless sudo and keep workspace ownership unchanged.
+Affects: `.devcontainer/codespaces-selftest/Dockerfile`, `examples/decomk-selftest/codespaces/run.sh` failure analysis assumptions, related docs/tests.
+
 ID: DI-007-20260309-114541
 Date: 2026-03-09 11:45:41
 Status: active

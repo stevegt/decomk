@@ -2,6 +2,14 @@
 
 ## Decision Intent Log
 
+ID: DI-001-20260424-211213
+Date: 2026-04-24 21:12:13
+Status: active
+Decision: Add a stage-0 Go toolchain preflight after root escalation and use the resolved absolute Go binary path for all `go env`/`go install` calls.
+Intent: Make root-escalated stage-0 failures explicit and deterministic when sudo path policy drops Go from PATH.
+Constraints: Keep stage-0 non-interactive and fail-fast; preserve existing URI-driven install semantics; emit actionable error messages that include PATH context.
+Affects: `cmd/decomk/templates/decomk-stage0.sh.tmpl`, generated stage-0 scripts, stage-0 template tests.
+
 ID: DI-001-20260424-200248
 Date: 2026-04-24 20:02:48
 Status: active

@@ -1,11 +1,16 @@
 # Intent: Provide a deterministic codespaces selftest base image with a non-root
 # dev user and passwordless sudo so decomk privilege behavior is exercised the
 # same way as in the local DevPod harness.
-# Source: DI-007-20260412-230000 (TODO/007)
-FROM golang:1.24-bookworm
+# Source: DI-007-20260424-212300 (TODO/007)
+FROM mcr.microsoft.com/devcontainers/base:ubuntu-24.04
 
 RUN apt-get update \
- && apt-get install -y --no-install-recommends sudo ca-certificates \
+ && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    git \
+    golang-go \
+    make \
+    sudo \
  && rm -rf /var/lib/apt/lists/*
 
 RUN useradd --create-home --shell /bin/bash --uid 1000 dev \
