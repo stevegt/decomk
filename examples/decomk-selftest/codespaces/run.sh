@@ -1057,18 +1057,21 @@ failure_marker="$failure_root/latest-postCreate.marker"
 failure_log="$failure_root/latest-postCreate.log"
 failure_motd_fallback="$failure_root/motd.txt"
 
-if ! run_logged run_stage0_phase_with_stage0_env "postCreate" "TUPLE_PHASE_POST" "$runtime_github_user" "git:https://github.invalid/decomk-conf-does-not-exist.git" "false"; then
-  fail 35 "stage-0 continue-mode failure probe unexpectedly returned non-zero"
-fi
-if ! run_logged codespace_bash "test -f $(printf '%q' "$failure_marker")"; then
-  fail 35 "continue-mode probe did not write failure marker: $failure_marker"
-fi
-if ! run_logged codespace_bash "test -f $(printf '%q' "$failure_log")"; then
-  fail 35 "continue-mode probe did not write failure log: $failure_log"
-fi
-if ! run_logged codespace_bash "if [[ -f /etc/motd.d/80-decomk-stage0 ]] || [[ -f $(printf '%q' "$failure_motd_fallback") ]]; then exit 0; fi; echo 'missing stage-0 motd hint and fallback hint' >&2; exit 1"; then
-  fail 35 "continue-mode probe did not produce MOTD or fallback hint"
-fi
+  if ! run_logged run_stage0_phase_with_stage0_env "postCreate" "TUPLE_PHASE_POST" "$runtime_github_user" "git:https://github.invalid/decomk-conf-does-not-exist.git" "false"; then
+    fail 35 "stage-0 continue-mode failure probe unexpectedly returned non-zero"
+  fi
+  # Intent: Validate stage-0 failure artifacts as root because stage-0 writes
+  # them under root-owned paths after self-escalation.
+  # Source: DI-007-20260424-200248 (TODO/007)
+  if ! run_logged codespace_bash_root "test -f $(printf '%q' "$failure_marker")"; then
+    fail 35 "continue-mode probe did not write failure marker: $failure_marker"
+  fi
+  if ! run_logged codespace_bash_root "test -f $(printf '%q' "$failure_log")"; then
+    fail 35 "continue-mode probe did not write failure log: $failure_log"
+  fi
+  if ! run_logged codespace_bash_root "if [[ -f /etc/motd.d/80-decomk-stage0 ]] || [[ -f $(printf '%q' "$failure_motd_fallback") ]]; then exit 0; fi; echo 'missing stage-0 motd hint and fallback hint' >&2; exit 1"; then
+    fail 35 "continue-mode probe did not produce MOTD or fallback hint"
+  fi
 
 if run_stage0_phase_with_stage0_env "postCreate" "TUPLE_PHASE_POST" "$runtime_github_user" "git:https://github.invalid/decomk-conf-does-not-exist.git" "true"; then
   fail 36 "expected stage-0 fail-no-boot probe to return non-zero"
@@ -1076,11 +1079,11 @@ else
   fail_no_boot_rc=$?
   log "observed expected DECOMK_FAIL_NOBOOT=true failure rc=$fail_no_boot_rc"
 fi
-if ! run_logged codespace_bash "test -f $(printf '%q' "$failure_marker")"; then
-  fail 36 "fail-no-boot probe did not leave failure marker: $failure_marker"
-fi
-if ! run_logged codespace_bash "test -f $(printf '%q' "$failure_log")"; then
-  fail 36 "fail-no-boot probe did not leave failure log: $failure_log"
-fi
+  if ! run_logged codespace_bash_root "test -f $(printf '%q' "$failure_marker")"; then
+    fail 36 "fail-no-boot probe did not leave failure marker: $failure_marker"
+  fi
+  if ! run_logged codespace_bash_root "test -f $(printf '%q' "$failure_log")"; then
+    fail 36 "fail-no-boot probe did not leave failure log: $failure_log"
+  fi
 
 log "codespaces parity checks passed (including lifecycle phase + fail-no-boot checks)"
