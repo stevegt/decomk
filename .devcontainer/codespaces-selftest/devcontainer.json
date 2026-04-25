@@ -9,7 +9,5 @@
       "version": "latest"
     }
   },
-  "remoteUser": "dev",
-  "containerUser": "dev",
   "updateRemoteUserUID": false
 }

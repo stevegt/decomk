@@ -860,6 +860,10 @@ export DECOMK_HOME=$decomk_home_q
 export DECOMK_LOG_DIR=$decomk_log_dir_q
 export DECOMK_TOOL_URI=$tool_uri_q
 export DECOMK_CONF_URI="\$resolved_conf_uri"
+# Intent: Keep selftest identity wiring aligned with production-like stage-0
+# behavior by sourcing DECOMK_REMOTE_* from the devcontainer image/profile,
+# never from harness runtime exports.
+# Source: DI-007-20260425-110755 (TODO/007)
 export DECOMK_FAIL_NOBOOT=$stage0_fail_noboot_default_q
 bash examples/devcontainer/decomk-stage0.sh postCreate$decomk_run_args_shell
 EOF

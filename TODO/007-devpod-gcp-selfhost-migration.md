@@ -2,9 +2,34 @@
 
 ## Decision Intent Log
 
+ID: DI-007-20260425-111219
+Date: 2026-04-25 11:12:19
+Status: active
+Decision: Defer all `examples/decomk-selftest/devpod-local/*` identity-source alignment changes until upstream issue `https://github.com/skevetter/devpod/issues/746` is fixed.
+Intent: Avoid coupling selftest-devpod behavior to known upstream lifecycle/runtime gaps while proceeding with Codespaces-aligned identity-source fixes.
+Constraints: Do not change DevPod selftest harness/config files for this identity-source task until the upstream issue is resolved and re-evaluated.
+Affects: `examples/decomk-selftest/devpod-local/*`, `TODO/007-devpod-gcp-selfhost-migration.md`.
+
+ID: DI-007-20260425-110755
+Date: 2026-04-25 11:07:55
+Status: active
+Decision: Simplify the Codespaces selftest identity contract by removing harness runtime exports of `DECOMK_REMOTE_USER`/`DECOMK_REMOTE_UID`, setting those values in the selftest image with Dockerfile `ENV`, and letting the selftest devcontainer rely on image-default remote user selection.
+Intent: Keep remote-identity expectations explicit but configured where image identity actually varies, while avoiding brittle harness-side identity translation logic.
+Constraints: Keep the stage-0 pre-escalation identity gate enforced, keep explicit tool installation in the selftest image, and retain existing phase/stamp assertions in the harness.
+Affects: `.devcontainer/codespaces-selftest/Dockerfile`, `.devcontainer/codespaces-selftest/devcontainer.json`, `examples/decomk-selftest/codespaces/run.sh`.
+Supersedes: DI-007-20260424-221008, DI-007-20260424-215415
+
+ID: DI-007-20260424-221008
+Date: 2026-04-24 22:10:08
+Status: superseded
+Decision: Export `DECOMK_REMOTE_USER`/`DECOMK_REMOTE_UID` from in-codespace `id -un`/`id -u` in the Codespaces selftest harness before every stage-0 invocation.
+Intent: Keep selftest stage-0 runs compatible with the new required pre-escalation remote-identity gate even when the harness devcontainer profile does not define `containerEnv` identity keys.
+Constraints: Preserve existing stage-0 invocation flow and phase tests; do not bypass stage-0 validation; keep values explicit in each harness execution path.
+Affects: `examples/decomk-selftest/codespaces/run.sh`.
+
 ID: DI-007-20260424-215415
 Date: 2026-04-24 21:54:15
-Status: active
+Status: superseded
 Decision: Keep the Codespaces selftest Dockerfile on `mcr.microsoft.com/devcontainers/base:ubuntu-24.04` with explicit tool installs, and enforce one identity contract: `dev` must be uid `1000`; when uid `1000` belongs to another user, rename that user/group to `dev`; fail when `dev` already exists with a non-1000 uid.
 Intent: Remove nondeterministic user identity outcomes while still handling base images that pre-seed uid 1000 users (for example `vscode`) without Docker build failures.
 Constraints: Preserve passwordless sudo for `dev`, keep `/workspaces` owned by `dev`, and fail loudly instead of silently accepting mismatched uid contracts.
