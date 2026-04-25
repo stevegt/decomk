@@ -19,15 +19,16 @@ func TestCmdInitConf_WritesStarterTree(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 
-	code, err := cmdInitConf([]string{
+	code, err := cmdInit([]string{
+		"-conf",
 		"-repo-root", repoRoot,
 		"-name", "conf producer",
 	}, &stdout, &stderr)
 	if err != nil {
-		t.Fatalf("cmdInitConf() error: %v", err)
+		t.Fatalf("cmdInit(-conf) error: %v", err)
 	}
 	if code != 0 {
-		t.Fatalf("cmdInitConf() code: got %d want 0", code)
+		t.Fatalf("cmdInit(-conf) code: got %d want 0", code)
 	}
 	if stderr.Len() != 0 {
 		t.Fatalf("stderr: got %q want empty", stderr.String())
@@ -76,6 +77,21 @@ func TestCmdInitConf_WritesStarterTree(t *testing.T) {
 	if got, want := containerEnv["DECOMK_FAIL_NOBOOT"], stage0.DefaultFailNoBoot; got != want {
 		t.Fatalf("DECOMK_FAIL_NOBOOT: got %#v want %#v", got, want)
 	}
+	if got, want := containerEnv["DECOMK_DEV_USER"], stage0.DefaultDevcontainerUser; got != want {
+		t.Fatalf("DECOMK_DEV_USER: got %#v want %#v", got, want)
+	}
+	if got, want := containerEnv["DECOMK_DEV_UID"], stage0.DefaultDevcontainerUID; got != want {
+		t.Fatalf("DECOMK_DEV_UID: got %#v want %#v", got, want)
+	}
+	if got, want := decoded["remoteUser"], stage0.DefaultDevcontainerUser; got != want {
+		t.Fatalf("remoteUser: got %#v want %#v", got, want)
+	}
+	if got, want := decoded["containerUser"], stage0.DefaultDevcontainerUser; got != want {
+		t.Fatalf("containerUser: got %#v want %#v", got, want)
+	}
+	if got, want := decoded["updateRemoteUserUID"], false; got != want {
+		t.Fatalf("updateRemoteUserUID: got %#v want %#v", got, want)
+	}
 }
 
 func TestCmdInitConf_ForcePolicy(t *testing.T) {
@@ -85,20 +101,20 @@ func TestCmdInitConf_ForcePolicy(t *testing.T) {
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 
-	baseArgs := []string{"-repo-root", repoRoot}
-	code, err := cmdInitConf(baseArgs, &stdout, &stderr)
+	baseArgs := []string{"-conf", "-repo-root", repoRoot}
+	code, err := cmdInit(baseArgs, &stdout, &stderr)
 	if err != nil || code != 0 {
-		t.Fatalf("first cmdInitConf() got code=%d err=%v", code, err)
+		t.Fatalf("first cmdInit(-conf) got code=%d err=%v", code, err)
 	}
 
 	stdout.Reset()
 	stderr.Reset()
-	code, err = cmdInitConf(baseArgs, &stdout, &stderr)
+	code, err = cmdInit(baseArgs, &stdout, &stderr)
 	if err == nil {
-		t.Fatalf("second cmdInitConf() error: got nil want existing-file error")
+		t.Fatalf("second cmdInit(-conf) error: got nil want existing-file error")
 	}
 	if code != 1 {
-		t.Fatalf("second cmdInitConf() code: got %d want 1", code)
+		t.Fatalf("second cmdInit(-conf) code: got %d want 1", code)
 	}
 	if !strings.Contains(err.Error(), "-f/-force") {
 		t.Fatalf("error: got %q want force guidance", err.Error())
@@ -109,12 +125,12 @@ func TestCmdInitConf_ForcePolicy(t *testing.T) {
 
 	stdout.Reset()
 	stderr.Reset()
-	code, err = cmdInitConf([]string{"-repo-root", repoRoot, "-f"}, &stdout, &stderr)
+	code, err = cmdInit([]string{"-conf", "-repo-root", repoRoot, "-f"}, &stdout, &stderr)
 	if err != nil {
-		t.Fatalf("forced cmdInitConf() error: %v", err)
+		t.Fatalf("forced cmdInit(-conf) error: %v", err)
 	}
 	if code != 0 {
-		t.Fatalf("forced cmdInitConf() code: got %d want 0", code)
+		t.Fatalf("forced cmdInit(-conf) code: got %d want 0", code)
 	}
 }
 
@@ -148,12 +164,12 @@ func TestCmdInitConf_DefaultRepoRootUsesGitToplevel(t *testing.T) {
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	code, err := cmdInitConf([]string{}, &stdout, &stderr)
+	code, err := cmdInit([]string{"-conf"}, &stdout, &stderr)
 	if err != nil {
-		t.Fatalf("cmdInitConf() error: %v", err)
+		t.Fatalf("cmdInit(-conf) error: %v", err)
 	}
 	if code != 0 {
-		t.Fatalf("cmdInitConf() code: got %d want 0", code)
+		t.Fatalf("cmdInit(-conf) code: got %d want 0", code)
 	}
 
 	if _, statErr := os.Stat(filepath.Join(repoRoot, "decomk.conf")); statErr != nil {
@@ -185,12 +201,12 @@ func TestCmdInitConf_DefaultRepoRootErrorsOutsideGitRepo(t *testing.T) {
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	code, err := cmdInitConf([]string{}, &stdout, &stderr)
+	code, err := cmdInit([]string{"-conf"}, &stdout, &stderr)
 	if err == nil {
-		t.Fatalf("cmdInitConf() error: got nil want error")
+		t.Fatalf("cmdInit(-conf) error: got nil want error")
 	}
 	if code != 1 {
-		t.Fatalf("cmdInitConf() code: got %d want 1", code)
+		t.Fatalf("cmdInit(-conf) code: got %d want 1", code)
 	}
 	if !strings.Contains(err.Error(), "set -repo-root") {
 		t.Fatalf("error: got %q want mention of -repo-root guidance", err.Error())

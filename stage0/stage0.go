@@ -54,6 +54,15 @@ const (
 	// Source: DI-001-20260425-005155 (TODO/001)
 	DefaultDevcontainerUser = "dev"
 
+	// DefaultDevcontainerUID is the canonical non-root UID used by decomk's own
+	// test/codespaces devcontainer profiles.
+	//
+	// Intent: Keep user/UID wiring deterministic in generated producer and
+	// consumer devcontainer scaffolds so identity can be propagated from conf
+	// producer repos into consumer repos without ambiguity.
+	// Source: DI-001-20260424-190437 (TODO/001)
+	DefaultDevcontainerUID = "1000"
+
 	// DefaultFailNoBoot is the canonical stage-0 failure policy used by generated
 	// devcontainer files. False keeps container startup non-blocking while stage-0
 	// still records diagnostics and hints when bootstrap steps fail.
@@ -71,6 +80,7 @@ const (
 //   - BuildDockerfile/BuildContext: emit "build" only when BuildDockerfile is non-empty.
 //   - Image: emit "image" when BuildDockerfile is empty and Image is non-empty.
 //   - RunArgs: emit "runArgs" only when non-empty.
+//   - DevUser/DevUID: emitted in containerEnv as decomk metadata keys.
 //   - RemoteUser: emit "remoteUser" only when non-empty.
 //   - ContainerUser: emit "containerUser" only when non-empty.
 //   - UpdateRemoteUserUID: emit "updateRemoteUserUID" only when non-nil.
@@ -83,6 +93,8 @@ type DevcontainerTemplateData struct {
 	BuildContext         string
 	Image                string
 	RunArgs              []string
+	DevUser              string
+	DevUID               string
 	RemoteUser           string
 	ContainerUser        string
 	UpdateRemoteUserUID  *bool
@@ -124,6 +136,12 @@ func (data DevcontainerTemplateData) EnsureDefaults() DevcontainerTemplateData {
 	if data.BuildDockerfile == "" && data.Image == "" {
 		data.Image = DefaultDevcontainerImage
 	}
+	if data.DevUser == "" {
+		data.DevUser = DefaultDevcontainerUser
+	}
+	if data.DevUID == "" {
+		data.DevUID = DefaultDevcontainerUID
+	}
 	// Intent: Keep container/runtime identity explicit when a caller sets only
 	// one user field by mirroring `remoteUser` into `containerUser`.
 	// Source: DI-001-20260425-005155 (TODO/001)
@@ -144,6 +162,8 @@ func ProductionExampleDevcontainerData() DevcontainerTemplateData {
 		Name:                 "decomk (example; set DECOMK_CONF_URI)",
 		BuildDockerfile:      "Dockerfile",
 		BuildContext:         ".",
+		DevUser:              DefaultDevcontainerUser,
+		DevUID:               DefaultDevcontainerUID,
 		RemoteUser:           DefaultDevcontainerUser,
 		ContainerUser:        DefaultDevcontainerUser,
 		UpdateRemoteUserUID:  boolPtr(false),
@@ -165,6 +185,8 @@ func SelftestDevcontainerData() DevcontainerTemplateData {
 		BuildDockerfile:      "Dockerfile",
 		BuildContext:         "..",
 		RunArgs:              []string{"--add-host=host.docker.internal:host-gateway"},
+		DevUser:              DefaultDevcontainerUser,
+		DevUID:               DefaultDevcontainerUID,
 		RemoteUser:           DefaultDevcontainerUser,
 		ContainerUser:        DefaultDevcontainerUser,
 		UpdateRemoteUserUID:  boolPtr(false),

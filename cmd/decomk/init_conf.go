@@ -2,137 +2,12 @@ package main
 
 import (
 	"errors"
-	"flag"
-	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
 
-	"github.com/stevegt/decomk/confrepo"
 	"github.com/stevegt/decomk/stage0"
 )
-
-// initConfFlags are user-facing options for "decomk init-conf".
-type initConfFlags struct {
-	repoRoot   string
-	name       string
-	confURI    string
-	toolURI    string
-	home       string
-	logDir     string
-	failNoBoot string
-	force      bool
-}
-
-// cmdInitConf writes shared config-repo starter files in the target repo root.
-//
-// Intent: Provide first-class conf repo bootstrap so teams can create a shared
-// decomk policy repo (decomk.conf + Makefile + producer devcontainer) without
-// manual copy/paste.
-// Source: DI-013-20260422-110500 (TODO/013)
-func cmdInitConf(args []string, stdout, stderr io.Writer) (int, error) {
-	fs := flag.NewFlagSet("decomk init-conf", flag.ContinueOnError)
-	fs.SetOutput(stderr)
-
-	flags := initConfFlags{
-		repoRoot:   "",
-		name:       confrepo.DefaultName,
-		confURI:    confrepo.DefaultConfURI,
-		toolURI:    stage0.DefaultToolURI,
-		home:       confrepo.DefaultHome,
-		logDir:     confrepo.DefaultLogDir,
-		failNoBoot: stage0.DefaultFailNoBoot,
-	}
-	addInitConfFlags(fs, &flags)
-
-	if err := fs.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0, nil
-		}
-		return 2, err
-	}
-
-	setFlags := map[string]bool{}
-	fs.Visit(func(fl *flag.Flag) {
-		setFlags[fl.Name] = true
-	})
-
-	repoRootInput := flags.repoRoot
-	var err error
-	if !setFlags["repo-root"] {
-		repoRootInput, err = gitTopLevelFromDir(".")
-		if err != nil {
-			return 1, fmt.Errorf("resolve default repo root from current git repo: %w (or set -repo-root)", err)
-		}
-	}
-	repoRoot, err := filepath.Abs(repoRootInput)
-	if err != nil {
-		return 1, fmt.Errorf("abs repo root %q: %w", repoRootInput, err)
-	}
-	info, err := os.Stat(repoRoot)
-	if err != nil {
-		return 1, fmt.Errorf("stat repo root %q: %w", repoRoot, err)
-	}
-	if !info.IsDir() {
-		return 1, fmt.Errorf("repo root is not a directory: %s", repoRoot)
-	}
-
-	if strings.TrimSpace(flags.name) == "" {
-		flags.name = confrepo.DefaultName
-	}
-	if strings.TrimSpace(flags.confURI) == "" {
-		return 1, fmt.Errorf("DECOMK_CONF_URI template value cannot be empty")
-	}
-	if !strings.HasPrefix(flags.confURI, "git:") {
-		return 1, fmt.Errorf("DECOMK_CONF_URI template value must start with git: (got %q)", flags.confURI)
-	}
-	if strings.TrimSpace(flags.toolURI) == "" {
-		return 1, fmt.Errorf("DECOMK_TOOL_URI template value cannot be empty")
-	}
-	if !strings.HasPrefix(flags.toolURI, "go:") && !strings.HasPrefix(flags.toolURI, "git:") {
-		return 1, fmt.Errorf("DECOMK_TOOL_URI template value must start with go: or git: (got %q)", flags.toolURI)
-	}
-	if flags.home == "" || !filepath.IsAbs(flags.home) {
-		return 1, fmt.Errorf("DECOMK_HOME template value must be an absolute path (got %q)", flags.home)
-	}
-	if flags.logDir == "" || !filepath.IsAbs(flags.logDir) {
-		return 1, fmt.Errorf("DECOMK_LOG_DIR template value must be an absolute path (got %q)", flags.logDir)
-	}
-	if err := validateFailNoBootValue(flags.failNoBoot); err != nil {
-		return 1, err
-	}
-	data := confrepo.ProducerDevcontainerData(flags.name)
-	data.ConfURI = flags.confURI
-	data.ToolURI = flags.toolURI
-	data.Home = flags.home
-	data.LogDir = flags.logDir
-	data.FailNoBoot = flags.failNoBoot
-
-	results, err := writeInitConfScaffold(repoRoot, data, flags.force)
-	if err != nil {
-		return 1, err
-	}
-	for _, result := range results {
-		if err := writeFormat(stdout, "%s: %s\n", result.Status, result.Path); err != nil {
-			return 1, err
-		}
-	}
-	return 0, nil
-}
-
-// addInitConfFlags defines flags for "decomk init-conf".
-func addInitConfFlags(fs *flag.FlagSet, flags *initConfFlags) {
-	fs.StringVar(&flags.repoRoot, "repo-root", flags.repoRoot, "target conf repo root (default: current git repo root)")
-	fs.StringVar(&flags.name, "name", flags.name, "devcontainer name value")
-	fs.StringVar(&flags.confURI, "conf-uri", flags.confURI, "DECOMK_CONF_URI value for generated producer devcontainer")
-	fs.StringVar(&flags.toolURI, "tool-uri", flags.toolURI, "DECOMK_TOOL_URI value for generated producer devcontainer")
-	fs.StringVar(&flags.home, "home", flags.home, "DECOMK_HOME value for generated producer devcontainer")
-	fs.StringVar(&flags.logDir, "log-dir", flags.logDir, "DECOMK_LOG_DIR value for generated producer devcontainer")
-	fs.StringVar(&flags.failNoBoot, "fail-no-boot", flags.failNoBoot, "DECOMK_FAIL_NOBOOT value for generated producer devcontainer")
-	fs.BoolVar(&flags.force, "force", false, "overwrite existing conf-repo scaffold files")
-	fs.BoolVar(&flags.force, "f", false, "alias for -force")
-}
 
 // writeInitConfScaffold renders and writes all managed conf-repo scaffold
 // files.
@@ -163,7 +38,7 @@ func writeInitConfScaffold(repoRoot string, data stage0.DevcontainerTemplateData
 	if err != nil {
 		return nil, err
 	}
-	dockerfile, err := stage0.RenderTemplate("confrepo.Dockerfile", initConfRepoDockerfileTemplate, struct{}{})
+	dockerfile, err := stage0.RenderTemplate("confrepo.Dockerfile", initConfRepoDockerfileTemplate, devcontainerData)
 	if err != nil {
 		return nil, err
 	}
@@ -190,7 +65,7 @@ func writeInitConfScaffold(repoRoot string, data stage0.DevcontainerTemplateData
 	if !force {
 		// Intent: Keep conf-repo initialization conservative by default and force
 		// explicit operator acknowledgement before overwriting managed starter files.
-		// Source: DI-013-20260422-110500 (TODO/013)
+		// Source: DI-013-20260424-190504 (TODO/013)
 		existing, err := existingInitTargets(paths...)
 		if err != nil {
 			return nil, err
@@ -228,7 +103,7 @@ func initConfExistingTargetsError(existing []string) error {
 	}
 	builder.WriteString("recommended workflow:\n")
 	builder.WriteString("  1) git commit the current files\n")
-	builder.WriteString("  2) run decomk init-conf -f ...\n")
+	builder.WriteString("  2) run decomk init -conf -f ...\n")
 	builder.WriteString("  3) review and merge with git difftool\n")
 	return errors.New(builder.String())
 }

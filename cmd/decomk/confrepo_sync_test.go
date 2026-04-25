@@ -15,9 +15,9 @@ func TestGeneratedConfrepoFilesMatchTemplates(t *testing.T) {
 
 	data := confrepo.ProducerDevcontainerData("decomk conf producer example").EnsureDefaults()
 
-	// Intent: Enforce template/example parity for init-conf scaffolding so
+	// Intent: Enforce template/example parity for init `-conf` scaffolding so
 	// checked-in confrepo examples cannot drift from embedded command templates.
-	// Source: DI-013-20260422-110500 (TODO/013)
+	// Source: DI-013-20260424-190504 (TODO/013)
 	tests := []struct {
 		name   string
 		path   string
@@ -77,7 +77,7 @@ func TestGeneratedConfrepoFilesMatchTemplates(t *testing.T) {
 			path: "examples/confrepo/.devcontainer/Dockerfile",
 			mode: 0o644,
 			render: func() ([]byte, error) {
-				return stage0.RenderTemplate("confrepo.Dockerfile", initConfRepoDockerfileTemplate, struct{}{})
+				return stage0.RenderTemplate("confrepo.Dockerfile", initConfRepoDockerfileTemplate, data)
 			},
 		},
 	}
@@ -111,4 +111,3 @@ func TestGeneratedConfrepoFilesMatchTemplates(t *testing.T) {
 		})
 	}
 }
-

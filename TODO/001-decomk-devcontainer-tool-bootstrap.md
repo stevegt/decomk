@@ -2,6 +2,15 @@
 
 ## Decision Intent Log
 
+ID: DI-001-20260424-190437
+Date: 2026-04-24 19:04:37
+Status: active
+Decision: Unify repo bootstrap flows under `decomk init` with `-conf` producer mode, remove separate `init-conf` command, and make consumer identity (`DECOMK_DEV_USER`/`DECOMK_DEV_UID`) conf-driven by cloning the producer conf repo and reading `.devcontainer/devcontainer.json`.
+Intent: Keep end-to-end identity deterministic across producer and consumer repos without duplicated init codepaths or per-repo manual user/UID edits.
+Constraints: Consumer `decomk init` must fail fast when conf repo identity cannot be fetched or validated; producer mode must write identity metadata into devcontainer env plus runtime user fields; `updateRemoteUserUID` must be explicitly false in generated outputs.
+Affects: `cmd/decomk/main.go`, `cmd/decomk/init.go`, `cmd/decomk/init_conf.go`, `stage0/stage0.go`, `confrepo/confrepo.go`, `cmd/decomk/templates/*`, generated examples, `README.md`, `doc/decomk-design.md`, `TODO/013-conf-repo-init-scaffolding.md`.
+Supersedes: DI-001-20260311-161825 (command shape only), DI-001-20260425-005155 (identity source/flow details)
+
 ID: DI-001-20260425-005155
 Date: 2026-04-25 00:51:55
 Status: active
@@ -422,7 +431,7 @@ Pragmatic MVP: define a small set of **capability groups**, then compose per-rep
 - [ ] 001.13 Add optional derived `env.mk` output generated from the same canonical env tuple sequence as `env.sh` (without making `env.mk` the source of truth).
 - [x] 001.14 Add strict non-overwrite defaults to `decomk init` (fail unless `-f`/`-force` when target files exist) and provide explicit commit/force/difftool reconciliation guidance.
 - [x] 001.15 Add stage-0 template ownership banners and README onboarding reorganization, plus a canonical legacy-variable migration mapping section.
-- [x] 001.16 Add first-class shared conf repo scaffolding (`decomk init-conf`), tracked in `TODO/013-conf-repo-init-scaffolding.md`.
+- [x] 001.16 Add first-class shared conf repo scaffolding (`decomk init -conf`), tracked in `TODO/013-conf-repo-init-scaffolding.md`.
 - [x] 001.17 Add source-controlled release versioning (`VERSION` + generated version file) and a `make release-minor` workflow.
 - [x] 001.18 Add image fallback rendering for non-build init scaffolds and reuse existing devcontainer values as defaults during `decomk init -f`.
 

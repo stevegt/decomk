@@ -1,7 +1,7 @@
 # This Dockerfile is intended for genesis image bootstrap only.
 # Keep it minimal: install only prerequisites needed for decomk stage-0
-# (`bash`, `git`, `go`, `make`, `sudo`) plus one canonical non-root identity
-# (`dev`, uid 1000) and writable decomk state directories.
+# (`bash`, `git`, `go`, `make`, `sudo`) plus one configured non-root identity
+# and writable decomk state directories.
 #
 # After your genesis image is stable, stop using this Dockerfile and switch
 # `.devcontainer/devcontainer.json` to an `image:` stanza that points at your
@@ -18,9 +18,9 @@ RUN apt-get update \
       sudo \
  && rm -rf /var/lib/apt/lists/*
 
-RUN useradd --create-home --shell /bin/bash --uid 1000 dev \
- && echo 'dev ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/dev \
- && chmod 0440 /etc/sudoers.d/dev
+RUN useradd --create-home --shell /bin/bash --uid {{.DevUID}} {{.DevUser}} \
+ && echo '{{.DevUser}} ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/{{.DevUser}} \
+ && chmod 0440 /etc/sudoers.d/{{.DevUser}}
 
 RUN mkdir -p /workspaces /var/decomk /var/log/decomk \
- && chown -R dev:dev /workspaces /var/decomk /var/log/decomk
+ && chown -R {{.DevUser}}:{{.DevUser}} /workspaces /var/decomk /var/log/decomk

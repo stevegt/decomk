@@ -17,8 +17,8 @@ For deeper design background, see:
 
 ## Current commands
 
-- `decomk init-conf` — scaffold a shared conf repo (`decomk.conf` + `Makefile` + producer `.devcontainer/`)
-- `decomk init` — scaffold stage-0 lifecycle files in `.devcontainer/`
+- `decomk init -conf` — scaffold a shared conf repo (`decomk.conf` + `Makefile` + producer `.devcontainer/`)
+- `decomk init` — scaffold stage-0 lifecycle files in `.devcontainer/` using identity loaded from the shared conf producer
 - `decomk version` — print the decomk CLI version string
 - `decomk plan` — resolve tuples/targets + run `make -n` in the stamp directory
 - `decomk run` — write env export file + run `make` in the stamp directory
@@ -47,7 +47,7 @@ This runs `scripts/release.sh minor`, which:
 
 ## Step-by-step onboarding
 
-### 1) Bootstrap one shared conf repo with `decomk init-conf`
+### 1) Bootstrap one shared conf repo with `decomk init -conf`
 
 Install decomk on your own machine:
 
@@ -58,7 +58,7 @@ go install github.com/stevegt/decomk/cmd/decomk@latest
 In your shared conf repo:
 
 ```bash
-decomk init-conf -conf-uri git:<your-shared-conf-repo-url>
+decomk init -conf -conf-uri git:<your-shared-conf-repo-url>
 ```
 
 This writes a starter tree:
@@ -99,11 +99,11 @@ The generated stage-0 hooks:
 2. syncs config repo from `DECOMK_CONF_URI` into `<DECOMK_HOME>/conf`,
 3. runs `decomk run <action-args>` (defaulting to lifecycle phase selector `updateContent`/`postCreate`).
 
-## `decomk init-conf` safety and overwrite policy
+## `decomk init -conf` safety and overwrite policy
 
-`decomk init-conf` is conservative by default:
+`decomk init -conf` is conservative by default:
 
-- If **any** managed conf-repo file already exists, `decomk init-conf` fails.
+- If **any** managed conf-repo file already exists, `decomk init -conf` fails.
 - It does **not** overwrite existing files in default mode.
 - It does **not** write alternate temp merge files in default mode.
 
@@ -116,7 +116,7 @@ Recommended reconciliation workflow when files already exist:
 
 ```bash
 git commit -m "Checkpoint existing conf-repo files"
-decomk init-conf -f -conf-uri git:<your-shared-conf-repo-url>
+decomk init -conf -f -conf-uri git:<your-shared-conf-repo-url>
 git difftool -- decomk.conf Makefile README.md .devcontainer/devcontainer.json .devcontainer/decomk-stage0.sh .devcontainer/Dockerfile
 ```
 
@@ -139,6 +139,11 @@ When `-f` is used and `.devcontainer/devcontainer.json` already exists,
 `decomk init` reuses existing stage-0 values as defaults (name/image and
 `DECOMK_*` container env values) so reruns do not require re-entering the same
 configuration.
+
+Consumer `decomk init` requires a reachable `DECOMK_CONF_URI` (`git:...`) and
+loads `DECOMK_DEV_USER` / `DECOMK_DEV_UID` from the shared conf producer repo’s
+`.devcontainer/devcontainer.json`. If clone/read/validation fails, init fails
+fast rather than guessing identity.
 
 Recommended reconciliation workflow when files already exist:
 
@@ -169,7 +174,7 @@ make generate
 make check-generated
 ```
 
-`init-conf` canonical sources:
+`init -conf` canonical sources:
 
 - `cmd/decomk/templates/confrepo.decomk.conf.tmpl`
 - `cmd/decomk/templates/confrepo.Makefile.tmpl`
@@ -557,7 +562,6 @@ writable and you did not explicitly override the log dir, decomk falls back to
 ## CLI usage
 
 ```text
-decomk init-conf [flags]
 decomk init [flags]
 decomk version
 decomk plan [flags] [ARGS...]
@@ -581,27 +585,19 @@ ARGS:
 
   Flags for init:
   -repo-root <path>         Repo root where .devcontainer files are written (default: current git repo root)
+  -conf                     Producer mode: scaffold shared conf repo starter files at repo root
   -name <string>            devcontainer.json "name" value
   -image <ref>              devcontainer image value when no build dockerfile is configured
-  -conf-uri <uri>           DECOMK_CONF_URI value in devcontainer.json (git:...)
+  -conf-uri <uri>           DECOMK_CONF_URI value in devcontainer.json (git:...; required in consumer mode)
   -tool-uri <uri>           DECOMK_TOOL_URI value in devcontainer.json (go:... or git:...)
   -home <abs-path>          DECOMK_HOME value in devcontainer.json
   -log-dir <abs-path>       DECOMK_LOG_DIR value in devcontainer.json
+  -dev-user <name>          DECOMK_DEV_USER metadata value (producer mode)
+  -dev-uid <uid>            DECOMK_DEV_UID metadata value (producer mode)
   -fail-no-boot <value>     DECOMK_FAIL_NOBOOT value in devcontainer.json (true/false/1/0/yes/no/on/off)
   -force                    Overwrite existing stage-0 files even when they already exist
   -f                        Alias for -force
   -no-prompt                Do not prompt for unset values
-
-  Flags for init-conf:
-  -repo-root <path>         Target conf repo root (default: current git repo root)
-  -name <string>            devcontainer.json "name" value
-  -conf-uri <uri>           DECOMK_CONF_URI value in producer devcontainer.json (git:...)
-  -tool-uri <uri>           DECOMK_TOOL_URI value in producer devcontainer.json (go:... or git:...)
-  -home <abs-path>          DECOMK_HOME value in producer devcontainer.json
-  -log-dir <abs-path>       DECOMK_LOG_DIR value in producer devcontainer.json
-  -fail-no-boot <value>     DECOMK_FAIL_NOBOOT value in producer devcontainer.json (true/false/1/0/yes/no/on/off)
-  -force                    Overwrite existing managed conf-repo files
-  -f                        Alias for -force
 ```
 
 ## Makefile privilege model

@@ -1,5 +1,5 @@
 // Command confrepogen renders canonical shared conf-repo starter files from
-// decomk's embedded init-conf templates.
+// decomk's embedded `init -conf` templates.
 package main
 
 import (
@@ -73,9 +73,9 @@ func run(args []string) error {
 	}
 
 	// Intent: Keep checked-in confrepo examples generated from the same template
-	// contract used by init-conf so docs/examples cannot drift from command
-	// output.
-	// Source: DI-013-20260422-110500 (TODO/013)
+	// contract used by `decomk init -conf` so docs/examples cannot drift from
+	// command output.
+	// Source: DI-013-20260424-190504 (TODO/013)
 	targets := []outputSpec{
 		{Path: filepath.Join(absRoot, "examples", "confrepo", "decomk.conf"), Mode: 0o644, Kind: "decomk.conf"},
 		{Path: filepath.Join(absRoot, "examples", "confrepo", "Makefile"), Mode: 0o644, Kind: "Makefile"},
@@ -105,7 +105,7 @@ func run(args []string) error {
 		case "decomk-stage0.sh":
 			rendered, err = stage0.RenderStage0Script(string(stage0ScriptTemplate))
 		case "Dockerfile":
-			rendered, err = stage0.RenderTemplate("confrepo.Dockerfile", string(dockerfileTemplate), struct{}{})
+			rendered, err = stage0.RenderTemplate("confrepo.Dockerfile", string(dockerfileTemplate), data.EnsureDefaults())
 		default:
 			return fmt.Errorf("unknown output kind %q for %s", target.Kind, target.Path)
 		}
@@ -157,4 +157,3 @@ func fileMatches(path string, content []byte, mode os.FileMode) (bool, error) {
 	}
 	return true, nil
 }
-

@@ -1,7 +1,7 @@
 package main
 
 // Intent: Generate canonical confrepo starter files from the same templates
-// `decomk init-conf` embeds, so checked-in examples stay synchronized with
+// `decomk init -conf` embeds, so checked-in examples stay synchronized with
 // command output.
 // Source: DI-013-20260422-110500 (TODO/013)
 //

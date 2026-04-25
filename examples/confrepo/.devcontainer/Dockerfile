@@ -1,7 +1,7 @@
 # This Dockerfile is intended for genesis image bootstrap only.
 # Keep it minimal: install only prerequisites needed for decomk stage-0
-# (`bash`, `git`, `go`, `make`, `sudo`) plus one canonical non-root identity
-# (`dev`, uid 1000) and writable decomk state directories.
+# (`bash`, `git`, `go`, `make`, `sudo`) plus one configured non-root identity
+# and writable decomk state directories.
 #
 # After your genesis image is stable, stop using this Dockerfile and switch
 # `.devcontainer/devcontainer.json` to an `image:` stanza that points at your

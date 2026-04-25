@@ -8,11 +8,14 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 
+	"github.com/stevegt/decomk/confrepo"
 	"github.com/stevegt/decomk/stage0"
 	"github.com/stevegt/decomk/state"
 	"github.com/stevegt/envi"
@@ -20,6 +23,7 @@ import (
 
 // initFlags are the user-facing options for "decomk init".
 type initFlags struct {
+	confMode bool
 	repoRoot string
 	name     string
 	image    string
@@ -32,6 +36,8 @@ type initFlags struct {
 	toolURI         string
 	home            string
 	logDir          string
+	devUser         string
+	devUID          string
 	failNoBoot      string
 	force           bool
 	noPrompt        bool
@@ -55,12 +61,15 @@ func cmdInit(args []string, stdout, stderr io.Writer) (int, error) {
 	fs.SetOutput(stderr)
 
 	f := initFlags{
+		confMode:   false,
 		repoRoot:   "",
 		confURI:    envi.String("DECOMK_CONF_URI", ""),
 		toolURI:    envi.String("DECOMK_TOOL_URI", stage0.DefaultToolURI),
 		image:      stage0.DefaultDevcontainerImage,
 		home:       envi.String("DECOMK_HOME", state.DefaultHome),
 		logDir:     envi.String("DECOMK_LOG_DIR", state.DefaultLogDir),
+		devUser:    stage0.DefaultDevcontainerUser,
+		devUID:     stage0.DefaultDevcontainerUID,
 		failNoBoot: envi.String("DECOMK_FAIL_NOBOOT", stage0.DefaultFailNoBoot),
 	}
 	addInitFlags(fs, &f)
@@ -100,6 +109,14 @@ func cmdInit(args []string, stdout, stderr io.Writer) (int, error) {
 	}
 	if !info.IsDir() {
 		return 1, fmt.Errorf("repo root is not a directory: %s", repoRoot)
+	}
+
+	if f.confMode {
+		// Intent: Keep producer and consumer initialization under one command
+		// surface (`decomk init`) while preserving producer-specific scaffold
+		// behavior behind an explicit `-conf` mode switch.
+		// Source: DI-001-20260424-190437 (TODO/001)
+		return runInitConfMode(&f, setFlags, repoRoot, stdout, stderr)
 	}
 
 	if !f.force {
@@ -159,8 +176,11 @@ func cmdInit(args []string, stdout, stderr io.Writer) (int, error) {
 	if !strings.HasPrefix(f.toolURI, "go:") && !strings.HasPrefix(f.toolURI, "git:") {
 		return 1, fmt.Errorf("DECOMK_TOOL_URI template value must start with go: or git: (got %q)", f.toolURI)
 	}
-	if f.confURI != "" && !strings.HasPrefix(f.confURI, "git:") {
-		return 1, fmt.Errorf("DECOMK_CONF_URI template value must start with git: when set (got %q)", f.confURI)
+	if strings.TrimSpace(f.confURI) == "" {
+		return 1, fmt.Errorf("DECOMK_CONF_URI template value cannot be empty in consumer mode (set -conf-uri/DECOMK_CONF_URI)")
+	}
+	if !strings.HasPrefix(f.confURI, "git:") {
+		return 1, fmt.Errorf("DECOMK_CONF_URI template value must start with git: (got %q)", f.confURI)
 	}
 	if f.home == "" || !filepath.IsAbs(f.home) {
 		return 1, fmt.Errorf("DECOMK_HOME template value must be an absolute path (got %q)", f.home)
@@ -170,6 +190,10 @@ func cmdInit(args []string, stdout, stderr io.Writer) (int, error) {
 	}
 	if err := validateFailNoBootValue(f.failNoBoot); err != nil {
 		return 1, err
+	}
+	identity, err := loadIdentityFromConfURI(f.confURI)
+	if err != nil {
+		return 1, fmt.Errorf("resolve DECOMK_DEV_USER/DECOMK_DEV_UID from producer conf repo %q: %w", f.confURI, err)
 	}
 
 	// Use the shared stage-0 data model so `decomk init` and generated examples
@@ -181,6 +205,11 @@ func cmdInit(args []string, stdout, stderr io.Writer) (int, error) {
 		BuildDockerfile:      f.buildDockerfile,
 		BuildContext:         f.buildContext,
 		Image:                f.image,
+		DevUser:              identity.DevUser,
+		DevUID:               identity.DevUID,
+		RemoteUser:           identity.DevUser,
+		ContainerUser:        identity.DevUser,
+		UpdateRemoteUserUID:  boolPointer(false),
 		ConfURI:              f.confURI,
 		ToolURI:              f.toolURI,
 		Home:                 f.home,
@@ -194,11 +223,103 @@ func cmdInit(args []string, stdout, stderr io.Writer) (int, error) {
 	if err != nil {
 		return 1, err
 	}
-
-	if f.confURI == "" {
-		if err := writeLine(stderr, "decomk init: warning: DECOMK_CONF_URI is empty; decomk-stage0.sh will fail until conf/decomk.conf exists locally"); err != nil {
+	for _, result := range results {
+		if err := writeFormat(stdout, "%s: %s\n", result.Status, result.Path); err != nil {
 			return 1, err
 		}
+	}
+	return 0, nil
+}
+
+// runInitConfMode executes `decomk init -conf` producer scaffolding behavior.
+//
+// Intent: Keep producer `.devcontainer` identity and URI defaults managed by the
+// same interactive/non-interactive flow as consumer init, while writing the full
+// shared-conf starter tree.
+// Source: DI-001-20260424-190437 (TODO/001)
+func runInitConfMode(f *initFlags, setFlags map[string]bool, repoRoot string, stdout, stderr io.Writer) (int, error) {
+	if !setFlags["conf-uri"] && strings.TrimSpace(f.confURI) == "" {
+		f.confURI = confrepo.DefaultConfURI
+	}
+	if !f.force {
+		paths := make([]string, 0, len(confrepo.ManagedPaths()))
+		for _, relPath := range confrepo.ManagedPaths() {
+			paths = append(paths, filepath.Join(repoRoot, relPath))
+		}
+		existing, err := existingInitTargets(paths...)
+		if err != nil {
+			return 1, err
+		}
+		if len(existing) > 0 {
+			return 1, initConfExistingTargetsError(existing)
+		}
+	}
+
+	// Intent: Keep `decomk init -conf -f` reruns ergonomic by reusing existing
+	// producer devcontainer values as defaults when present.
+	// Source: DI-001-20260424-190437 (TODO/001)
+	existingDefaults, hasExistingDefaults, err := loadInitExistingDevcontainerDefaults(repoRoot)
+	if err != nil {
+		if writeErr := writeFormat(stderr, "decomk init -conf: warning: unable to parse existing .devcontainer/devcontainer.json for defaults: %v\n", err); writeErr != nil {
+			return 1, writeErr
+		}
+	} else if hasExistingDefaults {
+		applyInitDefaultsFromExistingDevcontainer(f, setFlags, existingDefaults)
+	}
+
+	if f.name == "" {
+		f.name = confrepo.DefaultName
+	}
+	// Producer mode always emits a build-backed starter profile.
+	f.buildDockerfile = "Dockerfile"
+	f.buildContext = ".."
+	f.image = ""
+
+	canPrompt := !f.noPrompt && isInteractiveInput(os.Stdin) && isInteractiveInput(os.Stderr)
+	if canPrompt {
+		if err := promptInitFlags(f, setFlags, os.Stdin, stderr); err != nil {
+			return 1, err
+		}
+	}
+
+	if f.name == "" {
+		return 1, fmt.Errorf("devcontainer name cannot be empty")
+	}
+	if strings.TrimSpace(f.confURI) == "" {
+		return 1, fmt.Errorf("DECOMK_CONF_URI template value cannot be empty")
+	}
+	if !strings.HasPrefix(f.confURI, "git:") {
+		return 1, fmt.Errorf("DECOMK_CONF_URI template value must start with git: (got %q)", f.confURI)
+	}
+	if strings.TrimSpace(f.toolURI) == "" {
+		return 1, fmt.Errorf("DECOMK_TOOL_URI template value cannot be empty")
+	}
+	if !strings.HasPrefix(f.toolURI, "go:") && !strings.HasPrefix(f.toolURI, "git:") {
+		return 1, fmt.Errorf("DECOMK_TOOL_URI template value must start with go: or git: (got %q)", f.toolURI)
+	}
+	if f.home == "" || !filepath.IsAbs(f.home) {
+		return 1, fmt.Errorf("DECOMK_HOME template value must be an absolute path (got %q)", f.home)
+	}
+	if f.logDir == "" || !filepath.IsAbs(f.logDir) {
+		return 1, fmt.Errorf("DECOMK_LOG_DIR template value must be an absolute path (got %q)", f.logDir)
+	}
+	if err := validateFailNoBootValue(f.failNoBoot); err != nil {
+		return 1, err
+	}
+	if err := validateDevIdentity(f.devUser, f.devUID); err != nil {
+		return 1, err
+	}
+
+	data := confrepo.ProducerDevcontainerDataWithIdentity(f.name, f.devUser, f.devUID)
+	data.ConfURI = f.confURI
+	data.ToolURI = f.toolURI
+	data.Home = f.home
+	data.LogDir = f.logDir
+	data.FailNoBoot = f.failNoBoot
+
+	results, err := writeInitConfScaffold(repoRoot, data, f.force)
+	if err != nil {
+		return 1, err
 	}
 	for _, result := range results {
 		if err := writeFormat(stdout, "%s: %s\n", result.Status, result.Path); err != nil {
@@ -210,13 +331,16 @@ func cmdInit(args []string, stdout, stderr io.Writer) (int, error) {
 
 // addInitFlags defines flags for "decomk init".
 func addInitFlags(fs *flag.FlagSet, f *initFlags) {
+	fs.BoolVar(&f.confMode, "conf", f.confMode, "producer mode: scaffold a shared conf repo starter tree at repo root")
 	fs.StringVar(&f.repoRoot, "repo-root", f.repoRoot, "target repo root (writes under <repo-root>/.devcontainer; default: current git repo root)")
-	fs.StringVar(&f.name, "name", f.name, "devcontainer name (default: repo basename)")
+	fs.StringVar(&f.name, "name", f.name, "devcontainer name (default: repo basename in consumer mode; conf producer default in -conf mode)")
 	fs.StringVar(&f.image, "image", f.image, "devcontainer image value when no build dockerfile is configured")
 	fs.StringVar(&f.confURI, "conf-uri", f.confURI, "DECOMK_CONF_URI value for devcontainer.json")
 	fs.StringVar(&f.toolURI, "tool-uri", f.toolURI, "DECOMK_TOOL_URI value for devcontainer.json")
 	fs.StringVar(&f.home, "home", f.home, "DECOMK_HOME value for devcontainer.json")
 	fs.StringVar(&f.logDir, "log-dir", f.logDir, "DECOMK_LOG_DIR value for devcontainer.json")
+	fs.StringVar(&f.devUser, "dev-user", f.devUser, "DECOMK_DEV_USER value for generated devcontainer metadata (producer mode)")
+	fs.StringVar(&f.devUID, "dev-uid", f.devUID, "DECOMK_DEV_UID value for generated devcontainer metadata (producer mode)")
 	fs.StringVar(&f.failNoBoot, "fail-no-boot", f.failNoBoot, "DECOMK_FAIL_NOBOOT value for devcontainer.json (true fails startup on stage-0 errors)")
 	fs.BoolVar(&f.force, "force", false, "overwrite existing stage-0 files even when they already exist")
 	fs.BoolVar(&f.force, "f", false, "alias for -force")
@@ -269,6 +393,18 @@ func promptInitFlags(f *initFlags, setFlags map[string]bool, in io.Reader, out i
 			return err
 		}
 	}
+	if f.confMode && !setFlags["dev-user"] {
+		f.devUser, err = promptWithDefault(reader, out, "DECOMK_DEV_USER", f.devUser)
+		if err != nil {
+			return err
+		}
+	}
+	if f.confMode && !setFlags["dev-uid"] {
+		f.devUID, err = promptWithDefault(reader, out, "DECOMK_DEV_UID", f.devUID)
+		if err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -310,6 +446,155 @@ func validateFailNoBootValue(value string) error {
 	}
 }
 
+func validateDevIdentity(devUser, devUID string) error {
+	if strings.TrimSpace(devUser) == "" {
+		return fmt.Errorf("DECOMK_DEV_USER template value cannot be empty")
+	}
+	if strings.ContainsAny(devUser, " \t\r\n") {
+		return fmt.Errorf("DECOMK_DEV_USER must not contain whitespace (got %q)", devUser)
+	}
+	uidValue, err := strconv.Atoi(strings.TrimSpace(devUID))
+	if err != nil {
+		return fmt.Errorf("DECOMK_DEV_UID must be an integer (got %q)", devUID)
+	}
+	if uidValue <= 0 {
+		return fmt.Errorf("DECOMK_DEV_UID must be positive (got %d)", uidValue)
+	}
+	return nil
+}
+
+type initConfIdentity struct {
+	DevUser string
+	DevUID  string
+}
+
+func loadIdentityFromConfURI(confURI string) (initConfIdentity, error) {
+	repoURL, gitRef, err := parseGitSourceURI(confURI)
+	if err != nil {
+		return initConfIdentity{}, err
+	}
+	tmpRoot, err := os.MkdirTemp("/tmp", "decomk-init-conf-*")
+	if err != nil {
+		return initConfIdentity{}, fmt.Errorf("create temp clone root: %w", err)
+	}
+	defer func() {
+		if removeErr := os.RemoveAll(tmpRoot); removeErr != nil {
+			// Intent: Cleanup of temporary conf clones is best-effort and
+			// non-fatal for init; clone/read errors are still returned explicitly.
+			// Source: DI-001-20260424-190437 (TODO/001)
+		}
+	}()
+
+	repoDir := filepath.Join(tmpRoot, "confrepo")
+	if err := runGitCommand("", "clone", repoURL, repoDir); err != nil {
+		return initConfIdentity{}, err
+	}
+	if err := checkoutGitRef(repoDir, gitRef); err != nil {
+		return initConfIdentity{}, err
+	}
+
+	defaults, hasDefaults, err := loadInitExistingDevcontainerDefaults(repoDir)
+	if err != nil {
+		return initConfIdentity{}, err
+	}
+	if !hasDefaults {
+		return initConfIdentity{}, fmt.Errorf("producer conf repo does not contain .devcontainer/devcontainer.json")
+	}
+
+	devUser := strings.TrimSpace(firstNonEmpty(defaults.DevUser, defaults.RemoteUser, defaults.ContainerUser))
+	devUID := strings.TrimSpace(defaults.DevUID)
+	if err := validateDevIdentity(devUser, devUID); err != nil {
+		return initConfIdentity{}, err
+	}
+	if defaults.RemoteUser != "" && defaults.RemoteUser != devUser {
+		return initConfIdentity{}, fmt.Errorf("producer remoteUser=%q does not match DECOMK_DEV_USER=%q", defaults.RemoteUser, devUser)
+	}
+	if defaults.ContainerUser != "" && defaults.ContainerUser != devUser {
+		return initConfIdentity{}, fmt.Errorf("producer containerUser=%q does not match DECOMK_DEV_USER=%q", defaults.ContainerUser, devUser)
+	}
+	if defaults.UpdateRemoteUserUID != nil && *defaults.UpdateRemoteUserUID {
+		return initConfIdentity{}, fmt.Errorf("producer updateRemoteUserUID must be false for deterministic identity")
+	}
+
+	return initConfIdentity{
+		DevUser: devUser,
+		DevUID:  devUID,
+	}, nil
+}
+
+func parseGitSourceURI(gitURI string) (repoURL string, gitRef string, err error) {
+	if !strings.HasPrefix(gitURI, "git:") {
+		return "", "", fmt.Errorf("git source URI must start with git: (got %q)", gitURI)
+	}
+	payload := strings.TrimPrefix(gitURI, "git:")
+	if payload == "" {
+		return "", "", fmt.Errorf("git source URI is missing repository URL: %q", gitURI)
+	}
+
+	repoURL = payload
+	query := ""
+	if questionMarkIndex := strings.Index(payload, "?"); questionMarkIndex >= 0 {
+		repoURL = payload[:questionMarkIndex]
+		query = payload[questionMarkIndex+1:]
+	}
+	if strings.TrimSpace(repoURL) == "" {
+		return "", "", fmt.Errorf("git source URI is missing repository URL: %q", gitURI)
+	}
+	if query != "" {
+		values, parseErr := url.ParseQuery(query)
+		if parseErr != nil {
+			return "", "", fmt.Errorf("parse git URI query %q: %w", query, parseErr)
+		}
+		gitRef = strings.TrimSpace(values.Get("ref"))
+	}
+	return repoURL, gitRef, nil
+}
+
+func checkoutGitRef(repoDir, gitRef string) error {
+	if strings.TrimSpace(gitRef) == "" {
+		return nil
+	}
+	if err := runGitCommand(repoDir, "checkout", "--detach", gitRef); err == nil {
+		return nil
+	}
+	if err := runGitCommand(repoDir, "checkout", "-B", gitRef, "origin/"+gitRef); err == nil {
+		return nil
+	}
+	if err := runGitCommand(repoDir, "fetch", "--prune", "origin", gitRef); err != nil {
+		return err
+	}
+	return runGitCommand(repoDir, "checkout", "--detach", "FETCH_HEAD")
+}
+
+func runGitCommand(dir string, args ...string) error {
+	command := exec.Command("git", args...)
+	if dir != "" {
+		command.Dir = dir
+	}
+	output, err := command.CombinedOutput()
+	if err != nil {
+		trimmedOutput := strings.TrimSpace(string(output))
+		if trimmedOutput == "" {
+			return fmt.Errorf("git %s: %w", strings.Join(args, " "), err)
+		}
+		return fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, trimmedOutput)
+	}
+	return nil
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func boolPointer(value bool) *bool {
+	return &value
+}
+
 // isInteractiveInput reports whether file is connected to a terminal-like input.
 func isInteractiveInput(file *os.File) bool {
 	info, err := file.Stat()
@@ -339,15 +624,20 @@ func gitTopLevelFromDir(dir string) (string, error) {
 // initExistingDevcontainerDefaults captures stage-0 template values recovered
 // from an existing .devcontainer/devcontainer.json.
 type initExistingDevcontainerDefaults struct {
-	Name            string
-	Image           string
-	BuildDockerfile string
-	BuildContext    string
-	ConfURI         string
-	ToolURI         string
-	Home            string
-	LogDir          string
-	FailNoBoot      string
+	Name                string
+	Image               string
+	BuildDockerfile     string
+	BuildContext        string
+	RemoteUser          string
+	ContainerUser       string
+	UpdateRemoteUserUID *bool
+	ConfURI             string
+	ToolURI             string
+	Home                string
+	LogDir              string
+	DevUser             string
+	DevUID              string
+	FailNoBoot          string
 }
 
 // applyInitDefaultsFromExistingDevcontainer merges existing devcontainer values
@@ -380,6 +670,17 @@ func applyInitDefaultsFromExistingDevcontainer(f *initFlags, setFlags map[string
 	if !setFlags["log-dir"] && defaults.LogDir != "" {
 		f.logDir = defaults.LogDir
 	}
+	if !setFlags["dev-user"] {
+		for _, candidate := range []string{defaults.DevUser, defaults.RemoteUser, defaults.ContainerUser} {
+			if candidate != "" {
+				f.devUser = candidate
+				break
+			}
+		}
+	}
+	if !setFlags["dev-uid"] && defaults.DevUID != "" {
+		f.devUID = defaults.DevUID
+	}
 	if !setFlags["fail-no-boot"] && defaults.FailNoBoot != "" {
 		f.failNoBoot = defaults.FailNoBoot
 	}
@@ -403,23 +704,31 @@ func loadInitExistingDevcontainerDefaults(repoRoot string) (initExistingDevconta
 	}
 
 	var parsed struct {
-		Name         string         `json:"name"`
-		Image        string         `json:"image"`
-		Build        map[string]any `json:"build"`
-		ContainerEnv map[string]any `json:"containerEnv"`
+		Name                string         `json:"name"`
+		Image               string         `json:"image"`
+		Build               map[string]any `json:"build"`
+		ContainerEnv        map[string]any `json:"containerEnv"`
+		RemoteUser          string         `json:"remoteUser"`
+		ContainerUser       string         `json:"containerUser"`
+		UpdateRemoteUserUID *bool          `json:"updateRemoteUserUID"`
 	}
 	if err := json.Unmarshal(stripped, &parsed); err != nil {
 		return initExistingDevcontainerDefaults{}, false, fmt.Errorf("parse %s: %w", path, err)
 	}
 
 	defaults := initExistingDevcontainerDefaults{
-		Name:       parsed.Name,
-		Image:      parsed.Image,
-		ConfURI:    stringValueFromAnyMap(parsed.ContainerEnv, "DECOMK_CONF_URI"),
-		ToolURI:    stringValueFromAnyMap(parsed.ContainerEnv, "DECOMK_TOOL_URI"),
-		Home:       stringValueFromAnyMap(parsed.ContainerEnv, "DECOMK_HOME"),
-		LogDir:     stringValueFromAnyMap(parsed.ContainerEnv, "DECOMK_LOG_DIR"),
-		FailNoBoot: stringValueFromAnyMap(parsed.ContainerEnv, "DECOMK_FAIL_NOBOOT"),
+		Name:                parsed.Name,
+		Image:               parsed.Image,
+		RemoteUser:          parsed.RemoteUser,
+		ContainerUser:       parsed.ContainerUser,
+		UpdateRemoteUserUID: parsed.UpdateRemoteUserUID,
+		ConfURI:             stringValueFromAnyMap(parsed.ContainerEnv, "DECOMK_CONF_URI"),
+		ToolURI:             stringValueFromAnyMap(parsed.ContainerEnv, "DECOMK_TOOL_URI"),
+		Home:                stringValueFromAnyMap(parsed.ContainerEnv, "DECOMK_HOME"),
+		LogDir:              stringValueFromAnyMap(parsed.ContainerEnv, "DECOMK_LOG_DIR"),
+		DevUser:             stringValueFromAnyMap(parsed.ContainerEnv, "DECOMK_DEV_USER"),
+		DevUID:              stringValueFromAnyMap(parsed.ContainerEnv, "DECOMK_DEV_UID"),
+		FailNoBoot:          stringValueFromAnyMap(parsed.ContainerEnv, "DECOMK_FAIL_NOBOOT"),
 	}
 	if parsed.Build != nil {
 		defaults.BuildDockerfile = stringValueFromAnyMap(parsed.Build, "dockerfile")

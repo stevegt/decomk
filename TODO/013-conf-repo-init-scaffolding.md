@@ -1,6 +1,15 @@
-# TODO 013 - conf repo init scaffolding (`decomk init-conf`)
+# TODO 013 - conf repo init scaffolding (`decomk init -conf`)
 
 ## Decision Intent Log
+
+ID: DI-013-20260424-190504
+Date: 2026-04-24 19:05:04
+Status: active
+Decision: Replace standalone `decomk init-conf` with `decomk init -conf`, and keep conf-repo producer scaffolding behavior unchanged except for explicit dev user/UID prompting and metadata output used by consumer init.
+Intent: Collapse bootstrap UX to one init command while preserving the completed producer scaffold capabilities from TODO 013.
+Constraints: No backward-compat alias for `init-conf`; docs/tests/help text must move to `init -conf`; generated producer `.devcontainer/devcontainer.json` remains the authoritative identity source for consumer init.
+Affects: `cmd/decomk/main.go`, `cmd/decomk/init.go`, `cmd/decomk/init_conf.go`, `cmd/decomk/*_test.go`, `README.md`, `TODO/013-conf-repo-init-scaffolding.md`, `TODO/TODO.md`.
+Supersedes: DI-013-20260422-110500 (command surface only), DI-013-20260422-143000 (onboarding command wording only)
 
 ID: DI-013-20260422-110500
 Date: 2026-04-22 11:05:00
@@ -20,7 +29,7 @@ Affects: `Makefile`, `README.md`, `TODO/013-conf-repo-init-scaffolding.md`, `TOD
 
 ## Goal
 
-Provide an opinionated `decomk init-conf` command that creates a runnable
+Provide an opinionated `decomk init -conf` mode that creates a runnable
 starter shared config repo with:
 
 - `decomk.conf`
@@ -40,19 +49,19 @@ The generated content must help a DevOps engineer quickly understand:
 
 ## Subtasks
 
-- [x] 013.1 Add new `decomk init-conf` command routing and usage text.
+- [x] 013.1 Add new `decomk init -conf` command routing and usage text.
 - [x] 013.2 Add embedded confrepo templates and rendering path in `cmd/decomk`.
 - [x] 013.3 Implement strict overwrite policy (`-f`/`-force`) for all managed confrepo files.
 - [x] 013.4 Generate `.devcontainer` producer scaffolding by default (genesis build + migration comments).
 - [x] 013.5 Add confrepo generator (`cmd/confrepogen`) and `go generate` hook.
 - [x] 013.6 Add sync test to keep `examples/confrepo/*` in lockstep with templates.
-- [x] 013.7 Add command tests for `init-conf` behavior and safety policies.
-- [x] 013.8 Update README onboarding to use `decomk init-conf`.
+- [x] 013.7 Add command tests for `init -conf` behavior and safety policies.
+- [x] 013.8 Update README onboarding to use `decomk init -conf`.
 - [x] 013.9 Add/refresh TODO links from TODO 001 and TODO index.
 
 ## Acceptance criteria
 
-- `decomk init-conf` scaffolds the full starter tree in an empty git repo.
+- `decomk init -conf` scaffolds the full starter tree in an empty git repo.
 - Without `-f`, existing managed files cause a hard refusal with reconciliation guidance.
 - With `-f`, managed files are updated atomically and status lines are reported.
 - Generated `examples/confrepo/*` matches template rendering in tests.

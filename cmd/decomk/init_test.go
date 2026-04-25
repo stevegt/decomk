@@ -202,6 +202,7 @@ func TestCmdInit_NoPromptWritesFiles(t *testing.T) {
 	t.Parallel()
 
 	repoRoot := t.TempDir()
+	confURI := createTestProducerConfURI(t)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 
@@ -209,7 +210,7 @@ func TestCmdInit_NoPromptWritesFiles(t *testing.T) {
 		"-no-prompt",
 		"-repo-root", repoRoot,
 		"-name", "myrepo",
-		"-conf-uri", "git:https://example.com/conf.git",
+		"-conf-uri", confURI,
 		"-tool-uri", stage0.DefaultToolURI,
 		"-home", "/var/decomk",
 		"-log-dir", "/var/log/decomk",
@@ -251,17 +252,28 @@ func TestCmdInit_NoPromptWritesFiles(t *testing.T) {
 	if _, ok := decoded["build"]; ok {
 		t.Fatalf("build: got %#v want omitted for init defaults", decoded["build"])
 	}
+	containerEnv, ok := decoded["containerEnv"].(map[string]any)
+	if !ok {
+		t.Fatalf("containerEnv: got %#v want object", decoded["containerEnv"])
+	}
+	if got, want := containerEnv["DECOMK_DEV_USER"], stage0.DefaultDevcontainerUser; got != want {
+		t.Fatalf("DECOMK_DEV_USER: got %#v want %#v", got, want)
+	}
+	if got, want := containerEnv["DECOMK_DEV_UID"], stage0.DefaultDevcontainerUID; got != want {
+		t.Fatalf("DECOMK_DEV_UID: got %#v want %#v", got, want)
+	}
 }
 
 func TestCmdInit_ForceNoPromptPreservesExistingImageDefaults(t *testing.T) {
 	t.Parallel()
 
 	repoRoot := t.TempDir()
+	confURI := createTestProducerConfURI(t)
 	devcontainerDir := filepath.Join(repoRoot, ".devcontainer")
 	if err := os.MkdirAll(devcontainerDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll(devcontainerDir): %v", err)
 	}
-	existing := `{
+	existing := strings.ReplaceAll(`{
   // existing defaults should be reused on -f reruns
   "name": "existing-repo",
   "image": "ghcr.io/acme/custom-base:testing",
@@ -269,12 +281,12 @@ func TestCmdInit_ForceNoPromptPreservesExistingImageDefaults(t *testing.T) {
     "DECOMK_HOME": "/var/custom/decomk",
     "DECOMK_LOG_DIR": "/var/custom/log",
     "DECOMK_TOOL_URI": "go:github.com/acme/decomk/cmd/decomk@latest",
-    "DECOMK_CONF_URI": "git:https://example.com/conf.git",
+    "DECOMK_CONF_URI": "__CONF_URI__",
     "DECOMK_FAIL_NOBOOT": "true"
   },
   "updateContentCommand": "bash .devcontainer/decomk-stage0.sh updateContent",
   "postCreateCommand": "bash .devcontainer/decomk-stage0.sh postCreate"
-}`
+}`, "__CONF_URI__", confURI)
 	devcontainerPath := filepath.Join(devcontainerDir, "devcontainer.json")
 	if err := os.WriteFile(devcontainerPath, []byte(existing), 0o644); err != nil {
 		t.Fatalf("WriteFile(devcontainer.json): %v", err)
@@ -317,8 +329,14 @@ func TestCmdInit_ForceNoPromptPreservesExistingImageDefaults(t *testing.T) {
 	if got, want := envMap["DECOMK_TOOL_URI"], "go:github.com/acme/decomk/cmd/decomk@latest"; got != want {
 		t.Fatalf("DECOMK_TOOL_URI: got %#v want %#v", got, want)
 	}
-	if got, want := envMap["DECOMK_CONF_URI"], "git:https://example.com/conf.git"; got != want {
+	if got, want := envMap["DECOMK_CONF_URI"], confURI; got != want {
 		t.Fatalf("DECOMK_CONF_URI: got %#v want %#v", got, want)
+	}
+	if got, want := envMap["DECOMK_DEV_USER"], stage0.DefaultDevcontainerUser; got != want {
+		t.Fatalf("DECOMK_DEV_USER: got %#v want %#v", got, want)
+	}
+	if got, want := envMap["DECOMK_DEV_UID"], stage0.DefaultDevcontainerUID; got != want {
+		t.Fatalf("DECOMK_DEV_UID: got %#v want %#v", got, want)
 	}
 	if got, want := envMap["DECOMK_FAIL_NOBOOT"], "true"; got != want {
 		t.Fatalf("DECOMK_FAIL_NOBOOT: got %#v want %#v", got, want)
@@ -329,11 +347,12 @@ func TestCmdInit_ForceNoPromptPreservesExistingBuildDefaults(t *testing.T) {
 	t.Parallel()
 
 	repoRoot := t.TempDir()
+	confURI := createTestProducerConfURI(t)
 	devcontainerDir := filepath.Join(repoRoot, ".devcontainer")
 	if err := os.MkdirAll(devcontainerDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll(devcontainerDir): %v", err)
 	}
-	existing := `{
+	existing := strings.ReplaceAll(`{
   "name": "existing-build",
   "build": {
     "dockerfile": "Dockerfile.Block10",
@@ -343,12 +362,12 @@ func TestCmdInit_ForceNoPromptPreservesExistingBuildDefaults(t *testing.T) {
     "DECOMK_HOME": "/var/decomk",
     "DECOMK_LOG_DIR": "/var/log/decomk",
     "DECOMK_TOOL_URI": "go:github.com/stevegt/decomk/cmd/decomk@latest",
-    "DECOMK_CONF_URI": "git:https://example.com/conf.git",
+    "DECOMK_CONF_URI": "__CONF_URI__",
     "DECOMK_FAIL_NOBOOT": "false"
   },
   "updateContentCommand": "bash .devcontainer/decomk-stage0.sh updateContent",
   "postCreateCommand": "bash .devcontainer/decomk-stage0.sh postCreate"
-}`
+}`, "__CONF_URI__", confURI)
 	devcontainerPath := filepath.Join(devcontainerDir, "devcontainer.json")
 	if err := os.WriteFile(devcontainerPath, []byte(existing), 0o644); err != nil {
 		t.Fatalf("WriteFile(devcontainer.json): %v", err)
@@ -391,13 +410,14 @@ func TestCmdInit_ForceAliasF(t *testing.T) {
 	t.Parallel()
 
 	repoRoot := t.TempDir()
+	confURI := createTestProducerConfURI(t)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	baseArgs := []string{
 		"-no-prompt",
 		"-repo-root", repoRoot,
 		"-name", "myrepo",
-		"-conf-uri", "git:https://example.com/conf.git",
+		"-conf-uri", confURI,
 		"-tool-uri", stage0.DefaultToolURI,
 		"-home", "/var/decomk",
 		"-log-dir", "/var/log/decomk",
@@ -438,6 +458,7 @@ func TestCmdInit_DefaultRepoRootUsesGitToplevel(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skipf("git not available: %v", err)
 	}
+	confURI := createTestProducerConfURI(t)
 
 	repoRoot := t.TempDir()
 	if out, err := exec.Command("git", "-C", repoRoot, "init", "-q").CombinedOutput(); err != nil {
@@ -466,7 +487,7 @@ func TestCmdInit_DefaultRepoRootUsesGitToplevel(t *testing.T) {
 	var stderr bytes.Buffer
 	code, err := cmdInit([]string{
 		"-no-prompt",
-		"-conf-uri", "git:https://example.com/conf.git",
+		"-conf-uri", confURI,
 		"-name", "myrepo",
 	}, &stdout, &stderr)
 	if err != nil {
@@ -488,6 +509,7 @@ func TestCmdInit_DefaultRepoRootErrorsOutsideGitRepo(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skipf("git not available: %v", err)
 	}
+	confURI := createTestProducerConfURI(t)
 
 	nonRepo := t.TempDir()
 	origWD, err := os.Getwd()
@@ -507,7 +529,7 @@ func TestCmdInit_DefaultRepoRootErrorsOutsideGitRepo(t *testing.T) {
 	var stderr bytes.Buffer
 	code, err := cmdInit([]string{
 		"-no-prompt",
-		"-conf-uri", "git:https://example.com/conf.git",
+		"-conf-uri", confURI,
 		"-name", "myrepo",
 	}, &stdout, &stderr)
 	if err == nil {
@@ -525,6 +547,7 @@ func TestCmdInit_ToolURIValidation(t *testing.T) {
 	t.Parallel()
 
 	repoRoot := t.TempDir()
+	confURI := createTestProducerConfURI(t)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 
@@ -533,7 +556,7 @@ func TestCmdInit_ToolURIValidation(t *testing.T) {
 		"-no-prompt",
 		"-repo-root", repoRoot,
 		"-name", "myrepo",
-		"-conf-uri", "git:https://example.com/conf.git",
+		"-conf-uri", confURI,
 		"-tool-uri", stage0.DefaultToolURI,
 	}, &stdout, &stderr)
 	if err != nil {
@@ -550,7 +573,7 @@ func TestCmdInit_ToolURIValidation(t *testing.T) {
 		"-no-prompt",
 		"-repo-root", repoRoot,
 		"-name", "myrepo",
-		"-conf-uri", "git:https://example.com/conf.git",
+		"-conf-uri", confURI,
 		"-tool-uri", "zip:https://example.com/tool.zip",
 		"-force",
 	}, &stdout, &stderr)
@@ -589,6 +612,64 @@ func TestWriteFileAtomic_PreservesFileOnFailure(t *testing.T) {
 	if string(got) != "original" {
 		t.Fatalf("existing file changed unexpectedly: got %q want %q", string(got), "original")
 	}
+}
+
+func createTestProducerConfURI(t *testing.T) string {
+	t.Helper()
+
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skipf("git not available: %v", err)
+	}
+
+	root := t.TempDir()
+	workDir := filepath.Join(root, "work")
+	if err := os.MkdirAll(filepath.Join(workDir, ".devcontainer"), 0o755); err != nil {
+		t.Fatalf("MkdirAll(workDir/.devcontainer): %v", err)
+	}
+
+	devcontainerJSON := `{
+  "name": "test producer conf",
+  "containerEnv": {
+    "DECOMK_HOME": "/var/decomk",
+    "DECOMK_LOG_DIR": "/var/log/decomk",
+    "DECOMK_TOOL_URI": "go:github.com/stevegt/decomk/cmd/decomk@latest",
+    "DECOMK_CONF_URI": "git:https://example.invalid/conf.git",
+    "DECOMK_FAIL_NOBOOT": "false",
+    "DECOMK_DEV_USER": "dev",
+    "DECOMK_DEV_UID": "1000"
+  },
+  "remoteUser": "dev",
+  "containerUser": "dev",
+  "updateRemoteUserUID": false
+}`
+	if err := os.WriteFile(filepath.Join(workDir, ".devcontainer", "devcontainer.json"), []byte(devcontainerJSON), 0o644); err != nil {
+		t.Fatalf("WriteFile(test producer devcontainer.json): %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(workDir, "README.md"), []byte("test conf repo\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(test producer README.md): %v", err)
+	}
+
+	if output, err := exec.Command("git", "-C", workDir, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, strings.TrimSpace(string(output)))
+	}
+	if output, err := exec.Command("git", "-C", workDir, "config", "user.email", "test@example.invalid").CombinedOutput(); err != nil {
+		t.Fatalf("git config user.email: %v: %s", err, strings.TrimSpace(string(output)))
+	}
+	if output, err := exec.Command("git", "-C", workDir, "config", "user.name", "decomk init tests").CombinedOutput(); err != nil {
+		t.Fatalf("git config user.name: %v: %s", err, strings.TrimSpace(string(output)))
+	}
+	if output, err := exec.Command("git", "-C", workDir, "add", ".").CombinedOutput(); err != nil {
+		t.Fatalf("git add: %v: %s", err, strings.TrimSpace(string(output)))
+	}
+	if output, err := exec.Command("git", "-C", workDir, "commit", "-q", "-m", "seed test producer conf").CombinedOutput(); err != nil {
+		t.Fatalf("git commit: %v: %s", err, strings.TrimSpace(string(output)))
+	}
+
+	bareDir := filepath.Join(root, "confrepo.git")
+	if output, err := exec.Command("git", "clone", "-q", "--bare", workDir, bareDir).CombinedOutput(); err != nil {
+		t.Fatalf("git clone --bare: %v: %s", err, strings.TrimSpace(string(output)))
+	}
+	return "git:file://" + bareDir
 }
 
 func stripJSONCLineComments(content []byte) ([]byte, error) {

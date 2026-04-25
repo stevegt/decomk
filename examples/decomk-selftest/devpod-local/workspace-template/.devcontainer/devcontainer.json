@@ -10,7 +10,9 @@
       "DECOMK_LOG_DIR": "/tmp/decomk-selftest/log",
       "DECOMK_TOOL_URI": "__DECOMK_TOOL_URI__",
       "DECOMK_CONF_URI": "__DECOMK_CONF_URI__",
-      "DECOMK_FAIL_NOBOOT": "false"
+      "DECOMK_FAIL_NOBOOT": "false",
+      "DECOMK_DEV_USER": "dev",
+      "DECOMK_DEV_UID": "1000"
     },
   "remoteUser": "dev",
   "containerUser": "dev",
