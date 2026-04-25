@@ -268,7 +268,11 @@ func runInitConfMode(f *initFlags, setFlags map[string]bool, repoRoot string, st
 	}
 
 	if f.name == "" {
-		f.name = confrepo.DefaultName
+		// Intent: Keep producer `init -conf` naming defaults identical to consumer
+		// `init` so users always get repo-basename defaults unless they pass
+		// `-name` or reuse an existing value from a prior scaffold.
+		// Source: DI-001-20260424-193612 (TODO/001)
+		f.name = filepath.Base(repoRoot)
 	}
 	// Producer mode always emits a build-backed starter profile.
 	f.buildDockerfile = "Dockerfile"
@@ -333,7 +337,7 @@ func runInitConfMode(f *initFlags, setFlags map[string]bool, repoRoot string, st
 func addInitFlags(fs *flag.FlagSet, f *initFlags) {
 	fs.BoolVar(&f.confMode, "conf", f.confMode, "producer mode: scaffold a shared conf repo starter tree at repo root")
 	fs.StringVar(&f.repoRoot, "repo-root", f.repoRoot, "target repo root (writes under <repo-root>/.devcontainer; default: current git repo root)")
-	fs.StringVar(&f.name, "name", f.name, "devcontainer name (default: repo basename in consumer mode; conf producer default in -conf mode)")
+	fs.StringVar(&f.name, "name", f.name, "devcontainer name (default: repo basename)")
 	fs.StringVar(&f.image, "image", f.image, "devcontainer image value when no build dockerfile is configured")
 	fs.StringVar(&f.confURI, "conf-uri", f.confURI, "DECOMK_CONF_URI value for devcontainer.json")
 	fs.StringVar(&f.toolURI, "tool-uri", f.toolURI, "DECOMK_TOOL_URI value for devcontainer.json")

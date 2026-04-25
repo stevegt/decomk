@@ -178,6 +178,29 @@ func TestCmdInitConf_DefaultRepoRootUsesGitToplevel(t *testing.T) {
 	if _, statErr := os.Stat(filepath.Join(nested, "decomk.conf")); !os.IsNotExist(statErr) {
 		t.Fatalf("nested decomk.conf should not exist; err=%v", statErr)
 	}
+	decoded := decodeJSONCObjectFile(t, filepath.Join(repoRoot, ".devcontainer", "devcontainer.json"))
+	if got, want := decoded["name"], filepath.Base(repoRoot); got != want {
+		t.Fatalf("name: got %#v want %#v", got, want)
+	}
+}
+
+func TestCmdInitConf_NoPromptDefaultsNameToRepoBasename(t *testing.T) {
+	t.Parallel()
+
+	repoRoot := t.TempDir()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code, err := cmdInit([]string{"-conf", "-no-prompt", "-repo-root", repoRoot}, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("cmdInit(-conf -no-prompt) error: %v", err)
+	}
+	if code != 0 {
+		t.Fatalf("cmdInit(-conf -no-prompt) code: got %d want 0", code)
+	}
+	decoded := decodeJSONCObjectFile(t, filepath.Join(repoRoot, ".devcontainer", "devcontainer.json"))
+	if got, want := decoded["name"], filepath.Base(repoRoot); got != want {
+		t.Fatalf("name: got %#v want %#v", got, want)
+	}
 }
 
 func TestCmdInitConf_DefaultRepoRootErrorsOutsideGitRepo(t *testing.T) {

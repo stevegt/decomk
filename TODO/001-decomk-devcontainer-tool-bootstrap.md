@@ -2,6 +2,14 @@
 
 ## Decision Intent Log
 
+ID: DI-001-20260424-193612
+Date: 2026-04-24 19:36:12
+Status: active
+Decision: Use the same default devcontainer name resolution for `decomk init -conf` as consumer `decomk init`: repo root basename when `-name` is not set and no existing value is reused.
+Intent: Eliminate mode-specific naming surprises so interactive defaults and non-interactive output are consistent across producer and consumer init flows.
+Constraints: Preserve existing precedence (`-name` override first, then existing devcontainer defaults on `-f`, then basename fallback), and keep confrepo generator/example naming behavior unchanged.
+Affects: `cmd/decomk/init.go`, `cmd/decomk/init_conf_test.go`, `README.md`.
+
 ID: DI-001-20260424-190437
 Date: 2026-04-24 19:04:37
 Status: active
