@@ -15,12 +15,8 @@
       "DECOMK_LOG_DIR": "/var/log/decomk",
       "DECOMK_TOOL_URI": "go:github.com/stevegt/decomk/cmd/decomk@latest",
       "DECOMK_CONF_URI": "git:https://github.com/\u003corg\u003e/\u003cconf-repo\u003e.git?ref=main",
-      "DECOMK_FAIL_NOBOOT": "false",
-      "DECOMK_REMOTE_USER": "dev",
-      "DECOMK_REMOTE_UID": "1000"
+      "DECOMK_FAIL_NOBOOT": "false"
     },
-  "remoteUser": "dev",
-  "containerUser": "dev",
   "updateRemoteUserUID": false,
   "updateContentCommand": "bash .devcontainer/decomk-stage0.sh updateContent",
   "postCreateCommand": "bash .devcontainer/decomk-stage0.sh postCreate"

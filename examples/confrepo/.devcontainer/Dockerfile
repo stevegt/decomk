@@ -18,9 +18,16 @@ RUN apt-get update \
       sudo \
  && rm -rf /var/lib/apt/lists/*
 
+#
+# Intent: Before changing identity values, inspect the base image identities first.
+# Example: docker run --rm -it mcr.microsoft.com/devcontainers/base:ubuntu-24.04 cat /etc/passwd
+# Source: DI-001-20260425-113454 (TODO/001)
 RUN useradd --create-home --shell /bin/bash --uid 1000 dev \
  && echo 'dev ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/dev \
  && chmod 0440 /etc/sudoers.d/dev
 
+ENV DECOMK_REMOTE_USER=dev
+ENV DECOMK_REMOTE_UID=1000
+
 RUN mkdir -p /workspaces /var/decomk /var/log/decomk \
- && chown -R dev:dev /workspaces /var/decomk /var/log/decomk
+ && chown -R ${DECOMK_REMOTE_USER}:${DECOMK_REMOTE_USER} /workspaces /var/decomk /var/log/decomk

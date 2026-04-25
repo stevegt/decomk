@@ -119,3 +119,31 @@ Selftests keep their target logic in fixture `Makefile` targets and scripts.
 - stamp idempotency is tested with repeated stamp probe/verify runs.
 
 No selector translation table is required in the harness.
+
+## 7) `decomk init` identity/default contract
+
+`decomk init` treats remote identity as an **image contract**, not a consumer
+`devcontainer.json` contract:
+
+- Producer scaffolding (`decomk init -conf`) writes `DECOMK_REMOTE_USER` /
+  `DECOMK_REMOTE_UID` in `.devcontainer/Dockerfile` via `ENV`.
+- Consumer scaffolding does not emit `DECOMK_REMOTE_*` in generated
+  `devcontainer.json`; stage-0 expects those vars from the image at runtime.
+- `updateRemoteUserUID` is emitted as `false` to keep UID behavior deterministic.
+
+Consumer init still clones the producer conf repo, but only to import shared
+defaults for:
+
+- `DECOMK_TOOL_URI`
+- `DECOMK_HOME`
+- `DECOMK_LOG_DIR`
+
+Precedence is:
+
+- for tool/home/log: `CLI > producer > local existing > built-in`
+- for `DECOMK_FAIL_NOBOOT`: `CLI > local existing > false`
+
+Lifecycle hook commands remain constants in generated output:
+
+- `updateContentCommand`: `bash .devcontainer/decomk-stage0.sh updateContent`
+- `postCreateCommand`: `bash .devcontainer/decomk-stage0.sh postCreate`

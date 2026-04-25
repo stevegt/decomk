@@ -81,31 +81,38 @@ const (
 //   - Image: emit "image" when BuildDockerfile is empty and Image is non-empty.
 //   - RunArgs: emit "runArgs" only when non-empty.
 //   - RemoteIdentityUser/RemoteIdentityUID: emitted in containerEnv as decomk
-//     metadata keys.
+//     metadata keys unless DisableRemoteIdentityEnv is true.
 //   - RemoteUser: emit "remoteUser" only when non-empty.
 //   - ContainerUser: emit "containerUser" only when non-empty.
+//   - DisableRemoteIdentityEnv: when true, omit DECOMK_REMOTE_* keys from
+//     devcontainer containerEnv.
 //   - UpdateRemoteUserUID: emit "updateRemoteUserUID" only when non-nil.
 //
 // Required sections:
 //   - Name, containerEnv, updateContentCommand, and postCreateCommand are always emitted.
 type DevcontainerTemplateData struct {
-	Name                 string
-	BuildDockerfile      string
-	BuildContext         string
-	Image                string
-	RunArgs              []string
-	RemoteIdentityUser   string
-	RemoteIdentityUID    string
-	RemoteUser           string
-	ContainerUser        string
-	UpdateRemoteUserUID  *bool
-	Home                 string
-	LogDir               string
-	ToolURI              string
-	ConfURI              string
-	FailNoBoot           string
-	UpdateContentCommand string
-	PostCreateCommand    string
+	Name               string
+	BuildDockerfile    string
+	BuildContext       string
+	Image              string
+	RunArgs            []string
+	RemoteIdentityUser string
+	RemoteIdentityUID  string
+	RemoteUser         string
+	ContainerUser      string
+	// Intent: Let init-generated producer/consumer devcontainer files omit
+	// DECOMK_REMOTE_* transport keys while preserving legacy/example/selftest
+	// rendering paths that still embed those keys.
+	// Source: DI-001-20260425-113454 (TODO/001)
+	DisableRemoteIdentityEnv bool
+	UpdateRemoteUserUID      *bool
+	Home                     string
+	LogDir                   string
+	ToolURI                  string
+	ConfURI                  string
+	FailNoBoot               string
+	UpdateContentCommand     string
+	PostCreateCommand        string
 }
 
 // EnsureDefaults populates standard defaults for fields that should always have

@@ -2,6 +2,15 @@
 
 ## Decision Intent Log
 
+ID: DI-001-20260425-113454
+Date: 2026-04-25 11:34:54
+Status: active
+Decision: Make image-level `DECOMK_REMOTE_USER`/`DECOMK_REMOTE_UID` the canonical init identity source by removing those keys (and `remoteUser`/`containerUser`) from generated producer+consumer `devcontainer.json`, keeping `updateRemoteUserUID=false`, and emitting identity in the producer Dockerfile template via `ENV` lines.
+Intent: Keep stage-0 identity deterministic while moving identity ownership to image configuration, and stop using consumer `devcontainer.json` metadata as a second identity transport path.
+Constraints: Consumer `decomk init` still clones producer conf repo for non-identity defaults only (`DECOMK_TOOL_URI`, `DECOMK_HOME`, `DECOMK_LOG_DIR`) with precedence `CLI > producer > local existing > built-in`; `DECOMK_FAIL_NOBOOT` remains `CLI > local existing > false`; lifecycle hooks remain stage0 constants and are not imported/prompted.
+Affects: `cmd/decomk/init.go`, `stage0/stage0.go`, `confrepo/confrepo.go`, `cmd/decomk/templates/devcontainer.json.tmpl`, `cmd/decomk/templates/confrepo.devcontainer.json.tmpl`, `cmd/decomk/templates/confrepo.Dockerfile.tmpl`, init tests, generated examples, `README.md`, `doc/decomk-design.md`.
+Supersedes: DI-001-20260424-215415 (consumer conf identity fetch path), DI-001-20260424-190437 (consumer identity flow details), DI-001-20260425-005155 (remoteUser/containerUser output contract)
+
 ID: DI-001-20260424-215415
 Date: 2026-04-24 21:54:15
 Status: active

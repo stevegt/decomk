@@ -77,20 +77,32 @@ func TestCmdInitConf_WritesStarterTree(t *testing.T) {
 	if got, want := containerEnv["DECOMK_FAIL_NOBOOT"], stage0.DefaultFailNoBoot; got != want {
 		t.Fatalf("DECOMK_FAIL_NOBOOT: got %#v want %#v", got, want)
 	}
-	if got, want := containerEnv["DECOMK_REMOTE_USER"], stage0.DefaultDevcontainerUser; got != want {
-		t.Fatalf("DECOMK_REMOTE_USER: got %#v want %#v", got, want)
+	if got, ok := containerEnv["DECOMK_REMOTE_USER"]; ok {
+		t.Fatalf("DECOMK_REMOTE_USER: got %#v want omitted", got)
 	}
-	if got, want := containerEnv["DECOMK_REMOTE_UID"], stage0.DefaultDevcontainerUID; got != want {
-		t.Fatalf("DECOMK_REMOTE_UID: got %#v want %#v", got, want)
+	if got, ok := containerEnv["DECOMK_REMOTE_UID"]; ok {
+		t.Fatalf("DECOMK_REMOTE_UID: got %#v want omitted", got)
 	}
-	if got, want := decoded["remoteUser"], stage0.DefaultDevcontainerUser; got != want {
-		t.Fatalf("remoteUser: got %#v want %#v", got, want)
+	if got, ok := decoded["remoteUser"]; ok {
+		t.Fatalf("remoteUser: got %#v want omitted", got)
 	}
-	if got, want := decoded["containerUser"], stage0.DefaultDevcontainerUser; got != want {
-		t.Fatalf("containerUser: got %#v want %#v", got, want)
+	if got, ok := decoded["containerUser"]; ok {
+		t.Fatalf("containerUser: got %#v want omitted", got)
 	}
 	if got, want := decoded["updateRemoteUserUID"], false; got != want {
 		t.Fatalf("updateRemoteUserUID: got %#v want %#v", got, want)
+	}
+
+	dockerfilePath := filepath.Join(repoRoot, ".devcontainer", "Dockerfile")
+	dockerfileContent, err := os.ReadFile(dockerfilePath)
+	if err != nil {
+		t.Fatalf("ReadFile(Dockerfile): %v", err)
+	}
+	if !strings.Contains(string(dockerfileContent), "ENV DECOMK_REMOTE_USER="+stage0.DefaultDevcontainerUser) {
+		t.Fatalf("Dockerfile missing DECOMK_REMOTE_USER ENV line:\n%s", string(dockerfileContent))
+	}
+	if !strings.Contains(string(dockerfileContent), "ENV DECOMK_REMOTE_UID="+stage0.DefaultDevcontainerUID) {
+		t.Fatalf("Dockerfile missing DECOMK_REMOTE_UID ENV line:\n%s", string(dockerfileContent))
 	}
 }
 

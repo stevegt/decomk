@@ -18,7 +18,7 @@ For deeper design background, see:
 ## Current commands
 
 - `decomk init -conf` — scaffold a shared conf repo (`decomk.conf` + `Makefile` + producer `.devcontainer/`)
-- `decomk init` — scaffold stage-0 lifecycle files in `.devcontainer/` using identity loaded from the shared conf producer
+- `decomk init` — scaffold stage-0 lifecycle files in `.devcontainer/` using shared producer defaults for tool/home/log values while taking remote identity from the image
 - `decomk version` — print the decomk CLI version string
 - `decomk plan` — resolve tuples/targets + run `make -n` in the stamp directory
 - `decomk run` — write env export file + run `make` in the stamp directory
@@ -136,18 +136,21 @@ If you intentionally want to regenerate/replace files, use force:
 - `-force`
 
 When `-f` is used and `.devcontainer/devcontainer.json` already exists,
-`decomk init` reuses existing stage-0 values as defaults (name/image and
-`DECOMK_*` container env values) so reruns do not require re-entering the same
-configuration.
+`decomk init` reuses existing stage-0 values as defaults so reruns do not
+require re-entering the same configuration. For consumer init, producer
+defaults then override local defaults for `DECOMK_TOOL_URI`, `DECOMK_HOME`, and
+`DECOMK_LOG_DIR` (CLI still wins).
 
 Consumer `decomk init` requires a reachable `DECOMK_CONF_URI` (`git:...`) and
-loads `DECOMK_REMOTE_USER` / `DECOMK_REMOTE_UID` from the shared conf producer repo’s
-`.devcontainer/devcontainer.json`. If clone/read/validation fails, init fails
-fast rather than guessing identity.
+clones the producer conf repo to inherit shared defaults for `DECOMK_TOOL_URI`,
+`DECOMK_HOME`, and `DECOMK_LOG_DIR` (precedence: CLI > producer > local existing > built-in).
+If clone/read fails, init fails fast rather than silently falling back.
 
 Generated stage-0 scripts verify that the runtime process identity matches
 `DECOMK_REMOTE_USER` / `DECOMK_REMOTE_UID` before escalating to root; mismatches
-fail fast to avoid ambiguous ownership drift.
+fail fast to avoid ambiguous ownership drift. Those identity vars should come
+from the image (for example Dockerfile `ENV`), not from generated consumer
+`devcontainer.json` metadata.
 
 Recommended reconciliation workflow when files already exist:
 
@@ -595,8 +598,8 @@ ARGS:
   -tool-uri <uri>           DECOMK_TOOL_URI value in devcontainer.json (go:... or git:...)
   -home <abs-path>          DECOMK_HOME value in devcontainer.json
   -log-dir <abs-path>       DECOMK_LOG_DIR value in devcontainer.json
-  -remote-user <name>       DECOMK_REMOTE_USER metadata value (producer mode)
-  -remote-uid <uid>         DECOMK_REMOTE_UID metadata value (producer mode)
+  -remote-user <name>       DECOMK_REMOTE_USER value for producer Dockerfile ENV (producer mode)
+  -remote-uid <uid>         DECOMK_REMOTE_UID value for producer Dockerfile ENV (producer mode)
   -fail-no-boot <value>     DECOMK_FAIL_NOBOOT value in devcontainer.json (true/false/1/0/yes/no/on/off)
   -force                    Overwrite existing stage-0 files even when they already exist
   -f                        Alias for -force
@@ -637,6 +640,7 @@ install-user-stuff:
 - `/var/decomk` (state) and `/var/log/decomk` (logs) should be writable by the dev user (or override with `DECOMK_HOME`/`DECOMK_LOG_DIR`).
   - In a Dockerfile, you typically want:
     - `RUN mkdir -p /var/decomk /var/log/decomk && chown -R $USER:$USER /var/decomk /var/log/decomk`
+  - Export `DECOMK_REMOTE_USER` and `DECOMK_REMOTE_UID` in the image (for example with Dockerfile `ENV`) so stage-0 identity checks are explicit and deterministic.
   - Alternatively, use a minimal lifecycle hook to run decomk directly; see `examples/devcontainer/decomk-stage0.sh`.
   - That hook performs stage-0 bootstrap by ensuring `decomk` is in `PATH`, syncing `DECOMK_CONF_URI`, then running `decomk`.
 - The repo’s workspace path is host-dependent; prefer using

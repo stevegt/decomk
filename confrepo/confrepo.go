@@ -43,21 +43,23 @@ func ProducerDevcontainerData(name string) stage0.DevcontainerTemplateData {
 	// Source: DI-001-20260424-190437 (TODO/001)
 	disableUIDRemap := false
 	return stage0.DevcontainerTemplateData{
-		Name:                 name,
-		BuildDockerfile:      "Dockerfile",
-		BuildContext:         "..",
-		RemoteIdentityUser:   remoteIdentityUser,
-		RemoteIdentityUID:    remoteIdentityUID,
-		RemoteUser:           remoteIdentityUser,
-		ContainerUser:        remoteIdentityUser,
-		UpdateRemoteUserUID:  &disableUIDRemap,
-		Home:                 DefaultHome,
-		LogDir:               DefaultLogDir,
-		ToolURI:              stage0.DefaultToolURI,
-		ConfURI:              DefaultConfURI,
-		FailNoBoot:           stage0.DefaultFailNoBoot,
-		UpdateContentCommand: stage0.DefaultUpdateContentCommand,
-		PostCreateCommand:    stage0.DefaultPostCreateCommand,
+		Name:               name,
+		BuildDockerfile:    "Dockerfile",
+		BuildContext:       "..",
+		RemoteIdentityUser: remoteIdentityUser,
+		RemoteIdentityUID:  remoteIdentityUID,
+		// Intent: Keep producer devcontainer JSON focused on URI/path policy while
+		// making image identity authoritative from producer Dockerfile ENV.
+		// Source: DI-001-20260425-113454 (TODO/001)
+		DisableRemoteIdentityEnv: true,
+		UpdateRemoteUserUID:      &disableUIDRemap,
+		Home:                     DefaultHome,
+		LogDir:                   DefaultLogDir,
+		ToolURI:                  stage0.DefaultToolURI,
+		ConfURI:                  DefaultConfURI,
+		FailNoBoot:               stage0.DefaultFailNoBoot,
+		UpdateContentCommand:     stage0.DefaultUpdateContentCommand,
+		PostCreateCommand:        stage0.DefaultPostCreateCommand,
 	}
 }
 
@@ -70,8 +72,6 @@ func ProducerDevcontainerDataWithIdentity(name, remoteIdentityUser, remoteIdenti
 	data := ProducerDevcontainerData(name)
 	if remoteIdentityUser != "" {
 		data.RemoteIdentityUser = remoteIdentityUser
-		data.RemoteUser = remoteIdentityUser
-		data.ContainerUser = remoteIdentityUser
 	}
 	if remoteIdentityUID != "" {
 		data.RemoteIdentityUID = remoteIdentityUID

@@ -256,11 +256,17 @@ func TestCmdInit_NoPromptWritesFiles(t *testing.T) {
 	if !ok {
 		t.Fatalf("containerEnv: got %#v want object", decoded["containerEnv"])
 	}
-	if got, want := containerEnv["DECOMK_REMOTE_USER"], stage0.DefaultDevcontainerUser; got != want {
-		t.Fatalf("DECOMK_REMOTE_USER: got %#v want %#v", got, want)
+	if got, ok := containerEnv["DECOMK_REMOTE_USER"]; ok {
+		t.Fatalf("DECOMK_REMOTE_USER: got %#v want omitted (image-sourced identity)", got)
 	}
-	if got, want := containerEnv["DECOMK_REMOTE_UID"], stage0.DefaultDevcontainerUID; got != want {
-		t.Fatalf("DECOMK_REMOTE_UID: got %#v want %#v", got, want)
+	if got, ok := containerEnv["DECOMK_REMOTE_UID"]; ok {
+		t.Fatalf("DECOMK_REMOTE_UID: got %#v want omitted (image-sourced identity)", got)
+	}
+	if got, ok := decoded["remoteUser"]; ok {
+		t.Fatalf("remoteUser: got %#v want omitted", got)
+	}
+	if got, ok := decoded["containerUser"]; ok {
+		t.Fatalf("containerUser: got %#v want omitted", got)
 	}
 }
 
@@ -320,23 +326,23 @@ func TestCmdInit_ForceNoPromptPreservesExistingImageDefaults(t *testing.T) {
 	if !ok {
 		t.Fatalf("containerEnv: got %#v", decoded["containerEnv"])
 	}
-	if got, want := envMap["DECOMK_HOME"], "/var/custom/decomk"; got != want {
+	if got, want := envMap["DECOMK_HOME"], "/var/decomk"; got != want {
 		t.Fatalf("DECOMK_HOME: got %#v want %#v", got, want)
 	}
-	if got, want := envMap["DECOMK_LOG_DIR"], "/var/custom/log"; got != want {
+	if got, want := envMap["DECOMK_LOG_DIR"], "/var/log/decomk"; got != want {
 		t.Fatalf("DECOMK_LOG_DIR: got %#v want %#v", got, want)
 	}
-	if got, want := envMap["DECOMK_TOOL_URI"], "go:github.com/acme/decomk/cmd/decomk@latest"; got != want {
+	if got, want := envMap["DECOMK_TOOL_URI"], stage0.DefaultToolURI; got != want {
 		t.Fatalf("DECOMK_TOOL_URI: got %#v want %#v", got, want)
 	}
 	if got, want := envMap["DECOMK_CONF_URI"], confURI; got != want {
 		t.Fatalf("DECOMK_CONF_URI: got %#v want %#v", got, want)
 	}
-	if got, want := envMap["DECOMK_REMOTE_USER"], stage0.DefaultDevcontainerUser; got != want {
-		t.Fatalf("DECOMK_REMOTE_USER: got %#v want %#v", got, want)
+	if got, ok := envMap["DECOMK_REMOTE_USER"]; ok {
+		t.Fatalf("DECOMK_REMOTE_USER: got %#v want omitted", got)
 	}
-	if got, want := envMap["DECOMK_REMOTE_UID"], stage0.DefaultDevcontainerUID; got != want {
-		t.Fatalf("DECOMK_REMOTE_UID: got %#v want %#v", got, want)
+	if got, ok := envMap["DECOMK_REMOTE_UID"]; ok {
+		t.Fatalf("DECOMK_REMOTE_UID: got %#v want omitted", got)
 	}
 	if got, want := envMap["DECOMK_FAIL_NOBOOT"], "true"; got != want {
 		t.Fatalf("DECOMK_FAIL_NOBOOT: got %#v want %#v", got, want)
@@ -565,6 +571,14 @@ func TestCmdInit_ToolURIValidation(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("go URI cmdInit() code: got %d want 0", code)
 	}
+	decoded := decodeJSONCObjectFile(t, filepath.Join(repoRoot, ".devcontainer", "devcontainer.json"))
+	containerEnv, ok := decoded["containerEnv"].(map[string]any)
+	if !ok {
+		t.Fatalf("containerEnv: got %#v want object", decoded["containerEnv"])
+	}
+	if got, want := containerEnv["DECOMK_TOOL_URI"], stage0.DefaultToolURI; got != want {
+		t.Fatalf("DECOMK_TOOL_URI: got %#v want %#v (CLI override must beat producer defaults)", got, want)
+	}
 
 	// Invalid schemes should fail fast.
 	stdout.Reset()
@@ -585,6 +599,29 @@ func TestCmdInit_ToolURIValidation(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "must start with go: or git:") {
 		t.Fatalf("error: got %q want tool URI scheme error", err.Error())
+	}
+}
+
+func TestCmdInit_FailsWhenProducerDefaultsRepoUnavailable(t *testing.T) {
+	t.Parallel()
+
+	repoRoot := t.TempDir()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code, err := cmdInit([]string{
+		"-no-prompt",
+		"-repo-root", repoRoot,
+		"-name", "myrepo",
+		"-conf-uri", "git:file:///definitely/missing/decomk-conf.git",
+	}, &stdout, &stderr)
+	if err == nil {
+		t.Fatalf("cmdInit() error: got nil want producer-defaults clone error")
+	}
+	if code != 1 {
+		t.Fatalf("cmdInit() code: got %d want 1", code)
+	}
+	if !strings.Contains(err.Error(), "resolve init defaults from producer conf repo") {
+		t.Fatalf("error: got %q want producer-defaults context", err.Error())
 	}
 }
 
@@ -634,12 +671,8 @@ func createTestProducerConfURI(t *testing.T) string {
     "DECOMK_LOG_DIR": "/var/log/decomk",
     "DECOMK_TOOL_URI": "go:github.com/stevegt/decomk/cmd/decomk@latest",
     "DECOMK_CONF_URI": "git:https://example.invalid/conf.git",
-    "DECOMK_FAIL_NOBOOT": "false",
-    "DECOMK_REMOTE_USER": "dev",
-    "DECOMK_REMOTE_UID": "1000"
+    "DECOMK_FAIL_NOBOOT": "false"
   },
-  "remoteUser": "dev",
-  "containerUser": "dev",
   "updateRemoteUserUID": false
 }`
 	if err := os.WriteFile(filepath.Join(workDir, ".devcontainer", "devcontainer.json"), []byte(devcontainerJSON), 0o644); err != nil {

@@ -43,6 +43,12 @@ type initFlags struct {
 	noPrompt           bool
 }
 
+type initProducerDefaults struct {
+	ToolURI string
+	Home    string
+	LogDir  string
+}
+
 // initWriteResult reports what happened for one stage-0 file.
 type initWriteResult struct {
 	Path   string
@@ -70,7 +76,11 @@ func cmdInit(args []string, stdout, stderr io.Writer) (int, error) {
 		logDir:             envi.String("DECOMK_LOG_DIR", state.DefaultLogDir),
 		remoteIdentityUser: stage0.DefaultDevcontainerUser,
 		remoteIdentityUID:  stage0.DefaultDevcontainerUID,
-		failNoBoot:         envi.String("DECOMK_FAIL_NOBOOT", stage0.DefaultFailNoBoot),
+		// Intent: Keep init fail-policy defaults local-first then builtin-false,
+		// independent from producer/env imports, so stage-0 boot policy remains an
+		// explicit repo decision.
+		// Source: DI-001-20260425-113454 (TODO/001)
+		failNoBoot: stage0.DefaultFailNoBoot,
 	}
 	addInitFlags(fs, &f)
 
@@ -149,11 +159,37 @@ func cmdInit(args []string, stdout, stderr io.Writer) (int, error) {
 		applyInitDefaultsFromExistingDevcontainer(&f, setFlags, existingDefaults)
 	}
 
+	canPrompt := !f.noPrompt && isInteractiveInput(os.Stdin) && isInteractiveInput(os.Stderr)
+	if canPrompt && !setFlags["conf-uri"] {
+		// Intent: Prompt for DECOMK_CONF_URI before producer-default import so
+		// interactive init can replace placeholder defaults and still inherit
+		// producer tool/home/log defaults in the same run.
+		// Source: DI-001-20260425-113454 (TODO/001)
+		reader := bufio.NewReader(os.Stdin)
+		confURIValue, promptErr := promptWithDefault(reader, stderr, "DECOMK_CONF_URI", f.confURI)
+		if promptErr != nil {
+			return 1, promptErr
+		}
+		f.confURI = confURIValue
+		setFlags["conf-uri"] = true
+	}
+
+	if strings.TrimSpace(f.confURI) != "" {
+		// Intent: Keep consumer init conf-driven for shared bootstrap defaults
+		// (`DECOMK_TOOL_URI`, `DECOMK_HOME`, `DECOMK_LOG_DIR`) without using the
+		// producer repo as an identity transport layer.
+		// Source: DI-001-20260425-113454 (TODO/001)
+		producerDefaults, err := loadProducerDefaultsFromConfURI(f.confURI)
+		if err != nil {
+			return 1, fmt.Errorf("resolve init defaults from producer conf repo %q: %w", f.confURI, err)
+		}
+		applyInitDefaultsFromProducerConf(&f, setFlags, producerDefaults)
+	}
+
 	if f.name == "" {
 		f.name = filepath.Base(repoRoot)
 	}
 
-	canPrompt := !f.noPrompt && isInteractiveInput(os.Stdin) && isInteractiveInput(os.Stderr)
 	if canPrompt {
 		if err := promptInitFlags(&f, setFlags, os.Stdin, stderr); err != nil {
 			return 1, err
@@ -191,32 +227,25 @@ func cmdInit(args []string, stdout, stderr io.Writer) (int, error) {
 	if err := validateFailNoBootValue(f.failNoBoot); err != nil {
 		return 1, err
 	}
-	identity, err := loadIdentityFromConfURI(f.confURI)
-	if err != nil {
-		return 1, fmt.Errorf("resolve DECOMK_REMOTE_USER/DECOMK_REMOTE_UID from producer conf repo %q: %w", f.confURI, err)
-	}
 
 	// Use the shared stage-0 data model so `decomk init` and generated examples
 	// render from the same template contract.
 	// Intent: Keep stage-0 inputs consistent across init and stage0gen.
 	// Source: DI-001-20260312-141200 (TODO/001)
 	data := stage0.DevcontainerTemplateData{
-		Name:                 f.name,
-		BuildDockerfile:      f.buildDockerfile,
-		BuildContext:         f.buildContext,
-		Image:                f.image,
-		RemoteIdentityUser:   identity.RemoteIdentityUser,
-		RemoteIdentityUID:    identity.RemoteIdentityUID,
-		RemoteUser:           identity.RemoteIdentityUser,
-		ContainerUser:        identity.RemoteIdentityUser,
-		UpdateRemoteUserUID:  boolPointer(false),
-		ConfURI:              f.confURI,
-		ToolURI:              f.toolURI,
-		Home:                 f.home,
-		LogDir:               f.logDir,
-		FailNoBoot:           f.failNoBoot,
-		UpdateContentCommand: stage0.DefaultUpdateContentCommand,
-		PostCreateCommand:    stage0.DefaultPostCreateCommand,
+		Name:                     f.name,
+		BuildDockerfile:          f.buildDockerfile,
+		BuildContext:             f.buildContext,
+		Image:                    f.image,
+		DisableRemoteIdentityEnv: true,
+		UpdateRemoteUserUID:      boolPointer(false),
+		ConfURI:                  f.confURI,
+		ToolURI:                  f.toolURI,
+		Home:                     f.home,
+		LogDir:                   f.logDir,
+		FailNoBoot:               f.failNoBoot,
+		UpdateContentCommand:     stage0.DefaultUpdateContentCommand,
+		PostCreateCommand:        stage0.DefaultPostCreateCommand,
 	}
 
 	results, err := writeInitStage0(repoRoot, data, f.force)
@@ -343,8 +372,8 @@ func addInitFlags(fs *flag.FlagSet, f *initFlags) {
 	fs.StringVar(&f.toolURI, "tool-uri", f.toolURI, "DECOMK_TOOL_URI value for devcontainer.json")
 	fs.StringVar(&f.home, "home", f.home, "DECOMK_HOME value for devcontainer.json")
 	fs.StringVar(&f.logDir, "log-dir", f.logDir, "DECOMK_LOG_DIR value for devcontainer.json")
-	fs.StringVar(&f.remoteIdentityUser, "remote-user", f.remoteIdentityUser, "DECOMK_REMOTE_USER value for generated devcontainer metadata (producer mode)")
-	fs.StringVar(&f.remoteIdentityUID, "remote-uid", f.remoteIdentityUID, "DECOMK_REMOTE_UID value for generated devcontainer metadata (producer mode)")
+	fs.StringVar(&f.remoteIdentityUser, "remote-user", f.remoteIdentityUser, "DECOMK_REMOTE_USER value for generated producer Dockerfile ENV (producer mode)")
+	fs.StringVar(&f.remoteIdentityUID, "remote-uid", f.remoteIdentityUID, "DECOMK_REMOTE_UID value for generated producer Dockerfile ENV (producer mode)")
 	fs.StringVar(&f.failNoBoot, "fail-no-boot", f.failNoBoot, "DECOMK_FAIL_NOBOOT value for devcontainer.json (true fails startup on stage-0 errors)")
 	fs.BoolVar(&f.force, "force", false, "overwrite existing stage-0 files even when they already exist")
 	fs.BoolVar(&f.force, "f", false, "alias for -force")
@@ -450,13 +479,13 @@ func validateFailNoBootValue(value string) error {
 	}
 }
 
-// validateRemoteIdentity enforces the producer/consumer stage-0 identity values
-// rendered into devcontainer metadata.
+// validateRemoteIdentity enforces producer stage-0 identity values rendered into
+// producer Dockerfile ENV declarations.
 //
-// Intent: Keep init-time identity validation explicit so invalid
-// DECOMK_REMOTE_USER/DECOMK_REMOTE_UID values fail during scaffolding instead of
-// producing stage-0 runtime failures.
-// Source: DI-001-20260424-215415 (TODO/001)
+// Intent: Keep init-time producer identity validation explicit so invalid
+// DECOMK_REMOTE_USER/DECOMK_REMOTE_UID values fail during scaffolding instead
+// of producing stage-0 runtime failures in downstream consumer images.
+// Source: DI-001-20260425-113454 (TODO/001)
 func validateRemoteIdentity(remoteIdentityUser, remoteIdentityUID string) error {
 	if strings.TrimSpace(remoteIdentityUser) == "" {
 		return fmt.Errorf("DECOMK_REMOTE_USER template value cannot be empty")
@@ -474,19 +503,14 @@ func validateRemoteIdentity(remoteIdentityUser, remoteIdentityUID string) error 
 	return nil
 }
 
-type initConfIdentity struct {
-	RemoteIdentityUser string
-	RemoteIdentityUID  string
-}
-
-func loadIdentityFromConfURI(confURI string) (initConfIdentity, error) {
+func loadProducerDefaultsFromConfURI(confURI string) (initProducerDefaults, error) {
 	repoURL, gitRef, err := parseGitSourceURI(confURI)
 	if err != nil {
-		return initConfIdentity{}, err
+		return initProducerDefaults{}, err
 	}
 	tmpRoot, err := os.MkdirTemp("/tmp", "decomk-init-conf-*")
 	if err != nil {
-		return initConfIdentity{}, fmt.Errorf("create temp clone root: %w", err)
+		return initProducerDefaults{}, fmt.Errorf("create temp clone root: %w", err)
 	}
 	defer func() {
 		if removeErr := os.RemoveAll(tmpRoot); removeErr != nil {
@@ -498,38 +522,24 @@ func loadIdentityFromConfURI(confURI string) (initConfIdentity, error) {
 
 	repoDir := filepath.Join(tmpRoot, "confrepo")
 	if err := runGitCommand("", "clone", repoURL, repoDir); err != nil {
-		return initConfIdentity{}, err
+		return initProducerDefaults{}, err
 	}
 	if err := checkoutGitRef(repoDir, gitRef); err != nil {
-		return initConfIdentity{}, err
+		return initProducerDefaults{}, err
 	}
 
 	defaults, hasDefaults, err := loadInitExistingDevcontainerDefaults(repoDir)
 	if err != nil {
-		return initConfIdentity{}, err
+		return initProducerDefaults{}, err
 	}
 	if !hasDefaults {
-		return initConfIdentity{}, fmt.Errorf("producer conf repo does not contain .devcontainer/devcontainer.json")
+		return initProducerDefaults{}, fmt.Errorf("producer conf repo does not contain .devcontainer/devcontainer.json")
 	}
 
-	remoteIdentityUser := strings.TrimSpace(firstNonEmpty(defaults.RemoteIdentityUser, defaults.RemoteUser, defaults.ContainerUser))
-	remoteIdentityUID := strings.TrimSpace(defaults.RemoteIdentityUID)
-	if err := validateRemoteIdentity(remoteIdentityUser, remoteIdentityUID); err != nil {
-		return initConfIdentity{}, err
-	}
-	if defaults.RemoteUser != "" && defaults.RemoteUser != remoteIdentityUser {
-		return initConfIdentity{}, fmt.Errorf("producer remoteUser=%q does not match DECOMK_REMOTE_USER=%q", defaults.RemoteUser, remoteIdentityUser)
-	}
-	if defaults.ContainerUser != "" && defaults.ContainerUser != remoteIdentityUser {
-		return initConfIdentity{}, fmt.Errorf("producer containerUser=%q does not match DECOMK_REMOTE_USER=%q", defaults.ContainerUser, remoteIdentityUser)
-	}
-	if defaults.UpdateRemoteUserUID != nil && *defaults.UpdateRemoteUserUID {
-		return initConfIdentity{}, fmt.Errorf("producer updateRemoteUserUID must be false for deterministic identity")
-	}
-
-	return initConfIdentity{
-		RemoteIdentityUser: remoteIdentityUser,
-		RemoteIdentityUID:  remoteIdentityUID,
+	return initProducerDefaults{
+		ToolURI: strings.TrimSpace(defaults.ToolURI),
+		Home:    strings.TrimSpace(defaults.Home),
+		LogDir:  strings.TrimSpace(defaults.LogDir),
 	}, nil
 }
 
@@ -593,13 +603,23 @@ func runGitCommand(dir string, args ...string) error {
 	return nil
 }
 
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return value
-		}
+// applyInitDefaultsFromProducerConf applies producer-conf defaults only when
+// corresponding CLI flags are unset.
+//
+// Intent: Keep consumer init precedence deterministic (`CLI > producer >
+// existing local > built-ins`) for shared bootstrap defaults while excluding
+// identity transport from producer devcontainer metadata.
+// Source: DI-001-20260425-113454 (TODO/001)
+func applyInitDefaultsFromProducerConf(f *initFlags, setFlags map[string]bool, defaults initProducerDefaults) {
+	if !setFlags["tool-uri"] && defaults.ToolURI != "" {
+		f.toolURI = defaults.ToolURI
 	}
-	return ""
+	if !setFlags["home"] && defaults.Home != "" {
+		f.home = defaults.Home
+	}
+	if !setFlags["log-dir"] && defaults.LogDir != "" {
+		f.logDir = defaults.LogDir
+	}
 }
 
 func boolPointer(value bool) *bool {
