@@ -58,7 +58,7 @@ go install github.com/stevegt/decomk/cmd/decomk@latest
 In your shared conf repo:
 
 ```bash
-decomk init -conf -conf-uri git:<your-shared-conf-repo-url>
+decomk init -conf -conf-uri git:<your-shared-conf-repo-url> -image mcr.microsoft.com/devcontainers/base:ubuntu-24.04
 ```
 
 This writes a starter tree:
@@ -111,6 +111,15 @@ If you intentionally want to regenerate/replace files, use force:
 
 - `-f` (alias)
 - `-force`
+
+When `-f` is used and `.devcontainer/Dockerfile` already exists, `decomk init -conf`
+reuses these values as prompt defaults:
+
+- first `FROM` image
+- `ENV DECOMK_REMOTE_USER=...`
+- `ENV DECOMK_REMOTE_UID=...`
+
+If Dockerfile parsing fails, init prints a warning and continues with fallback defaults.
 
 Recommended reconciliation workflow when files already exist:
 
@@ -593,7 +602,7 @@ ARGS:
   -repo-root <path>         Repo root where .devcontainer files are written (default: current git repo root)
   -conf                     Producer mode: scaffold shared conf repo starter files at repo root
   -name <string>            devcontainer.json "name" value (default: repo basename)
-  -image <ref>              devcontainer image value when no build dockerfile is configured
+  -image <ref>              consumer mode: devcontainer image value when no build dockerfile is configured; producer mode (-conf): Dockerfile FROM base image
   -conf-uri <uri>           DECOMK_CONF_URI value in devcontainer.json (git:...; required in consumer mode)
   -tool-uri <uri>           DECOMK_TOOL_URI value in devcontainer.json (go:... or git:...)
   -home <abs-path>          DECOMK_HOME value in devcontainer.json

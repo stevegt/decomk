@@ -127,6 +127,8 @@ No selector translation table is required in the harness.
 
 - Producer scaffolding (`decomk init -conf`) writes `DECOMK_REMOTE_USER` /
   `DECOMK_REMOTE_UID` in `.devcontainer/Dockerfile` via `ENV`.
+- Producer `-f` reruns parse existing `.devcontainer/Dockerfile` defaults:
+  first `FROM` image, `ENV DECOMK_REMOTE_USER`, and `ENV DECOMK_REMOTE_UID`.
 - Consumer scaffolding does not emit `DECOMK_REMOTE_*` in generated
   `devcontainer.json`; stage-0 expects those vars from the image at runtime.
 - `updateRemoteUserUID` is emitted as `false` to keep UID behavior deterministic.

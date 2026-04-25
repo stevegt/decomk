@@ -2,6 +2,15 @@
 
 ## Decision Intent Log
 
+ID: DI-001-20260425-232447
+Date: 2026-04-25 23:24:47
+Status: active
+Decision: In `decomk init -conf`, use option 2 as the canonical flow: prompt for base image (using `-image`) plus `DECOMK_REMOTE_USER`/`DECOMK_REMOTE_UID`, generate a runnable producer Dockerfile with decomk prerequisites and identity `ENV` lines, and on `-conf -f` prefill defaults by parsing existing `.devcontainer/Dockerfile` (`first FROM`, `ENV DECOMK_REMOTE_USER`, `ENV DECOMK_REMOTE_UID`).
+Intent: Keep producer bootstrap deterministic and runnable immediately while reducing operator re-entry friction on `-f` reruns by reusing existing Dockerfile identity/image values.
+Constraints: `-image` remains the producer image input (no new flag); multiple `FROM` lines use the first one; Dockerfile parse failures warn and continue with fallback defaults; template comments explicitly warn that package install/pinning is distro-specific and must be adjusted by operators.
+Affects: `cmd/decomk/init.go`, `cmd/decomk/init_conf_test.go`, `cmd/decomk/templates/confrepo.Dockerfile.tmpl`, `confrepo/confrepo.go`, `README.md`, generated `examples/confrepo/.devcontainer/Dockerfile`.
+Supersedes: DI-001-20260425-113454 (producer Dockerfile default-image/default-source details)
+
 ID: DI-001-20260425-113454
 Date: 2026-04-25 11:34:54
 Status: active

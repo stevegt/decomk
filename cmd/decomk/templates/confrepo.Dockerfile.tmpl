@@ -7,8 +7,11 @@
 # `.devcontainer/devcontainer.json` to an `image:` stanza that points at your
 # stable channel tag (for example `ghcr.io/<org>/<repo>:stable`).
 
-FROM golang:1.24-bookworm
+FROM {{.Image}}
 
+# Package install names and version pinning vary across distro families. Keep
+# this list aligned with your chosen base image and mirror/retention policy,
+# and pin versions where your platform policy requires deterministic builds.
 RUN apt-get update \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
       bash \

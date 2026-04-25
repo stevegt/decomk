@@ -46,6 +46,7 @@ func ProducerDevcontainerData(name string) stage0.DevcontainerTemplateData {
 		Name:               name,
 		BuildDockerfile:    "Dockerfile",
 		BuildContext:       "..",
+		Image:              stage0.DefaultDevcontainerImage,
 		RemoteIdentityUser: remoteIdentityUser,
 		RemoteIdentityUID:  remoteIdentityUID,
 		// Intent: Keep producer devcontainer JSON focused on URI/path policy while

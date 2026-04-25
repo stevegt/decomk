@@ -295,6 +295,14 @@ func runInitConfMode(f *initFlags, setFlags map[string]bool, repoRoot string, st
 	} else if hasExistingDefaults {
 		applyInitDefaultsFromExistingDevcontainer(f, setFlags, existingDefaults)
 	}
+	dockerfileDefaults, hasDockerfileDefaults, err := loadInitExistingDockerfileDefaults(repoRoot)
+	if err != nil {
+		if writeErr := writeFormat(stderr, "decomk init -conf: warning: unable to parse existing .devcontainer/Dockerfile for defaults: %v\n", err); writeErr != nil {
+			return 1, writeErr
+		}
+	} else if hasDockerfileDefaults {
+		applyInitDefaultsFromExistingDockerfile(f, setFlags, dockerfileDefaults)
+	}
 
 	if f.name == "" {
 		// Intent: Keep producer `init -conf` naming defaults identical to consumer
@@ -306,7 +314,6 @@ func runInitConfMode(f *initFlags, setFlags map[string]bool, repoRoot string, st
 	// Producer mode always emits a build-backed starter profile.
 	f.buildDockerfile = "Dockerfile"
 	f.buildContext = ".."
-	f.image = ""
 
 	canPrompt := !f.noPrompt && isInteractiveInput(os.Stdin) && isInteractiveInput(os.Stderr)
 	if canPrompt {
@@ -317,6 +324,9 @@ func runInitConfMode(f *initFlags, setFlags map[string]bool, repoRoot string, st
 
 	if f.name == "" {
 		return 1, fmt.Errorf("devcontainer name cannot be empty")
+	}
+	if strings.TrimSpace(f.image) == "" {
+		return 1, fmt.Errorf("producer Dockerfile base image cannot be empty (set -image)")
 	}
 	if strings.TrimSpace(f.confURI) == "" {
 		return 1, fmt.Errorf("DECOMK_CONF_URI template value cannot be empty")
@@ -344,6 +354,7 @@ func runInitConfMode(f *initFlags, setFlags map[string]bool, repoRoot string, st
 	}
 
 	data := confrepo.ProducerDevcontainerDataWithIdentity(f.name, f.remoteIdentityUser, f.remoteIdentityUID)
+	data.Image = f.image
 	data.ConfURI = f.confURI
 	data.ToolURI = f.toolURI
 	data.Home = f.home
@@ -367,7 +378,7 @@ func addInitFlags(fs *flag.FlagSet, f *initFlags) {
 	fs.BoolVar(&f.confMode, "conf", f.confMode, "producer mode: scaffold a shared conf repo starter tree at repo root")
 	fs.StringVar(&f.repoRoot, "repo-root", f.repoRoot, "target repo root (writes under <repo-root>/.devcontainer; default: current git repo root)")
 	fs.StringVar(&f.name, "name", f.name, "devcontainer name (default: repo basename)")
-	fs.StringVar(&f.image, "image", f.image, "devcontainer image value when no build dockerfile is configured")
+	fs.StringVar(&f.image, "image", f.image, "consumer mode: devcontainer image value when no build dockerfile is configured; producer mode (-conf): Dockerfile FROM base image")
 	fs.StringVar(&f.confURI, "conf-uri", f.confURI, "DECOMK_CONF_URI value for devcontainer.json")
 	fs.StringVar(&f.toolURI, "tool-uri", f.toolURI, "DECOMK_TOOL_URI value for devcontainer.json")
 	fs.StringVar(&f.home, "home", f.home, "DECOMK_HOME value for devcontainer.json")
@@ -390,8 +401,12 @@ func promptInitFlags(f *initFlags, setFlags map[string]bool, in io.Reader, out i
 			return err
 		}
 	}
-	if !setFlags["image"] && strings.TrimSpace(f.buildDockerfile) == "" {
-		f.image, err = promptWithDefault(reader, out, "Image", f.image)
+	if !setFlags["image"] && (strings.TrimSpace(f.buildDockerfile) == "" || f.confMode) {
+		imagePromptLabel := "Image"
+		if f.confMode {
+			imagePromptLabel = "Base image (Dockerfile FROM)"
+		}
+		f.image, err = promptWithDefault(reader, out, imagePromptLabel, f.image)
 		if err != nil {
 			return err
 		}
@@ -671,6 +686,14 @@ type initExistingDevcontainerDefaults struct {
 	FailNoBoot          string
 }
 
+// initExistingDockerfileDefaults captures producer defaults recovered from an
+// existing .devcontainer/Dockerfile.
+type initExistingDockerfileDefaults struct {
+	BaseImage          string
+	RemoteIdentityUser string
+	RemoteIdentityUID  string
+}
+
 // applyInitDefaultsFromExistingDevcontainer merges existing devcontainer values
 // into init flags when the corresponding CLI flags were not explicitly set.
 func applyInitDefaultsFromExistingDevcontainer(f *initFlags, setFlags map[string]bool, defaults initExistingDevcontainerDefaults) {
@@ -684,9 +707,12 @@ func applyInitDefaultsFromExistingDevcontainer(f *initFlags, setFlags map[string
 		f.buildDockerfile = defaults.BuildDockerfile
 		f.buildContext = defaults.BuildContext
 		// Build-backed devcontainers should continue to render a build stanza
-		// unless the operator explicitly passes -image to switch modes.
+		// unless the operator explicitly passes -image to switch modes. Producer
+		// mode keeps image defaults because `-image` supplies Dockerfile FROM.
 		if !setFlags["image"] {
-			f.image = ""
+			if !f.confMode {
+				f.image = ""
+			}
 		}
 	}
 	if !setFlags["conf-uri"] && defaults.ConfURI != "" {
@@ -714,6 +740,24 @@ func applyInitDefaultsFromExistingDevcontainer(f *initFlags, setFlags map[string
 	}
 	if !setFlags["fail-no-boot"] && defaults.FailNoBoot != "" {
 		f.failNoBoot = defaults.FailNoBoot
+	}
+}
+
+// applyInitDefaultsFromExistingDockerfile merges producer Dockerfile defaults
+// into init flags when corresponding CLI flags are not explicitly set.
+//
+// Intent: Keep `decomk init -conf -f` reruns ergonomic by reusing existing
+// Dockerfile identity/base-image values as prompt defaults.
+// Source: DI-001-20260425-232447 (TODO/001)
+func applyInitDefaultsFromExistingDockerfile(f *initFlags, setFlags map[string]bool, defaults initExistingDockerfileDefaults) {
+	if !setFlags["image"] && defaults.BaseImage != "" {
+		f.image = defaults.BaseImage
+	}
+	if !setFlags["remote-user"] && defaults.RemoteIdentityUser != "" {
+		f.remoteIdentityUser = defaults.RemoteIdentityUser
+	}
+	if !setFlags["remote-uid"] && defaults.RemoteIdentityUID != "" {
+		f.remoteIdentityUID = defaults.RemoteIdentityUID
 	}
 }
 
@@ -766,6 +810,106 @@ func loadInitExistingDevcontainerDefaults(repoRoot string) (initExistingDevconta
 		defaults.BuildContext = stringValueFromAnyMap(parsed.Build, "context")
 	}
 	return defaults, true, nil
+}
+
+// loadInitExistingDockerfileDefaults parses .devcontainer/Dockerfile when
+// present and extracts fields relevant to producer init prompts/defaults.
+func loadInitExistingDockerfileDefaults(repoRoot string) (initExistingDockerfileDefaults, bool, error) {
+	path := filepath.Join(repoRoot, ".devcontainer", "Dockerfile")
+	content, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return initExistingDockerfileDefaults{}, false, nil
+		}
+		return initExistingDockerfileDefaults{}, false, fmt.Errorf("read %s: %w", path, err)
+	}
+
+	scanner := bufio.NewScanner(bytes.NewReader(content))
+	firstFrom := ""
+	remoteUser := ""
+	remoteUID := ""
+	lineNum := 0
+
+	for scanner.Scan() {
+		lineNum++
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		upperLine := strings.ToUpper(line)
+		if strings.HasPrefix(upperLine, "FROM ") {
+			if firstFrom == "" {
+				baseImage, parseErr := parseDockerfileFromImage(line)
+				if parseErr != nil {
+					return initExistingDockerfileDefaults{}, false, fmt.Errorf("parse FROM in %s line %d: %w", path, lineNum, parseErr)
+				}
+				firstFrom = baseImage
+			}
+			continue
+		}
+
+		if strings.HasPrefix(upperLine, "ENV ") {
+			assignments := parseDockerfileEnvAssignments(line)
+			if value, ok := assignments["DECOMK_REMOTE_USER"]; ok && value != "" {
+				remoteUser = value
+			}
+			if value, ok := assignments["DECOMK_REMOTE_UID"]; ok && value != "" {
+				remoteUID = value
+			}
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return initExistingDockerfileDefaults{}, false, fmt.Errorf("scan %s: %w", path, err)
+	}
+	if firstFrom == "" {
+		return initExistingDockerfileDefaults{}, false, fmt.Errorf("no FROM line found in %s", path)
+	}
+
+	return initExistingDockerfileDefaults{
+		BaseImage:          firstFrom,
+		RemoteIdentityUser: remoteUser,
+		RemoteIdentityUID:  remoteUID,
+	}, true, nil
+}
+
+func parseDockerfileFromImage(line string) (string, error) {
+	fields := strings.Fields(line)
+	if len(fields) < 2 {
+		return "", fmt.Errorf("missing base image")
+	}
+
+	index := 1
+	for index < len(fields) {
+		field := fields[index]
+		if strings.HasPrefix(field, "--") {
+			if strings.Contains(field, "=") {
+				index++
+			} else {
+				index += 2
+			}
+			continue
+		}
+		return field, nil
+	}
+
+	return "", fmt.Errorf("missing base image after FROM options")
+}
+
+func parseDockerfileEnvAssignments(line string) map[string]string {
+	assignments := map[string]string{}
+	fields := strings.Fields(line)
+	if len(fields) < 2 {
+		return assignments
+	}
+	for _, field := range fields[1:] {
+		name, value, ok := strings.Cut(field, "=")
+		if !ok {
+			continue
+		}
+		assignments[name] = strings.Trim(value, "\"'")
+	}
+	return assignments
 }
 
 // stripJSONCLineCommentsForInit removes full-line // comments from devcontainer

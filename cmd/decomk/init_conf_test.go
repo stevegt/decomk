@@ -104,6 +104,9 @@ func TestCmdInitConf_WritesStarterTree(t *testing.T) {
 	if !strings.Contains(string(dockerfileContent), "ENV DECOMK_REMOTE_UID="+stage0.DefaultDevcontainerUID) {
 		t.Fatalf("Dockerfile missing DECOMK_REMOTE_UID ENV line:\n%s", string(dockerfileContent))
 	}
+	if !strings.Contains(string(dockerfileContent), "FROM "+stage0.DefaultDevcontainerImage) {
+		t.Fatalf("Dockerfile missing default FROM image:\n%s", string(dockerfileContent))
+	}
 }
 
 func TestCmdInitConf_ForcePolicy(t *testing.T) {
@@ -212,6 +215,122 @@ func TestCmdInitConf_NoPromptDefaultsNameToRepoBasename(t *testing.T) {
 	decoded := decodeJSONCObjectFile(t, filepath.Join(repoRoot, ".devcontainer", "devcontainer.json"))
 	if got, want := decoded["name"], filepath.Base(repoRoot); got != want {
 		t.Fatalf("name: got %#v want %#v", got, want)
+	}
+}
+
+func TestCmdInitConf_ImageOverrideControlsDockerfileFrom(t *testing.T) {
+	t.Parallel()
+
+	repoRoot := t.TempDir()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	customImage := "ghcr.io/example/custom-base:ci"
+	code, err := cmdInit([]string{
+		"-conf",
+		"-no-prompt",
+		"-repo-root", repoRoot,
+		"-image", customImage,
+	}, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("cmdInit(-conf -image) error: %v", err)
+	}
+	if code != 0 {
+		t.Fatalf("cmdInit(-conf -image) code: got %d want 0", code)
+	}
+
+	dockerfilePath := filepath.Join(repoRoot, ".devcontainer", "Dockerfile")
+	dockerfileContent, err := os.ReadFile(dockerfilePath)
+	if err != nil {
+		t.Fatalf("ReadFile(Dockerfile): %v", err)
+	}
+	if !strings.Contains(string(dockerfileContent), "FROM "+customImage) {
+		t.Fatalf("Dockerfile FROM: got\n%s\nwant FROM %s", string(dockerfileContent), customImage)
+	}
+}
+
+func TestCmdInitConf_ForceNoPromptReusesDockerfileDefaults(t *testing.T) {
+	t.Parallel()
+
+	repoRoot := t.TempDir()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	code, err := cmdInit([]string{"-conf", "-repo-root", repoRoot}, &stdout, &stderr)
+	if err != nil || code != 0 {
+		t.Fatalf("initial cmdInit(-conf) got code=%d err=%v", code, err)
+	}
+
+	customDockerfile := `FROM ghcr.io/example/producer-base:first
+FROM ghcr.io/example/producer-base:second
+ENV DECOMK_REMOTE_USER=ciuser
+ENV DECOMK_REMOTE_UID=2001
+`
+	dockerfilePath := filepath.Join(repoRoot, ".devcontainer", "Dockerfile")
+	if err := os.WriteFile(dockerfilePath, []byte(customDockerfile), 0o644); err != nil {
+		t.Fatalf("WriteFile(Dockerfile): %v", err)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code, err = cmdInit([]string{"-conf", "-repo-root", repoRoot, "-f", "-no-prompt"}, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("forced cmdInit(-conf) error: %v", err)
+	}
+	if code != 0 {
+		t.Fatalf("forced cmdInit(-conf) code: got %d want 0", code)
+	}
+
+	updatedDockerfile, err := os.ReadFile(dockerfilePath)
+	if err != nil {
+		t.Fatalf("ReadFile(updated Dockerfile): %v", err)
+	}
+	if !strings.Contains(string(updatedDockerfile), "FROM ghcr.io/example/producer-base:first") {
+		t.Fatalf("Dockerfile should keep first FROM as default:\n%s", string(updatedDockerfile))
+	}
+	if !strings.Contains(string(updatedDockerfile), "ENV DECOMK_REMOTE_USER=ciuser") {
+		t.Fatalf("Dockerfile should reuse remote user default:\n%s", string(updatedDockerfile))
+	}
+	if !strings.Contains(string(updatedDockerfile), "ENV DECOMK_REMOTE_UID=2001") {
+		t.Fatalf("Dockerfile should reuse remote uid default:\n%s", string(updatedDockerfile))
+	}
+}
+
+func TestCmdInitConf_ForceNoPromptWarnsOnDockerfileParseFailure(t *testing.T) {
+	t.Parallel()
+
+	repoRoot := t.TempDir()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	code, err := cmdInit([]string{"-conf", "-repo-root", repoRoot}, &stdout, &stderr)
+	if err != nil || code != 0 {
+		t.Fatalf("initial cmdInit(-conf) got code=%d err=%v", code, err)
+	}
+
+	dockerfilePath := filepath.Join(repoRoot, ".devcontainer", "Dockerfile")
+	if err := os.WriteFile(dockerfilePath, []byte("ENV DECOMK_REMOTE_USER=nouser\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile(invalid Dockerfile): %v", err)
+	}
+
+	stdout.Reset()
+	stderr.Reset()
+	code, err = cmdInit([]string{"-conf", "-repo-root", repoRoot, "-f", "-no-prompt"}, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("forced cmdInit(-conf) with invalid Dockerfile error: %v", err)
+	}
+	if code != 0 {
+		t.Fatalf("forced cmdInit(-conf) with invalid Dockerfile code: got %d want 0", code)
+	}
+	if !strings.Contains(stderr.String(), "warning: unable to parse existing .devcontainer/Dockerfile for defaults") {
+		t.Fatalf("stderr: got %q want Dockerfile warning", stderr.String())
+	}
+
+	updatedDockerfile, err := os.ReadFile(dockerfilePath)
+	if err != nil {
+		t.Fatalf("ReadFile(updated Dockerfile): %v", err)
+	}
+	if !strings.Contains(string(updatedDockerfile), "FROM "+stage0.DefaultDevcontainerImage) {
+		t.Fatalf("Dockerfile should fall back to default FROM image:\n%s", string(updatedDockerfile))
 	}
 }
 
