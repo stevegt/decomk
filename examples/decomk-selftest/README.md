@@ -145,8 +145,10 @@ because the harness runs all remote checks through `gh codespace ssh`.
 - `SELFTEST PASS stamp-idempotent`
 - `SELFTEST PASS phase-updateContent`
 - `SELFTEST PASS github-user-empty-in-updateContent`
+- `SELFTEST PASS identity-match phase=updateContent user=dev uid=1000`
 - `SELFTEST PASS phase-postCreate`
 - `SELFTEST PASS github-user-present-in-postCreate`
+- `SELFTEST PASS identity-match phase=postCreate user=dev uid=1000`
 
 Any `SELFTEST FAIL ...` marker is treated as failure.
 

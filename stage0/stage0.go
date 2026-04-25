@@ -46,6 +46,14 @@ const (
 	// Source: DI-001-20260423-140628 (TODO/001)
 	DefaultDevcontainerImage = "mcr.microsoft.com/devcontainers/base:ubuntu-24.04"
 
+	// DefaultDevcontainerUser is the canonical non-root username used by decomk's
+	// own test/codespaces devcontainer profiles.
+	//
+	// Intent: Keep identity markers and ownership behavior deterministic across
+	// harness runtimes by standardizing on one explicit non-root user.
+	// Source: DI-001-20260425-005155 (TODO/001)
+	DefaultDevcontainerUser = "dev"
+
 	// DefaultFailNoBoot is the canonical stage-0 failure policy used by generated
 	// devcontainer files. False keeps container startup non-blocking while stage-0
 	// still records diagnostics and hints when bootstrap steps fail.
@@ -64,6 +72,8 @@ const (
 //   - Image: emit "image" when BuildDockerfile is empty and Image is non-empty.
 //   - RunArgs: emit "runArgs" only when non-empty.
 //   - RemoteUser: emit "remoteUser" only when non-empty.
+//   - ContainerUser: emit "containerUser" only when non-empty.
+//   - UpdateRemoteUserUID: emit "updateRemoteUserUID" only when non-nil.
 //
 // Required sections:
 //   - Name, containerEnv, updateContentCommand, and postCreateCommand are always emitted.
@@ -74,6 +84,8 @@ type DevcontainerTemplateData struct {
 	Image                string
 	RunArgs              []string
 	RemoteUser           string
+	ContainerUser        string
+	UpdateRemoteUserUID  *bool
 	Home                 string
 	LogDir               string
 	ToolURI              string
@@ -112,6 +124,12 @@ func (data DevcontainerTemplateData) EnsureDefaults() DevcontainerTemplateData {
 	if data.BuildDockerfile == "" && data.Image == "" {
 		data.Image = DefaultDevcontainerImage
 	}
+	// Intent: Keep container/runtime identity explicit when a caller sets only
+	// one user field by mirroring `remoteUser` into `containerUser`.
+	// Source: DI-001-20260425-005155 (TODO/001)
+	if data.RemoteUser != "" && data.ContainerUser == "" {
+		data.ContainerUser = data.RemoteUser
+	}
 	return data
 }
 
@@ -126,7 +144,9 @@ func ProductionExampleDevcontainerData() DevcontainerTemplateData {
 		Name:                 "decomk (example; set DECOMK_CONF_URI)",
 		BuildDockerfile:      "Dockerfile",
 		BuildContext:         ".",
-		RemoteUser:           "dev",
+		RemoteUser:           DefaultDevcontainerUser,
+		ContainerUser:        DefaultDevcontainerUser,
+		UpdateRemoteUserUID:  boolPtr(false),
 		Home:                 "/var/decomk",
 		LogDir:               "/var/log/decomk",
 		ToolURI:              DefaultToolURI,
@@ -145,7 +165,9 @@ func SelftestDevcontainerData() DevcontainerTemplateData {
 		BuildDockerfile:      "Dockerfile",
 		BuildContext:         "..",
 		RunArgs:              []string{"--add-host=host.docker.internal:host-gateway"},
-		RemoteUser:           "dev",
+		RemoteUser:           DefaultDevcontainerUser,
+		ContainerUser:        DefaultDevcontainerUser,
+		UpdateRemoteUserUID:  boolPtr(false),
 		Home:                 "/tmp/decomk-selftest/home",
 		LogDir:               "/tmp/decomk-selftest/log",
 		ToolURI:              "__DECOMK_TOOL_URI__",
@@ -154,6 +176,10 @@ func SelftestDevcontainerData() DevcontainerTemplateData {
 		UpdateContentCommand: DefaultUpdateContentCommand,
 		PostCreateCommand:    DefaultPostCreateCommand,
 	}
+}
+
+func boolPtr(value bool) *bool {
+	return &value
 }
 
 // RenderTemplate renders one template source with data using a shared function

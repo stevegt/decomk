@@ -16,6 +16,12 @@ export DECOMK_LOG_DIR
 export DECOMK_TOOL_URI
 export DECOMK_CONF_URI
 
+# Intent: Lock selftest identity expectations to one deterministic non-root user
+# contract so harness runs can fail fast on user/UID drift across providers.
+# Source: DI-001-20260425-005155 (TODO/001)
+SELFTEST_EXPECTED_USER ?= dev
+SELFTEST_EXPECTED_UID ?= 1000
+
 # Intent: Keep idempotent fixture targets as real file targets (not .PHONY), and
 # keep stamp-regression state inside DECOMK_STAMPDIR so all make-run artifacts
 # live under decomk's stamp working directory.
@@ -92,8 +98,17 @@ selftest-phase-update-content:
 >  echo "SELFTEST FAIL github-user-expected-empty-in-updateContent actual=$${GITHUB_USER}"; \
 >  exit 1; \
 >fi
+>@if [[ "$$(id -un)" != "$(SELFTEST_EXPECTED_USER)" ]] || [[ "$$(id -u)" != "$(SELFTEST_EXPECTED_UID)" ]]; then \
+>  echo "SELFTEST FAIL make-identity-mismatch phase=updateContent expected_user=$(SELFTEST_EXPECTED_USER) expected_uid=$(SELFTEST_EXPECTED_UID) actual_user=$$(id -un) actual_uid=$$(id -u)"; \
+>  exit 1; \
+>fi
+>@if [[ "$${DECOMK_STAGE0_USER:-}" != "$(SELFTEST_EXPECTED_USER)" ]] || [[ "$${DECOMK_STAGE0_UID:-}" != "$(SELFTEST_EXPECTED_UID)" ]]; then \
+>  echo "SELFTEST FAIL stage0-identity-mismatch phase=updateContent expected_user=$(SELFTEST_EXPECTED_USER) expected_uid=$(SELFTEST_EXPECTED_UID) stage0_user=$${DECOMK_STAGE0_USER:-<unset>} stage0_uid=$${DECOMK_STAGE0_UID:-<unset>}"; \
+>  exit 1; \
+>fi
 >@echo "SELFTEST PASS phase-updateContent"
 >@echo "SELFTEST PASS github-user-empty-in-updateContent"
+>@echo "SELFTEST PASS identity-match phase=updateContent user=$(SELFTEST_EXPECTED_USER) uid=$(SELFTEST_EXPECTED_UID)"
 >@echo "SELFTEST PASS make-id phase=updateContent uid=$$(id -u) user=$$(id -un) stage0_uid=$${DECOMK_STAGE0_UID:-<unset>} stage0_user=$${DECOMK_STAGE0_USER:-<unset>}"
 >@touch $@
 
@@ -106,7 +121,16 @@ selftest-phase-post-create:
 >  echo "SELFTEST FAIL github-user-expected-nonempty-in-postCreate"; \
 >  exit 1; \
 >fi
+>@if [[ "$$(id -un)" != "$(SELFTEST_EXPECTED_USER)" ]] || [[ "$$(id -u)" != "$(SELFTEST_EXPECTED_UID)" ]]; then \
+>  echo "SELFTEST FAIL make-identity-mismatch phase=postCreate expected_user=$(SELFTEST_EXPECTED_USER) expected_uid=$(SELFTEST_EXPECTED_UID) actual_user=$$(id -un) actual_uid=$$(id -u)"; \
+>  exit 1; \
+>fi
+>@if [[ "$${DECOMK_STAGE0_USER:-}" != "$(SELFTEST_EXPECTED_USER)" ]] || [[ "$${DECOMK_STAGE0_UID:-}" != "$(SELFTEST_EXPECTED_UID)" ]]; then \
+>  echo "SELFTEST FAIL stage0-identity-mismatch phase=postCreate expected_user=$(SELFTEST_EXPECTED_USER) expected_uid=$(SELFTEST_EXPECTED_UID) stage0_user=$${DECOMK_STAGE0_USER:-<unset>} stage0_uid=$${DECOMK_STAGE0_UID:-<unset>}"; \
+>  exit 1; \
+>fi
 >@echo "SELFTEST PASS phase-postCreate"
 >@echo "SELFTEST PASS github-user-present-in-postCreate"
+>@echo "SELFTEST PASS identity-match phase=postCreate user=$(SELFTEST_EXPECTED_USER) uid=$(SELFTEST_EXPECTED_UID)"
 >@echo "SELFTEST PASS make-id phase=postCreate uid=$$(id -u) user=$$(id -un) stage0_uid=$${DECOMK_STAGE0_UID:-<unset>} stage0_user=$${DECOMK_STAGE0_USER:-<unset>}"
 >@touch $@

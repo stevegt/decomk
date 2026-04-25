@@ -340,9 +340,11 @@ mapfile -t make_log_lines < <(devpod ssh "$workspace_name" --command "cat '$phas
 require_no_fail_markers
 require_marker "SELFTEST PASS phase-updateContent"
 require_marker "SELFTEST PASS github-user-empty-in-updateContent"
+require_marker "SELFTEST PASS identity-match phase=updateContent user=dev uid=1000"
 require_marker "SELFTEST PASS make-id phase=updateContent"
 load_stage0_log_lines "/tmp/decomk-selftest/log/stage0-updateContent.log"
 require_stage0_marker "SELFTEST PASS stage0-id phase=updateContent"
+require_stage0_marker "SELFTEST PASS stage0-id phase=updateContent uid=1000 user=dev"
 
 run_logged devpod ssh "$workspace_name" --command "GITHUB_USER=decomk-selftest-dev .devcontainer/decomk-stage0.sh postCreate TUPLE_PHASE_POST"
 phase_post_log_path="$(latest_make_log_path)"
@@ -356,9 +358,11 @@ mapfile -t make_log_lines < <(devpod ssh "$workspace_name" --command "cat '$phas
 require_no_fail_markers
 require_marker "SELFTEST PASS phase-postCreate"
 require_marker "SELFTEST PASS github-user-present-in-postCreate"
+require_marker "SELFTEST PASS identity-match phase=postCreate user=dev uid=1000"
 require_marker "SELFTEST PASS make-id phase=postCreate"
 load_stage0_log_lines "/tmp/decomk-selftest/log/stage0-postCreate.log"
 require_stage0_marker "SELFTEST PASS stage0-id phase=postCreate"
+require_stage0_marker "SELFTEST PASS stage0-id phase=postCreate uid=1000 user=dev"
 
 # Intent: Assert DECOMK_FAIL_NOBOOT policy in both modes so stage-0 failures are
 # visible and deterministic while preserving optional continue-boot behavior.

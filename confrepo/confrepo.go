@@ -36,10 +36,17 @@ func ProducerDevcontainerData(name string) stage0.DevcontainerTemplateData {
 	if name == "" {
 		name = DefaultName
 	}
+	// Intent: Keep producer prebuild/runtime identity deterministic by pinning one
+	// non-root user (`dev`) and disabling runtime UID remap.
+	// Source: DI-001-20260425-005155 (TODO/001)
+	disableUIDRemap := false
 	return stage0.DevcontainerTemplateData{
 		Name:                 name,
 		BuildDockerfile:      "Dockerfile",
 		BuildContext:         "..",
+		RemoteUser:           stage0.DefaultDevcontainerUser,
+		ContainerUser:        stage0.DefaultDevcontainerUser,
+		UpdateRemoteUserUID:  &disableUIDRemap,
 		Home:                 DefaultHome,
 		LogDir:               DefaultLogDir,
 		ToolURI:              stage0.DefaultToolURI,

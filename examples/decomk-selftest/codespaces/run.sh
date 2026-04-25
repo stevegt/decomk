@@ -867,9 +867,11 @@ load_make_log_or_fail 33 "$phase_update_log_path"
 require_no_fail_markers_or_fail 33
 require_marker_or_fail 33 "SELFTEST PASS phase-updateContent"
 require_marker_or_fail 33 "SELFTEST PASS github-user-empty-in-updateContent"
+require_marker_or_fail 33 "SELFTEST PASS identity-match phase=updateContent user=dev uid=1000"
 require_marker_or_fail 33 "SELFTEST PASS make-id phase=updateContent"
 load_stage0_log_or_fail 33 "updateContent"
 require_stage0_marker_or_fail 33 "SELFTEST PASS stage0-id phase=updateContent"
+require_stage0_marker_or_fail 33 "SELFTEST PASS stage0-id phase=updateContent uid=1000 user=dev"
 
 runtime_github_user="$(codespace_bash 'printf %s "${GITHUB_USER:-}"')"
 if [[ -z "$runtime_github_user" ]]; then
@@ -889,9 +891,11 @@ load_make_log_or_fail 34 "$phase_post_log_path"
 require_no_fail_markers_or_fail 34
 require_marker_or_fail 34 "SELFTEST PASS phase-postCreate"
 require_marker_or_fail 34 "SELFTEST PASS github-user-present-in-postCreate"
+require_marker_or_fail 34 "SELFTEST PASS identity-match phase=postCreate user=dev uid=1000"
 require_marker_or_fail 34 "SELFTEST PASS make-id phase=postCreate"
 load_stage0_log_or_fail 34 "postCreate"
 require_stage0_marker_or_fail 34 "SELFTEST PASS stage0-id phase=postCreate"
+require_stage0_marker_or_fail 34 "SELFTEST PASS stage0-id phase=postCreate uid=1000 user=dev"
 
 # Intent: Assert DECOMK_FAIL_NOBOOT policy in both modes so stage-0 failures are
 # visible and deterministic while preserving optional continue-boot behavior.

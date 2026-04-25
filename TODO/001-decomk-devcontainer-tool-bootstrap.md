@@ -2,6 +2,14 @@
 
 ## Decision Intent Log
 
+ID: DI-001-20260425-005155
+Date: 2026-04-25 00:51:55
+Status: active
+Decision: Standardize decomk-owned test/codespaces devcontainer identities on username `dev` with UID `1000`, and encode that explicitly in generated devcontainer/Dockerfile scaffolds (`remoteUser`/`containerUser` + no UID remap).
+Intent: Eliminate user-identity drift (`dev` vs `vscode` vs `codespace`) so stage-0, make, and harness assertions are deterministic across DevPod, devcontainer CLI, and Codespaces.
+Constraints: Keep this contract limited to decomk-owned test/codespaces scaffolds and producer examples; do not force arbitrary existing user repos initialized with image-only configs to a potentially missing username.
+Affects: `stage0/stage0.go`, `cmd/decomk/templates/devcontainer.json.tmpl`, `confrepo/confrepo.go`, `cmd/decomk/templates/confrepo.*.tmpl`, generated examples under `examples/*`, selftest harness assertions, and related tests/docs.
+
 ID: DI-001-20260309-172358
 Date: 2026-03-09 17:23:58
 Status: active

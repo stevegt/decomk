@@ -21,6 +21,12 @@
 {{- if .RemoteUser }}
   "remoteUser": {{json .RemoteUser}},
 {{- end }}
+{{- if .ContainerUser }}
+  "containerUser": {{json .ContainerUser}},
+{{- end }}
+{{- if ne .UpdateRemoteUserUID nil }}
+  "updateRemoteUserUID": {{json .UpdateRemoteUserUID}},
+{{- end }}
   "updateContentCommand": {{json .UpdateContentCommand}},
   "postCreateCommand": {{json .PostCreateCommand}}
 }

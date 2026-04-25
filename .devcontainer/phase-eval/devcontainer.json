@@ -10,6 +10,8 @@
     }
   },
   "remoteUser": "dev",
+  "containerUser": "dev",
+  "updateRemoteUserUID": false,
   "onCreateCommand": "bash examples/phase-eval/hook_probe.sh onCreate",
   "updateContentCommand": "bash examples/phase-eval/hook_probe.sh updateContent",
   "postCreateCommand": "bash examples/phase-eval/hook_probe.sh postCreate"
