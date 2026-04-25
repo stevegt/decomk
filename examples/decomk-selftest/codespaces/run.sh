@@ -499,7 +499,10 @@ keep_on_fail="false"
 cleanup_on_success="false"
 decomk_home="/tmp/decomk-selftest/home"
 decomk_log_dir="/tmp/decomk-selftest/log"
-remote_log_copy_dir="/tmp/decomk-selftest/log-copy"
+# Intent: Keep remote diagnostics copy path outside root-owned DECOMK_HOME trees
+# so `gh codespace cp` can fetch artifacts as the workspace user.
+# Source: DI-007-20260424-200248 (TODO/007)
+remote_log_copy_dir="/tmp/decomk-selftest-log-copy"
 effective_decomk_log_dir=""
 # Intent: Make harness bootstrap failures fail fast instead of silently
 # continuing to "no make.log" states; dedicated probes still override this.
