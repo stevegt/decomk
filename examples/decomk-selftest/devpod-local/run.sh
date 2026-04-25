@@ -130,6 +130,15 @@ cleanup() {
     log "cleanup completed with warnings"
   fi
 
+  # Intent: Emit an explicit terminal result marker so operators can parse the
+  # final harness line as PASS/FAIL without inspecting intermediate diagnostics.
+  # Source: DI-008-20260412-122157 (TODO/008)
+  if [[ "$exit_code" -eq 0 ]]; then
+    log "RESULT: PASS"
+  else
+    log "RESULT: FAIL (exit=$exit_code)"
+  fi
+
   return "$exit_code"
 }
 trap cleanup EXIT
