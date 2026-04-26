@@ -64,3 +64,8 @@ selftest-codespaces-clean:
 # Source: DI-001-20260423-204251 (TODO/001)
 release-minor:
 	bash scripts/release.sh minor
+
+install-latest:
+	latest_version=$$(git tag | sort -n -t '.' -k 2 | tail -1); \
+	go install github.com/stevegt/decomk/cmd/decomk@$${latest_version}; \
+	echo "Installed decomk version $${latest_version}"
