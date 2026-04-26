@@ -1970,8 +1970,20 @@ func writeEnvFile(path string, plan *resolvedPlan, cookedTuples []string) error 
 	}
 
 	tmp := path + ".tmp"
-	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
+		return err
+	}
+	// Intent: Keep DECOMK_HOME artifacts world-readable by enforcing env.sh mode
+	// after create, independent of process umask.
+	// Source: DI-005-20260426-013218 (TODO/005)
+	if err := f.Chmod(0o644); err != nil {
+		// Intent: Preserve close failures alongside chmod failures so env export
+		// file-permission errors are never silently dropped.
+		// Source: DI-008-20260412-122157 (TODO/008)
+		if closeErr := f.Close(); closeErr != nil {
+			return errors.Join(err, fmt.Errorf("close env export temp file after chmod failure: %w", closeErr))
+		}
 		return err
 	}
 

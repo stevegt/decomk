@@ -2,6 +2,14 @@
 
 ## Decision Intent Log
 
+ID: DI-005-20260426-013218
+Date: 2026-04-26 01:32:18
+Status: active
+Decision: Make decomk-managed files under `DECOMK_HOME` world-readable by default: write `<DECOMK_HOME>/env.sh` with mode `0644` and create lock files (`decomk.lock`, `conf.lock`, `stamps/.lock`) with mode `0644`.
+Intent: Keep decomk state inspectable for all container users and align file permissions with the policy that all files under `/var/decomk` should be world-readable.
+Constraints: Preserve existing directory modes and lock behavior (`flock` semantics unchanged); this change affects file mode defaults only.
+Affects: `cmd/decomk/main.go`, `state/state.go`, unit tests in `cmd/decomk/main_test.go` and `state/state_test.go`, runtime paths `<DECOMK_HOME>/env.sh`, `<DECOMK_HOME>/decomk.lock`, `<DECOMK_HOME>/conf.lock`, `<DECOMK_HOME>/stamps/.lock`.
+
 ID: DI-005-20260309-172359
 Date: 2026-03-09 17:23:59
 Status: active

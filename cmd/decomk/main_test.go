@@ -319,6 +319,37 @@ func TestWriteEnvExport_IncludesDecomkVersion(t *testing.T) {
 	}
 }
 
+func TestWriteEnvFile_EnsuresWorldReadableMode(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	envPath := filepath.Join(home, "env.sh")
+	// Seed a restrictive file first to prove writeEnvFile normalizes to 0644.
+	if err := os.WriteFile(envPath, []byte("old\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile(seed env.sh): %v", err)
+	}
+
+	plan := &resolvedPlan{
+		Home:        home,
+		StampDir:    filepath.Join(home, "stamps"),
+		ConfigPaths: []string{filepath.Join(home, "conf", "decomk.conf")},
+		ContextKeys: []string{"DEFAULT"},
+	}
+	cookedTuples := []string{"FOO=bar"}
+
+	if err := writeEnvFile(envPath, plan, cookedTuples); err != nil {
+		t.Fatalf("writeEnvFile(): %v", err)
+	}
+
+	info, err := os.Stat(envPath)
+	if err != nil {
+		t.Fatalf("Stat(env.sh): %v", err)
+	}
+	if got, want := info.Mode().Perm(), os.FileMode(0o644); got != want {
+		t.Fatalf("env.sh mode: got %04o want %04o", got, want)
+	}
+}
+
 func TestCmdRun_RequiresRoot(t *testing.T) {
 	t.Parallel()
 
