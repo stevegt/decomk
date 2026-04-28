@@ -13,11 +13,80 @@
 - `gofmt -w .` (or `go fmt ./...`) formats Go code.
 
 ## Decision-First Specification and Compliance Protocol (Required)
+- Decision-first means decisions must be locked before coding; it does not forbid pre-decision analysis such as required thought experiments.
 - The agent must collect and lock user decisions before making any code edits for a task.
 - Locked decisions must be recorded as Decision Intent Log entries in the relevant `TODO/*.md` file(s) with clear intent and rationale.
 - The agent must ask decision questions up front in a single intake round whenever possible.
 - Required decision categories are architecture, design/behavior, implementation approach, function naming, variable naming, and file/path decisions.
 - The agent must ask these as multiple-choice questions whenever practical.
+- When a thought experiment (TE) is required, the agent must complete the TE before asking final DF questions. TEs narrow alternatives; DF questions and answers lock the decision before implementation.
+- Thought experiments (TEs) are analysis artifacts; Decision Intent (DI) entries are the separate records that capture the locked decision after DF is resolved.
+
+## Thought Experiment Protocol (Required)
+- Before locking any non-trivial decision that will require DF questions and answers, the agent must run a thought experiment (TE) if multiple plausible designs remain.
+- A TE happens before final DF questions. Its purpose is to narrow the design space so DF questions and answers are informed by explicit scenario analysis.
+- The agent must not collapse a TE into a short opinion or recommendation. The agent must explicitly model concrete scenarios and consequences.
+- Each TE must have a unique ID in the format `TE-YYYYMMDD-HHMMSS`.
+- The TE doc filename must start with the TE ID and live under `docs/thought-experiments/`, for example: `docs/thought-experiments/TE-20260425-183100-handler-abi.md`.
+
+### TE Intake Requirements
+- Before locking decisions or asking final DF questions, the agent must identify:
+  - the decision being tested,
+  - the candidate alternatives,
+  - the assumptions and threat/trust model,
+  - the scope and systems affected.
+- If the TE relates to an existing TODO, the agent must reference the TODO number and subtask number (for example, `002.10`).
+
+### TE Execution Requirements
+- Each TE must evaluate the same decision across multiple concrete scenarios.
+- Scenarios must include, when relevant:
+  - normal operation,
+  - failure/corruption/incomplete writes,
+  - concurrent actors or mixed-version nodes,
+  - long-horizon evolution and migration,
+  - trust-boundary changes,
+  - scale effects (storage, bandwidth, CPU, operational complexity).
+- The agent must compare alternatives under the same assumptions instead of switching assumptions mid-analysis.
+- The agent must state what each alternative makes easier, what it makes harder, and what new obligations it creates.
+
+### TE Output to DF
+- After the TE, the agent must identify:
+  - rejected alternatives,
+  - surviving alternatives,
+  - unresolved questions that still require user choice,
+  - any new naming/path/runtime decisions exposed by the TE.
+- Final DF questions must be framed from the surviving alternatives identified by the TE. The agent must not ask broad DF questions that ignore TE results.
+
+### TE Artifacts
+- The agent must track required TEs in `TODO/*.md`.
+- For each completed TE, the agent must write a verbatim copy of the thought experiment into a standalone file under `docs/thought-experiments/`.
+- The doc filename must begin with the TE ID and then use a descriptive suffix.
+- The doc must stand on its own and include:
+  - title,
+  - TE ID,
+  - decision under test,
+  - assumptions,
+  - alternatives,
+  - scenario analysis,
+  - conclusions,
+  - implications for the repo's open TODOs and pending DIs.
+
+### TE Decision Rules
+- A TE does not by itself lock a decision.
+- After the TE, the agent must either:
+  - ask the user to choose among the surviving alternatives, or
+  - recommend one surviving alternative and clearly state why the others were rejected.
+- After user choice is resolved, the agent must record the locked result via the existing DI process before implementation.
+- If a TE exposes a new ambiguity, dependency, or naming/path decision, the agent must stop and resolve that before implementation.
+
+### TE Final Handoff Requirements
+- In the final response for TE work, the agent must include:
+  - which TE was completed,
+  - the TE ID,
+  - the doc path under `docs/thought-experiments/`,
+  - the surviving alternatives,
+  - the recommended conclusion or the exact DF question that remains for the user.
+- Hard gate: for decisions that require a TE, work is incomplete until the TE doc exists and the resulting decision status is explicit (`needs DF`, `locked`, or `deferred`).
 
 ### Naming Decisions (Required)
 - The agent must not invent function names or variable names that are not already covered by locked naming decisions.
