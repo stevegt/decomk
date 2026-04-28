@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -33,9 +35,9 @@ func TestRenderInitTemplate_DevcontainerJSON(t *testing.T) {
 	}
 
 	var decoded map[string]any
-	renderedWithoutComments, err := stripJSONCLineComments(rendered)
+	renderedWithoutComments, err := stripJSONCLineCommentsForInit(rendered)
 	if err != nil {
-		t.Fatalf("stripJSONCLineComments() error: %v", err)
+		t.Fatalf("stripJSONCLineCommentsForInit() error: %v", err)
 	}
 	if err := json.Unmarshal(renderedWithoutComments, &decoded); err != nil {
 		t.Fatalf("json.Unmarshal() error: %v", err)
@@ -74,14 +76,9 @@ func TestWriteInitStage0_ForcePolicy(t *testing.T) {
 	t.Parallel()
 
 	repoRoot := t.TempDir()
-	data := stage0.DevcontainerTemplateData{
-		Name:                 "repo",
-		ConfURI:              "git:https://example.com/conf.git",
-		ToolURI:              stage0.DefaultToolURI,
-		Home:                 "/var/decomk",
-		LogDir:               "/var/log/decomk",
-		UpdateContentCommand: stage0.DefaultUpdateContentCommand,
-		PostCreateCommand:    stage0.DefaultPostCreateCommand,
+	data := initConsumerDevcontainerTemplateData{
+		Name:  "repo",
+		Image: "ghcr.io/example/repo:dev",
 	}
 
 	results, err := writeInitStage0(repoRoot, data, false)
@@ -127,14 +124,9 @@ func TestWriteInitStage0_FailsIfEitherTargetExists(t *testing.T) {
 		t.Fatalf("WriteFile(devcontainer.json): %v", err)
 	}
 
-	data := stage0.DevcontainerTemplateData{
-		Name:                 "repo",
-		ConfURI:              "git:https://example.com/conf.git",
-		ToolURI:              stage0.DefaultToolURI,
-		Home:                 "/var/decomk",
-		LogDir:               "/var/log/decomk",
-		UpdateContentCommand: stage0.DefaultUpdateContentCommand,
-		PostCreateCommand:    stage0.DefaultPostCreateCommand,
+	data := initConsumerDevcontainerTemplateData{
+		Name:  "repo",
+		Image: "ghcr.io/example/repo:dev",
 	}
 
 	if _, err := writeInitStage0(repoRoot, data, false); err == nil {
@@ -163,7 +155,6 @@ func TestCmdInit_OverwriteCheckRunsBeforeValidationAndPrompts(t *testing.T) {
 	var stderr bytes.Buffer
 	code, err := cmdInit([]string{
 		"-repo-root", repoRoot,
-		"-tool-uri", "not-a-valid-uri",
 	}, &stdout, &stderr)
 	if err == nil {
 		t.Fatalf("cmdInit() error: got nil want overwrite error")
@@ -174,8 +165,8 @@ func TestCmdInit_OverwriteCheckRunsBeforeValidationAndPrompts(t *testing.T) {
 	if !strings.Contains(err.Error(), "refusing to overwrite existing stage-0 file(s)") {
 		t.Fatalf("error: got %q want overwrite refusal", err.Error())
 	}
-	if strings.Contains(err.Error(), "DECOMK_TOOL_URI template value must start") {
-		t.Fatalf("error: got validation failure %q; expected overwrite refusal first", err.Error())
+	if strings.Contains(err.Error(), "requires -image") {
+		t.Fatalf("error: got image-source failure %q; expected overwrite refusal first", err.Error())
 	}
 }
 
@@ -198,11 +189,79 @@ func TestValidateFailNoBootValue(t *testing.T) {
 	}
 }
 
+func TestCmdInit_ConsumerMisusedProducerFlagShowsUsage(t *testing.T) {
+	t.Parallel()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code, err := cmdInit([]string{
+		"-repo-root", t.TempDir(),
+		"-conf-uri", "git:https://example.com/conf.git",
+	}, &stdout, &stderr)
+	if err == nil {
+		t.Fatalf("cmdInit() error: got nil want misuse error")
+	}
+	if code != 2 {
+		t.Fatalf("cmdInit() code: got %d want 2", code)
+	}
+	if got, want := err.Error(), "-conf-uri is only valid with -conf"; !strings.Contains(got, want) {
+		t.Fatalf("error: got %q want substring %q", got, want)
+	}
+	usage := stderr.String()
+	if !strings.Contains(usage, "Mode note:") {
+		t.Fatalf("usage: got %q want mode note", usage)
+	}
+	if !strings.Contains(usage, "image producer repo is usually the same") {
+		t.Fatalf("usage: got %q want producer/conf relationship note", usage)
+	}
+}
+
+func TestCmdInit_ConsumerMisusedProducerFlagReportsFirstOffender(t *testing.T) {
+	t.Parallel()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code, err := cmdInit([]string{
+		"-repo-root", t.TempDir(),
+		"-home", "/var/decomk",
+		"-conf-uri", "git:https://example.com/conf.git",
+	}, &stdout, &stderr)
+	if err == nil {
+		t.Fatalf("cmdInit() error: got nil want misuse error")
+	}
+	if code != 2 {
+		t.Fatalf("cmdInit() code: got %d want 2", code)
+	}
+	if got, want := err.Error(), "-conf-uri is only valid with -conf"; !strings.Contains(got, want) {
+		t.Fatalf("error: got %q want first-flag substring %q", got, want)
+	}
+}
+
+func TestCmdInit_HelpIncludesImageProducerConsumerUsageNote(t *testing.T) {
+	t.Parallel()
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code, err := cmdInit([]string{"-h"}, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("cmdInit() error: %v", err)
+	}
+	if code != 0 {
+		t.Fatalf("cmdInit() code: got %d want 0", code)
+	}
+	usage := stderr.String()
+	if !strings.Contains(usage, "Image consumer mode is the default") {
+		t.Fatalf("usage: got %q want image consumer note", usage)
+	}
+	if !strings.Contains(usage, "Image producer mode uses `decomk init -conf`") {
+		t.Fatalf("usage: got %q want image producer note", usage)
+	}
+}
+
 func TestCmdInit_NoPromptWritesFiles(t *testing.T) {
 	t.Parallel()
 
 	repoRoot := t.TempDir()
-	confURI := createTestProducerConfURI(t)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 
@@ -210,10 +269,7 @@ func TestCmdInit_NoPromptWritesFiles(t *testing.T) {
 		"-no-prompt",
 		"-repo-root", repoRoot,
 		"-name", "myrepo",
-		"-conf-uri", confURI,
-		"-tool-uri", stage0.DefaultToolURI,
-		"-home", "/var/decomk",
-		"-log-dir", "/var/log/decomk",
+		"-image", "ghcr.io/acme/custom-base:testing",
 	}
 	code, err := cmdInit(args, &stdout, &stderr)
 	if err != nil {
@@ -246,27 +302,14 @@ func TestCmdInit_NoPromptWritesFiles(t *testing.T) {
 	}
 
 	decoded := decodeJSONCObjectFile(t, devcontainerPath)
-	if got, want := decoded["image"], stage0.DefaultDevcontainerImage; got != want {
+	if got, want := decoded["image"], "ghcr.io/acme/custom-base:testing"; got != want {
 		t.Fatalf("image: got %#v want %#v", got, want)
 	}
-	if _, ok := decoded["build"]; ok {
-		t.Fatalf("build: got %#v want omitted for init defaults", decoded["build"])
+	if got, want := decoded["name"], "myrepo"; got != want {
+		t.Fatalf("name: got %#v want %#v", got, want)
 	}
-	containerEnv, ok := decoded["containerEnv"].(map[string]any)
-	if !ok {
-		t.Fatalf("containerEnv: got %#v want object", decoded["containerEnv"])
-	}
-	if got, ok := containerEnv["DECOMK_REMOTE_USER"]; ok {
-		t.Fatalf("DECOMK_REMOTE_USER: got %#v want omitted (image-sourced identity)", got)
-	}
-	if got, ok := containerEnv["DECOMK_REMOTE_UID"]; ok {
-		t.Fatalf("DECOMK_REMOTE_UID: got %#v want omitted (image-sourced identity)", got)
-	}
-	if got, ok := decoded["remoteUser"]; ok {
-		t.Fatalf("remoteUser: got %#v want omitted", got)
-	}
-	if got, ok := decoded["containerUser"]; ok {
-		t.Fatalf("containerUser: got %#v want omitted", got)
+	if len(decoded) != 2 {
+		t.Fatalf("decoded key count: got %d want 2 (name,image); decoded=%#v", len(decoded), decoded)
 	}
 }
 
@@ -274,25 +317,15 @@ func TestCmdInit_ForceNoPromptPreservesExistingImageDefaults(t *testing.T) {
 	t.Parallel()
 
 	repoRoot := t.TempDir()
-	confURI := createTestProducerConfURI(t)
 	devcontainerDir := filepath.Join(repoRoot, ".devcontainer")
 	if err := os.MkdirAll(devcontainerDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll(devcontainerDir): %v", err)
 	}
-	existing := strings.ReplaceAll(`{
+	existing := `{
   // existing defaults should be reused on -f reruns
   "name": "existing-repo",
-  "image": "ghcr.io/acme/custom-base:testing",
-  "containerEnv": {
-    "DECOMK_HOME": "/var/custom/decomk",
-    "DECOMK_LOG_DIR": "/var/custom/log",
-    "DECOMK_TOOL_URI": "go:github.com/acme/decomk/cmd/decomk@latest",
-    "DECOMK_CONF_URI": "__CONF_URI__",
-    "DECOMK_FAIL_NOBOOT": "true"
-  },
-  "updateContentCommand": "bash .devcontainer/decomk-stage0.sh updateContent",
-  "postCreateCommand": "bash .devcontainer/decomk-stage0.sh postCreate"
-}`, "__CONF_URI__", confURI)
+  "image": "ghcr.io/acme/custom-base:testing"
+}`
 	devcontainerPath := filepath.Join(devcontainerDir, "devcontainer.json")
 	if err := os.WriteFile(devcontainerPath, []byte(existing), 0o644); err != nil {
 		t.Fatalf("WriteFile(devcontainer.json): %v", err)
@@ -322,58 +355,26 @@ func TestCmdInit_ForceNoPromptPreservesExistingImageDefaults(t *testing.T) {
 	if got, want := decoded["image"], "ghcr.io/acme/custom-base:testing"; got != want {
 		t.Fatalf("image: got %#v want %#v", got, want)
 	}
-	envMap, ok := decoded["containerEnv"].(map[string]any)
-	if !ok {
-		t.Fatalf("containerEnv: got %#v", decoded["containerEnv"])
-	}
-	if got, want := envMap["DECOMK_HOME"], "/var/decomk"; got != want {
-		t.Fatalf("DECOMK_HOME: got %#v want %#v", got, want)
-	}
-	if got, want := envMap["DECOMK_LOG_DIR"], "/var/log/decomk"; got != want {
-		t.Fatalf("DECOMK_LOG_DIR: got %#v want %#v", got, want)
-	}
-	if got, want := envMap["DECOMK_TOOL_URI"], stage0.DefaultToolURI; got != want {
-		t.Fatalf("DECOMK_TOOL_URI: got %#v want %#v", got, want)
-	}
-	if got, want := envMap["DECOMK_CONF_URI"], confURI; got != want {
-		t.Fatalf("DECOMK_CONF_URI: got %#v want %#v", got, want)
-	}
-	if got, ok := envMap["DECOMK_REMOTE_USER"]; ok {
-		t.Fatalf("DECOMK_REMOTE_USER: got %#v want omitted", got)
-	}
-	if got, ok := envMap["DECOMK_REMOTE_UID"]; ok {
-		t.Fatalf("DECOMK_REMOTE_UID: got %#v want omitted", got)
-	}
-	if got, want := envMap["DECOMK_FAIL_NOBOOT"], "true"; got != want {
-		t.Fatalf("DECOMK_FAIL_NOBOOT: got %#v want %#v", got, want)
+	if len(decoded) != 2 {
+		t.Fatalf("decoded key count: got %d want 2 (name,image); decoded=%#v", len(decoded), decoded)
 	}
 }
 
-func TestCmdInit_ForceNoPromptPreservesExistingBuildDefaults(t *testing.T) {
+func TestCmdInit_ForceNoPromptFailsWithoutImageSourceWhenExistingConfigHasNoImage(t *testing.T) {
 	t.Parallel()
 
 	repoRoot := t.TempDir()
-	confURI := createTestProducerConfURI(t)
 	devcontainerDir := filepath.Join(repoRoot, ".devcontainer")
 	if err := os.MkdirAll(devcontainerDir, 0o755); err != nil {
 		t.Fatalf("MkdirAll(devcontainerDir): %v", err)
 	}
-	existing := strings.ReplaceAll(`{
+	existing := `{
   "name": "existing-build",
   "build": {
     "dockerfile": "Dockerfile.Block10",
     "context": "."
-  },
-  "containerEnv": {
-    "DECOMK_HOME": "/var/decomk",
-    "DECOMK_LOG_DIR": "/var/log/decomk",
-    "DECOMK_TOOL_URI": "go:github.com/stevegt/decomk/cmd/decomk@latest",
-    "DECOMK_CONF_URI": "__CONF_URI__",
-    "DECOMK_FAIL_NOBOOT": "false"
-  },
-  "updateContentCommand": "bash .devcontainer/decomk-stage0.sh updateContent",
-  "postCreateCommand": "bash .devcontainer/decomk-stage0.sh postCreate"
-}`, "__CONF_URI__", confURI)
+  }
+}`
 	devcontainerPath := filepath.Join(devcontainerDir, "devcontainer.json")
 	if err := os.WriteFile(devcontainerPath, []byte(existing), 0o644); err != nil {
 		t.Fatalf("WriteFile(devcontainer.json): %v", err)
@@ -389,26 +390,14 @@ func TestCmdInit_ForceNoPromptPreservesExistingBuildDefaults(t *testing.T) {
 		"-no-prompt",
 		"-f",
 	}, &stdout, &stderr)
-	if err != nil {
-		t.Fatalf("cmdInit() error: %v", err)
+	if err == nil {
+		t.Fatalf("cmdInit() error: got nil want missing image source error")
 	}
-	if code != 0 {
-		t.Fatalf("cmdInit() code: got %d want 0", code)
+	if code != 1 {
+		t.Fatalf("cmdInit() code: got %d want 1", code)
 	}
-
-	decoded := decodeJSONCObjectFile(t, devcontainerPath)
-	buildMap, ok := decoded["build"].(map[string]any)
-	if !ok {
-		t.Fatalf("build: got %#v want object", decoded["build"])
-	}
-	if got, want := buildMap["dockerfile"], "Dockerfile.Block10"; got != want {
-		t.Fatalf("build.dockerfile: got %#v want %#v", got, want)
-	}
-	if got, want := buildMap["context"], "."; got != want {
-		t.Fatalf("build.context: got %#v want %#v", got, want)
-	}
-	if _, ok := decoded["image"]; ok {
-		t.Fatalf("image: got %#v want omitted when build is preserved", decoded["image"])
+	if !strings.Contains(err.Error(), "requires -image or -conf-url") {
+		t.Fatalf("error: got %q want image-source guidance", err.Error())
 	}
 }
 
@@ -416,17 +405,13 @@ func TestCmdInit_ForceAliasF(t *testing.T) {
 	t.Parallel()
 
 	repoRoot := t.TempDir()
-	confURI := createTestProducerConfURI(t)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	baseArgs := []string{
 		"-no-prompt",
 		"-repo-root", repoRoot,
 		"-name", "myrepo",
-		"-conf-uri", confURI,
-		"-tool-uri", stage0.DefaultToolURI,
-		"-home", "/var/decomk",
-		"-log-dir", "/var/log/decomk",
+		"-image", "ghcr.io/acme/base:dev",
 	}
 
 	code, err := cmdInit(baseArgs, &stdout, &stderr)
@@ -464,7 +449,6 @@ func TestCmdInit_DefaultRepoRootUsesGitToplevel(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skipf("git not available: %v", err)
 	}
-	confURI := createTestProducerConfURI(t)
 
 	repoRoot := t.TempDir()
 	if out, err := exec.Command("git", "-C", repoRoot, "init", "-q").CombinedOutput(); err != nil {
@@ -493,7 +477,7 @@ func TestCmdInit_DefaultRepoRootUsesGitToplevel(t *testing.T) {
 	var stderr bytes.Buffer
 	code, err := cmdInit([]string{
 		"-no-prompt",
-		"-conf-uri", confURI,
+		"-image", "ghcr.io/acme/base:dev",
 		"-name", "myrepo",
 	}, &stdout, &stderr)
 	if err != nil {
@@ -515,7 +499,6 @@ func TestCmdInit_DefaultRepoRootErrorsOutsideGitRepo(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skipf("git not available: %v", err)
 	}
-	confURI := createTestProducerConfURI(t)
 
 	nonRepo := t.TempDir()
 	origWD, err := os.Getwd()
@@ -535,7 +518,7 @@ func TestCmdInit_DefaultRepoRootErrorsOutsideGitRepo(t *testing.T) {
 	var stderr bytes.Buffer
 	code, err := cmdInit([]string{
 		"-no-prompt",
-		"-conf-uri", confURI,
+		"-image", "ghcr.io/acme/base:dev",
 		"-name", "myrepo",
 	}, &stdout, &stderr)
 	if err == nil {
@@ -549,21 +532,23 @@ func TestCmdInit_DefaultRepoRootErrorsOutsideGitRepo(t *testing.T) {
 	}
 }
 
-func TestCmdInit_ToolURIValidation(t *testing.T) {
+func TestCmdInit_ProducerToolURIValidation(t *testing.T) {
 	t.Parallel()
 
 	repoRoot := t.TempDir()
-	confURI := createTestProducerConfURI(t)
+	confURI := "git:https://example.com/conf.git"
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 
 	// go: URIs are valid for tool bootstrap.
 	code, err := cmdInit([]string{
+		"-conf",
 		"-no-prompt",
 		"-repo-root", repoRoot,
 		"-name", "myrepo",
 		"-conf-uri", confURI,
 		"-tool-uri", stage0.DefaultToolURI,
+		"-image", "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
 	}, &stdout, &stderr)
 	if err != nil {
 		t.Fatalf("go URI cmdInit() error: %v", err)
@@ -584,6 +569,7 @@ func TestCmdInit_ToolURIValidation(t *testing.T) {
 	stdout.Reset()
 	stderr.Reset()
 	code, err = cmdInit([]string{
+		"-conf",
 		"-no-prompt",
 		"-repo-root", repoRoot,
 		"-name", "myrepo",
@@ -602,7 +588,7 @@ func TestCmdInit_ToolURIValidation(t *testing.T) {
 	}
 }
 
-func TestCmdInit_FailsWhenProducerDefaultsRepoUnavailable(t *testing.T) {
+func TestCmdInit_FailsWhenConfURLDerivationFailsInNoPromptMode(t *testing.T) {
 	t.Parallel()
 
 	repoRoot := t.TempDir()
@@ -612,16 +598,186 @@ func TestCmdInit_FailsWhenProducerDefaultsRepoUnavailable(t *testing.T) {
 		"-no-prompt",
 		"-repo-root", repoRoot,
 		"-name", "myrepo",
-		"-conf-uri", "git:file:///definitely/missing/decomk-conf.git",
+		"-conf-url", "https://example.invalid/definitely-missing-conf.git",
 	}, &stdout, &stderr)
 	if err == nil {
-		t.Fatalf("cmdInit() error: got nil want producer-defaults clone error")
+		t.Fatalf("cmdInit() error: got nil want conf-url derivation error")
 	}
 	if code != 1 {
 		t.Fatalf("cmdInit() code: got %d want 1", code)
 	}
-	if !strings.Contains(err.Error(), "resolve init defaults from producer conf repo") {
-		t.Fatalf("error: got %q want producer-defaults context", err.Error())
+	if !strings.Contains(err.Error(), "derive image from -conf-url") {
+		t.Fatalf("error: got %q want conf-url derivation context", err.Error())
+	}
+}
+
+func TestCmdInit_NoPromptFailsWithoutImageSources(t *testing.T) {
+	t.Parallel()
+
+	repoRoot := t.TempDir()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code, err := cmdInit([]string{
+		"-no-prompt",
+		"-repo-root", repoRoot,
+		"-name", "myrepo",
+	}, &stdout, &stderr)
+	if err == nil {
+		t.Fatalf("cmdInit() error: got nil want missing-source error")
+	}
+	if code != 1 {
+		t.Fatalf("cmdInit() code: got %d want 1", code)
+	}
+	if !strings.Contains(err.Error(), "requires -image or -conf-url") {
+		t.Fatalf("error: got %q want image-source guidance", err.Error())
+	}
+}
+
+func TestCmdInit_NoPromptDerivesImageFromConfURL(t *testing.T) {
+	t.Parallel()
+
+	confURL := createTestProducerConfURL(t, "ghcr.io/acme/producer:block10")
+	repoRoot := t.TempDir()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code, err := cmdInit([]string{
+		"-no-prompt",
+		"-repo-root", repoRoot,
+		"-name", "myrepo",
+		"-conf-url", confURL,
+	}, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("cmdInit() error: %v", err)
+	}
+	if code != 0 {
+		t.Fatalf("cmdInit() code: got %d want 0", code)
+	}
+	decoded := decodeJSONCObjectFile(t, filepath.Join(repoRoot, ".devcontainer", "devcontainer.json"))
+	if got, want := decoded["name"], "myrepo"; got != want {
+		t.Fatalf("name: got %#v want %#v", got, want)
+	}
+	if got, want := decoded["image"], "ghcr.io/acme/producer:block10"; got != want {
+		t.Fatalf("image: got %#v want %#v", got, want)
+	}
+}
+
+func TestCmdInit_ImageShortCircuitsConfURL(t *testing.T) {
+	t.Parallel()
+
+	repoRoot := t.TempDir()
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code, err := cmdInit([]string{
+		"-no-prompt",
+		"-repo-root", repoRoot,
+		"-name", "myrepo",
+		"-image", "ghcr.io/acme/explicit:stable",
+		"-conf-url", "https://example.invalid/definitely-missing-conf.git",
+	}, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("cmdInit() error: %v", err)
+	}
+	if code != 0 {
+		t.Fatalf("cmdInit() code: got %d want 0", code)
+	}
+	decoded := decodeJSONCObjectFile(t, filepath.Join(repoRoot, ".devcontainer", "devcontainer.json"))
+	if got, want := decoded["image"], "ghcr.io/acme/explicit:stable"; got != want {
+		t.Fatalf("image: got %#v want %#v", got, want)
+	}
+}
+
+func TestParseHTTPSourceURL_ValidationAndRef(t *testing.T) {
+	t.Parallel()
+
+	repoURL, gitRef, err := parseHTTPSourceURL("https://github.com/acme/decomk-conf.git?ref=main")
+	if err != nil {
+		t.Fatalf("parseHTTPSourceURL() error: %v", err)
+	}
+	if got, want := repoURL, "https://github.com/acme/decomk-conf.git"; got != want {
+		t.Fatalf("repoURL: got %q want %q", got, want)
+	}
+	if got, want := gitRef, "main"; got != want {
+		t.Fatalf("gitRef: got %q want %q", got, want)
+	}
+
+	if _, _, err := parseHTTPSourceURL("git@github.com:acme/decomk-conf.git"); err == nil {
+		t.Fatalf("parseHTTPSourceURL(ssh) error: got nil want error")
+	}
+}
+
+func TestStripJSONCLineCommentsForInit_InlineAndStringSlashSlash(t *testing.T) {
+	t.Parallel()
+
+	input := []byte(`{
+  // full-line comment
+  "image": "ghcr.io/acme/base:latest", // inline comment
+  "note": "https://example.com/path//kept"
+}`)
+	stripped, err := stripJSONCLineCommentsForInit(input)
+	if err != nil {
+		t.Fatalf("stripJSONCLineCommentsForInit() error: %v", err)
+	}
+
+	var decoded map[string]any
+	if err := json.Unmarshal(stripped, &decoded); err != nil {
+		t.Fatalf("json.Unmarshal() error: %v\nstripped:\n%s", err, string(stripped))
+	}
+	if got, want := decoded["image"], "ghcr.io/acme/base:latest"; got != want {
+		t.Fatalf("image: got %#v want %#v", got, want)
+	}
+	if got, want := decoded["note"], "https://example.com/path//kept"; got != want {
+		t.Fatalf("note: got %#v want %#v", got, want)
+	}
+}
+
+func TestPromptConsumerInitImageSource_Option3KeepsExistingImage(t *testing.T) {
+	t.Parallel()
+
+	input := bytes.NewBufferString("3\n")
+	reader := bufio.NewReader(input)
+	var out bytes.Buffer
+	image, err := promptConsumerInitImageSource(reader, &out, "ghcr.io/acme/existing:stable", "")
+	if err != nil {
+		t.Fatalf("promptConsumerInitImageSource() error: %v", err)
+	}
+	if got, want := image, "ghcr.io/acme/existing:stable"; got != want {
+		t.Fatalf("image: got %q want %q", got, want)
+	}
+}
+
+func TestPromptConsumerInitImageSource_Option3UnavailableWithoutExistingImage(t *testing.T) {
+	t.Parallel()
+
+	input := bytes.NewBufferString("3\n2\nghcr.io/acme/manual:dev\n")
+	reader := bufio.NewReader(input)
+	var out bytes.Buffer
+	image, err := promptConsumerInitImageSource(reader, &out, "", "")
+	if err != nil {
+		t.Fatalf("promptConsumerInitImageSource() error: %v", err)
+	}
+	if got, want := image, "ghcr.io/acme/manual:dev"; got != want {
+		t.Fatalf("image: got %q want %q", got, want)
+	}
+	if got := out.String(); !strings.Contains(got, "option 3 is available only when an existing image is present") {
+		t.Fatalf("output: got %q want option-3 warning", got)
+	}
+}
+
+func TestPromptConsumerInitImageSource_DerivationFailureFallsBackToManualPrompt(t *testing.T) {
+	t.Parallel()
+
+	input := bytes.NewBufferString("1\nhttps://example.invalid/definitely-missing-conf.git\nghcr.io/acme/manual:fallback\n")
+	reader := bufio.NewReader(input)
+	var out bytes.Buffer
+	image, err := promptConsumerInitImageSource(reader, &out, "", "")
+	if err != nil {
+		t.Fatalf("promptConsumerInitImageSource() error: %v", err)
+	}
+	if got, want := image, "ghcr.io/acme/manual:fallback"; got != want {
+		t.Fatalf("image: got %q want %q", got, want)
+	}
+	if got := out.String(); !strings.Contains(got, "warning: derive image from") {
+		t.Fatalf("output: got %q want derivation warning", got)
 	}
 }
 
@@ -651,7 +807,7 @@ func TestWriteFileAtomic_PreservesFileOnFailure(t *testing.T) {
 	}
 }
 
-func createTestProducerConfURI(t *testing.T) string {
+func createTestProducerConfURL(t *testing.T, image string) string {
 	t.Helper()
 
 	if _, err := exec.LookPath("git"); err != nil {
@@ -666,15 +822,9 @@ func createTestProducerConfURI(t *testing.T) string {
 
 	devcontainerJSON := `{
   "name": "test producer conf",
-  "containerEnv": {
-    "DECOMK_HOME": "/var/decomk",
-    "DECOMK_LOG_DIR": "/var/log/decomk",
-    "DECOMK_TOOL_URI": "go:github.com/stevegt/decomk/cmd/decomk@latest",
-    "DECOMK_CONF_URI": "git:https://example.invalid/conf.git",
-    "DECOMK_FAIL_NOBOOT": "false"
-  },
-  "updateRemoteUserUID": false
+  "image": "__IMAGE__"
 }`
+	devcontainerJSON = strings.ReplaceAll(devcontainerJSON, "__IMAGE__", image)
 	if err := os.WriteFile(filepath.Join(workDir, ".devcontainer", "devcontainer.json"), []byte(devcontainerJSON), 0o644); err != nil {
 		t.Fatalf("WriteFile(test producer devcontainer.json): %v", err)
 	}
@@ -702,23 +852,13 @@ func createTestProducerConfURI(t *testing.T) string {
 	if output, err := exec.Command("git", "clone", "-q", "--bare", workDir, bareDir).CombinedOutput(); err != nil {
 		t.Fatalf("git clone --bare: %v: %s", err, strings.TrimSpace(string(output)))
 	}
-	return "git:file://" + bareDir
-}
+	if output, err := exec.Command("git", "--git-dir", bareDir, "update-server-info").CombinedOutput(); err != nil {
+		t.Fatalf("git update-server-info: %v: %s", err, strings.TrimSpace(string(output)))
+	}
 
-func stripJSONCLineComments(content []byte) ([]byte, error) {
-	scanner := bufio.NewScanner(bytes.NewReader(content))
-	lines := make([]string, 0)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if strings.HasPrefix(strings.TrimSpace(line), "//") {
-			continue
-		}
-		lines = append(lines, line)
-	}
-	if err := scanner.Err(); err != nil {
-		return nil, err
-	}
-	return []byte(strings.Join(lines, "\n")), nil
+	server := httptest.NewServer(http.FileServer(http.Dir(root)))
+	t.Cleanup(server.Close)
+	return server.URL + "/confrepo.git"
 }
 
 func decodeJSONCObjectFile(t *testing.T, path string) map[string]any {
@@ -728,13 +868,17 @@ func decodeJSONCObjectFile(t *testing.T, path string) map[string]any {
 	if err != nil {
 		t.Fatalf("ReadFile(%s): %v", path, err)
 	}
-	withoutComments, err := stripJSONCLineComments(content)
+	withoutComments, err := stripJSONCLineCommentsForInit(content)
 	if err != nil {
-		t.Fatalf("stripJSONCLineComments(%s): %v", path, err)
+		t.Fatalf("stripJSONCLineCommentsForInit(%s): %v", path, err)
 	}
 	var decoded map[string]any
 	if err := json.Unmarshal(withoutComments, &decoded); err != nil {
 		t.Fatalf("json.Unmarshal(%s): %v", path, err)
 	}
 	return decoded
+}
+
+func stripJSONCLineComments(content []byte) ([]byte, error) {
+	return stripJSONCLineCommentsForInit(content)
 }

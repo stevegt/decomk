@@ -18,7 +18,7 @@ For deeper design background, see:
 ## Current commands
 
 - `decomk init -conf` — scaffold a shared conf repo (`decomk.conf` + `Makefile` + producer `.devcontainer/`)
-- `decomk init` — scaffold stage-0 lifecycle files in `.devcontainer/` using shared producer defaults for tool/home/log values while taking remote identity from the image
+- `decomk init` — scaffold image-consumer stage-0 files in `.devcontainer/` with a minimal `devcontainer.json` (`name` + `image`)
 - `decomk version` — print the decomk CLI version string
 - `decomk plan` — resolve tuples/targets + run `make -n` in the stamp directory
 - `decomk run` — write env export file + run `make` in the stamp directory
@@ -78,12 +78,14 @@ This writes a starter tree:
 - Push the repo and keep its URI ready as:
   - `git:<repo-url>[?ref=<git-ref>]`
 
-### 3) Run `decomk init` in each consumer repo
+### 3) Run `decomk init` in each image-consumer repo
 
 In each workspace repo you want managed:
 
 ```bash
-decomk init -conf-uri git:<your-shared-conf-repo-url>
+decomk init -conf-url https://github.com/<org>/<your-shared-conf-repo>.git?ref=main
+# or
+decomk init -image ghcr.io/<org>/<base-image>:stable
 ```
 
 This writes:
@@ -145,27 +147,25 @@ If you intentionally want to regenerate/replace files, use force:
 - `-force`
 
 When `-f` is used and `.devcontainer/devcontainer.json` already exists,
-`decomk init` reuses existing stage-0 values as defaults so reruns do not
-require re-entering the same configuration. For consumer init, producer
-defaults then override local defaults for `DECOMK_TOOL_URI`, `DECOMK_HOME`, and
-`DECOMK_LOG_DIR` (CLI still wins).
+`decomk init` reuses existing `name`/`image` values as defaults so reruns do not
+require re-entering the same configuration.
 
-Consumer `decomk init` requires a reachable `DECOMK_CONF_URI` (`git:...`) and
-clones the producer conf repo to inherit shared defaults for `DECOMK_TOOL_URI`,
-`DECOMK_HOME`, and `DECOMK_LOG_DIR` (precedence: CLI > producer > local existing > built-in).
-If clone/read fails, init fails fast rather than silently falling back.
+Image-consumer `decomk init` resolves `image` with this precedence:
 
-Generated stage-0 scripts verify that the runtime process identity matches
-`DECOMK_REMOTE_USER` / `DECOMK_REMOTE_UID` before escalating to root; mismatches
-fail fast to avoid ambiguous ownership drift. Those identity vars should come
-from the image (for example Dockerfile `ENV`), not from generated consumer
-`devcontainer.json` metadata.
+1. `-image`
+2. derived from `-conf-url` (HTTP(S), optional `?ref=...`)
+3. interactive source selection menu
+4. existing local image in `-no-prompt` mode
+
+In image-consumer mode, producer-only flags (`-conf-uri`, `-tool-uri`, `-home`,
+`-log-dir`, `-fail-no-boot`) are treated as misuse and fail with:
+`-<flag> is only valid with -conf`.
 
 Recommended reconciliation workflow when files already exist:
 
 ```bash
 git commit -m "Checkpoint existing devcontainer files"
-decomk init -f -conf-uri git:<your-shared-conf-repo-url>
+decomk init -f -conf-url https://github.com/<org>/<your-shared-conf-repo>.git?ref=main
 git difftool -- .devcontainer/devcontainer.json .devcontainer/decomk-stage0.sh
 ```
 
@@ -174,6 +174,7 @@ git difftool -- .devcontainer/devcontainer.json .devcontainer/decomk-stage0.sh
 Canonical sources:
 
 - `cmd/decomk/templates/devcontainer.json.tmpl`
+- `cmd/decomk/templates/consumer.devcontainer.json.tmpl`
 - `cmd/decomk/templates/decomk-stage0.sh.tmpl`
 
 Generated copies:
@@ -600,16 +601,17 @@ ARGS:
 
   Flags for init:
   -repo-root <path>         Repo root where .devcontainer files are written (default: current git repo root)
-  -conf                     Producer mode: scaffold shared conf repo starter files at repo root
+  -conf                     Image producer mode: scaffold shared conf repo starter files at repo root
   -name <string>            devcontainer.json "name" value (default: repo basename)
-  -image <ref>              consumer mode: devcontainer image value when no build dockerfile is configured; producer mode (-conf): Dockerfile FROM base image
-  -conf-uri <uri>           DECOMK_CONF_URI value in devcontainer.json (git:...; required in consumer mode)
-  -tool-uri <uri>           DECOMK_TOOL_URI value in devcontainer.json (go:... or git:...)
-  -home <abs-path>          DECOMK_HOME value in devcontainer.json
-  -log-dir <abs-path>       DECOMK_LOG_DIR value in devcontainer.json
-  -remote-user <name>       DECOMK_REMOTE_USER value for producer Dockerfile ENV (producer mode)
-  -remote-uid <uid>         DECOMK_REMOTE_UID value for producer Dockerfile ENV (producer mode)
-  -fail-no-boot <value>     DECOMK_FAIL_NOBOOT value in devcontainer.json (true/false/1/0/yes/no/on/off)
+  -image <ref>              Image consumer mode: final devcontainer image; image producer mode (-conf): Dockerfile FROM base image
+  -conf-url <url>           Image consumer mode: derive image from image-producer/conf repo HTTP(S) URL (optional ?ref=...)
+  -conf-uri <uri>           Image producer mode only: DECOMK_CONF_URI value in devcontainer.json (git:...)
+  -tool-uri <uri>           Image producer mode only: DECOMK_TOOL_URI value in devcontainer.json (go:... or git:...)
+  -home <abs-path>          Image producer mode only: DECOMK_HOME value in devcontainer.json
+  -log-dir <abs-path>       Image producer mode only: DECOMK_LOG_DIR value in devcontainer.json
+  -remote-user <name>       DECOMK_REMOTE_USER value for producer Dockerfile ENV (image producer mode)
+  -remote-uid <uid>         DECOMK_REMOTE_UID value for producer Dockerfile ENV (image producer mode)
+  -fail-no-boot <value>     Image producer mode only: DECOMK_FAIL_NOBOOT value in devcontainer.json (true/false/1/0/yes/no/on/off)
   -force                    Overwrite existing stage-0 files even when they already exist
   -f                        Alias for -force
   -no-prompt                Do not prompt for unset values
@@ -655,7 +657,10 @@ install-user-stuff:
 - The repo’s workspace path is host-dependent; prefer using
   `${containerWorkspaceFolder}` in `devcontainer.json` rather than assuming
   `/workspaces/<repo>`.
-- Canonical scaffold sources are `cmd/decomk/templates/devcontainer.json.tmpl` and `cmd/decomk/templates/decomk-stage0.sh.tmpl`.
+- Canonical scaffold sources are:
+  - `cmd/decomk/templates/devcontainer.json.tmpl` (full stage-0 template used by examples/selftests)
+  - `cmd/decomk/templates/consumer.devcontainer.json.tmpl` (minimal image-consumer template used by `decomk init`)
+  - `cmd/decomk/templates/decomk-stage0.sh.tmpl`
   - Generated files:
     - `examples/devcontainer/devcontainer.json`
     - `examples/devcontainer/decomk-stage0.sh`

@@ -27,9 +27,9 @@ type initFlags struct {
 	repoRoot string
 	name     string
 	image    string
+	confURL  string
 	// buildDockerfile/buildContext are sourced from an existing devcontainer.json
-	// when present so `decomk init -f` can preserve build-based configs while still
-	// using one rendering path.
+	// when present so `decomk init -conf -f` can reuse local producer defaults.
 	buildDockerfile    string
 	buildContext       string
 	confURI            string
@@ -43,16 +43,17 @@ type initFlags struct {
 	noPrompt           bool
 }
 
-type initProducerDefaults struct {
-	ToolURI string
-	Home    string
-	LogDir  string
-}
-
 // initWriteResult reports what happened for one stage-0 file.
 type initWriteResult struct {
 	Path   string
 	Status string
+}
+
+// initConsumerDevcontainerTemplateData is the minimal template data model for
+// image-consumer `decomk init` output.
+type initConsumerDevcontainerTemplateData struct {
+	Name  string
+	Image string
 }
 
 // cmdInit writes stage-0 files .devcontainer/devcontainer.json and
@@ -71,7 +72,7 @@ func cmdInit(args []string, stdout, stderr io.Writer) (int, error) {
 		repoRoot:           "",
 		confURI:            envi.String("DECOMK_CONF_URI", ""),
 		toolURI:            envi.String("DECOMK_TOOL_URI", stage0.DefaultToolURI),
-		image:              stage0.DefaultDevcontainerImage,
+		image:              "",
 		home:               envi.String("DECOMK_HOME", state.DefaultHome),
 		logDir:             envi.String("DECOMK_LOG_DIR", state.DefaultLogDir),
 		remoteIdentityUser: stage0.DefaultDevcontainerUser,
@@ -83,6 +84,7 @@ func cmdInit(args []string, stdout, stderr io.Writer) (int, error) {
 		failNoBoot: stage0.DefaultFailNoBoot,
 	}
 	addInitFlags(fs, &f)
+	configureInitUsage(fs)
 
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -95,6 +97,17 @@ func cmdInit(args []string, stdout, stderr io.Writer) (int, error) {
 	fs.Visit(func(fl *flag.Flag) {
 		setFlags[fl.Name] = true
 	})
+
+	if !f.confMode {
+		// Intent: Treat producer-only init flags as explicit misuse in image
+		// consumer mode, so callers get a clear mode-specific error while still
+		// seeing standard init usage output.
+		// Source: DI-016-20260427-200729 (TODO/016)
+		if misusedFlag := firstMisusedConsumerProducerOnlyFlag(setFlags); misusedFlag != "" {
+			fs.Usage()
+			return 2, fmt.Errorf("-%s is only valid with -conf", misusedFlag)
+		}
+	}
 
 	repoRootInput := f.repoRoot
 	var err error
@@ -159,93 +172,36 @@ func cmdInit(args []string, stdout, stderr io.Writer) (int, error) {
 		applyInitDefaultsFromExistingDevcontainer(&f, setFlags, existingDefaults)
 	}
 
-	canPrompt := !f.noPrompt && isInteractiveInput(os.Stdin) && isInteractiveInput(os.Stderr)
-	if canPrompt && !setFlags["conf-uri"] {
-		// Intent: Prompt for DECOMK_CONF_URI before producer-default import so
-		// interactive init can replace placeholder defaults and still inherit
-		// producer tool/home/log defaults in the same run.
-		// Source: DI-001-20260425-113454 (TODO/001)
-		reader := bufio.NewReader(os.Stdin)
-		confURIValue, promptErr := promptWithDefault(reader, stderr, "DECOMK_CONF_URI", f.confURI)
-		if promptErr != nil {
-			return 1, promptErr
-		}
-		f.confURI = confURIValue
-		setFlags["conf-uri"] = true
-	}
-
-	if strings.TrimSpace(f.confURI) != "" {
-		// Intent: Keep consumer init conf-driven for shared bootstrap defaults
-		// (`DECOMK_TOOL_URI`, `DECOMK_HOME`, `DECOMK_LOG_DIR`) without using the
-		// producer repo as an identity transport layer.
-		// Source: DI-001-20260425-113454 (TODO/001)
-		producerDefaults, err := loadProducerDefaultsFromConfURI(f.confURI)
-		if err != nil {
-			return 1, fmt.Errorf("resolve init defaults from producer conf repo %q: %w", f.confURI, err)
-		}
-		applyInitDefaultsFromProducerConf(&f, setFlags, producerDefaults)
-	}
-
 	if f.name == "" {
 		f.name = filepath.Base(repoRoot)
 	}
 
-	if canPrompt {
-		if err := promptInitFlags(&f, setFlags, os.Stdin, stderr); err != nil {
-			return 1, err
+	canPrompt := !f.noPrompt && isInteractiveInput(os.Stdin) && isInteractiveInput(os.Stderr)
+	if canPrompt && !setFlags["name"] {
+		reader := bufio.NewReader(os.Stdin)
+		nameValue, promptErr := promptWithDefault(reader, stderr, "Devcontainer name", f.name)
+		if promptErr != nil {
+			return 1, promptErr
 		}
+		f.name = nameValue
 	}
 
 	if f.name == "" {
 		return 1, fmt.Errorf("devcontainer name cannot be empty")
 	}
-	if strings.TrimSpace(f.buildDockerfile) == "" && strings.TrimSpace(f.image) == "" {
-		return 1, fmt.Errorf("devcontainer image template value cannot be empty when no build.dockerfile is configured")
-	}
-	// Intent: Lock stage-0 source configuration onto URI expressions (`go:`/`git:`)
-	// so generated init scaffolds use one explicit source contract instead of
-	// split mode/package/repo variables.
-	// Source: DI-001-20260412-170500 (TODO/001)
-	if strings.TrimSpace(f.toolURI) == "" {
-		return 1, fmt.Errorf("DECOMK_TOOL_URI template value cannot be empty")
-	}
-	if !strings.HasPrefix(f.toolURI, "go:") && !strings.HasPrefix(f.toolURI, "git:") {
-		return 1, fmt.Errorf("DECOMK_TOOL_URI template value must start with go: or git: (got %q)", f.toolURI)
-	}
-	if strings.TrimSpace(f.confURI) == "" {
-		return 1, fmt.Errorf("DECOMK_CONF_URI template value cannot be empty in consumer mode (set -conf-uri/DECOMK_CONF_URI)")
-	}
-	if !strings.HasPrefix(f.confURI, "git:") {
-		return 1, fmt.Errorf("DECOMK_CONF_URI template value must start with git: (got %q)", f.confURI)
-	}
-	if f.home == "" || !filepath.IsAbs(f.home) {
-		return 1, fmt.Errorf("DECOMK_HOME template value must be an absolute path (got %q)", f.home)
-	}
-	if f.logDir == "" || !filepath.IsAbs(f.logDir) {
-		return 1, fmt.Errorf("DECOMK_LOG_DIR template value must be an absolute path (got %q)", f.logDir)
-	}
-	if err := validateFailNoBootValue(f.failNoBoot); err != nil {
+	// Intent: Keep image-consumer init minimal and image-centric by resolving one
+	// concrete image value from CLI/derived/existing sources before rendering.
+	// Source: DI-016-20260427-200729 (TODO/016)
+	if err := resolveConsumerInitImage(&f, setFlags, canPrompt, os.Stdin, stderr); err != nil {
 		return 1, err
 	}
+	if strings.TrimSpace(f.image) == "" {
+		return 1, fmt.Errorf("image consumer init resolved an empty image value")
+	}
 
-	// Use the shared stage-0 data model so `decomk init` and generated examples
-	// render from the same template contract.
-	// Intent: Keep stage-0 inputs consistent across init and stage0gen.
-	// Source: DI-001-20260312-141200 (TODO/001)
-	data := stage0.DevcontainerTemplateData{
-		Name:                     f.name,
-		BuildDockerfile:          f.buildDockerfile,
-		BuildContext:             f.buildContext,
-		Image:                    f.image,
-		DisableRemoteIdentityEnv: true,
-		UpdateRemoteUserUID:      boolPointer(false),
-		ConfURI:                  f.confURI,
-		ToolURI:                  f.toolURI,
-		Home:                     f.home,
-		LogDir:                   f.logDir,
-		FailNoBoot:               f.failNoBoot,
-		UpdateContentCommand:     stage0.DefaultUpdateContentCommand,
-		PostCreateCommand:        stage0.DefaultPostCreateCommand,
+	data := initConsumerDevcontainerTemplateData{
+		Name:  f.name,
+		Image: strings.TrimSpace(f.image),
 	}
 
 	results, err := writeInitStage0(repoRoot, data, f.force)
@@ -314,6 +270,9 @@ func runInitConfMode(f *initFlags, setFlags map[string]bool, repoRoot string, st
 	// Producer mode always emits a build-backed starter profile.
 	f.buildDockerfile = "Dockerfile"
 	f.buildContext = ".."
+	if !setFlags["image"] && strings.TrimSpace(f.image) == "" {
+		f.image = stage0.DefaultDevcontainerImage
+	}
 
 	canPrompt := !f.noPrompt && isInteractiveInput(os.Stdin) && isInteractiveInput(os.Stderr)
 	if canPrompt {
@@ -378,20 +337,95 @@ func addInitFlags(fs *flag.FlagSet, f *initFlags) {
 	fs.BoolVar(&f.confMode, "conf", f.confMode, "producer mode: scaffold a shared conf repo starter tree at repo root")
 	fs.StringVar(&f.repoRoot, "repo-root", f.repoRoot, "target repo root (writes under <repo-root>/.devcontainer; default: current git repo root)")
 	fs.StringVar(&f.name, "name", f.name, "devcontainer name (default: repo basename)")
-	fs.StringVar(&f.image, "image", f.image, "consumer mode: devcontainer image value when no build dockerfile is configured; producer mode (-conf): Dockerfile FROM base image")
-	fs.StringVar(&f.confURI, "conf-uri", f.confURI, "DECOMK_CONF_URI value for devcontainer.json")
-	fs.StringVar(&f.toolURI, "tool-uri", f.toolURI, "DECOMK_TOOL_URI value for devcontainer.json")
-	fs.StringVar(&f.home, "home", f.home, "DECOMK_HOME value for devcontainer.json")
-	fs.StringVar(&f.logDir, "log-dir", f.logDir, "DECOMK_LOG_DIR value for devcontainer.json")
+	fs.StringVar(&f.image, "image", f.image, "image consumer mode (default): devcontainer image value; image producer mode (-conf): Dockerfile FROM base image")
+	fs.StringVar(&f.confURL, "conf-url", f.confURL, "image consumer mode: derive image from image-producer/conf repo HTTP(S) URL (optional ?ref=...)")
+	fs.StringVar(&f.confURI, "conf-uri", f.confURI, "image producer mode (-conf): DECOMK_CONF_URI value for devcontainer.json")
+	fs.StringVar(&f.toolURI, "tool-uri", f.toolURI, "image producer mode (-conf): DECOMK_TOOL_URI value for devcontainer.json")
+	fs.StringVar(&f.home, "home", f.home, "image producer mode (-conf): DECOMK_HOME value for devcontainer.json")
+	fs.StringVar(&f.logDir, "log-dir", f.logDir, "image producer mode (-conf): DECOMK_LOG_DIR value for devcontainer.json")
 	fs.StringVar(&f.remoteIdentityUser, "remote-user", f.remoteIdentityUser, "DECOMK_REMOTE_USER value for generated producer Dockerfile ENV (producer mode)")
 	fs.StringVar(&f.remoteIdentityUID, "remote-uid", f.remoteIdentityUID, "DECOMK_REMOTE_UID value for generated producer Dockerfile ENV (producer mode)")
-	fs.StringVar(&f.failNoBoot, "fail-no-boot", f.failNoBoot, "DECOMK_FAIL_NOBOOT value for devcontainer.json (true fails startup on stage-0 errors)")
+	fs.StringVar(&f.failNoBoot, "fail-no-boot", f.failNoBoot, "image producer mode (-conf): DECOMK_FAIL_NOBOOT value for devcontainer.json (true fails startup on stage-0 errors)")
 	fs.BoolVar(&f.force, "force", false, "overwrite existing stage-0 files even when they already exist")
 	fs.BoolVar(&f.force, "f", false, "alias for -force")
 	fs.BoolVar(&f.noPrompt, "no-prompt", false, "disable interactive prompts for unset values")
 }
 
-// promptInitFlags interactively fills unset init values.
+func configureInitUsage(fs *flag.FlagSet) {
+	fs.Usage = func() {
+		// Intent: Keep default flat flag output from Go's flag package while adding
+		// explicit image-producer/image-consumer guidance so mode-scoped flags are
+		// discoverable without custom section rendering.
+		// Source: DI-016-20260427-200729 (TODO/016)
+		if err := printInitUsage(fs); err != nil {
+			// The flag package usage hook has no error return. Usage write failures
+			// are non-actionable at this layer.
+		}
+	}
+}
+
+func printInitUsage(fs *flag.FlagSet) error {
+	if err := writeLine(fs.Output(), "Usage:"); err != nil {
+		return err
+	}
+	if err := writeLine(fs.Output(), "  decomk init [flags]"); err != nil {
+		return err
+	}
+	if err := writeLine(fs.Output(), ""); err != nil {
+		return err
+	}
+	if err := writeLine(fs.Output(), "Mode note:"); err != nil {
+		return err
+	}
+	if err := writeLine(fs.Output(), "  - Image consumer mode is the default (`decomk init`), and writes a minimal"); err != nil {
+		return err
+	}
+	if err := writeLine(fs.Output(), "    `.devcontainer/devcontainer.json` containing only `name` and `image`."); err != nil {
+		return err
+	}
+	if err := writeLine(fs.Output(), "  - Image producer mode uses `decomk init -conf` and writes the full"); err != nil {
+		return err
+	}
+	if err := writeLine(fs.Output(), "    conf-repo starter tree. The image producer repo is usually the same"); err != nil {
+		return err
+	}
+	if err := writeLine(fs.Output(), "    repo as the shared conf repo."); err != nil {
+		return err
+	}
+	if err := writeLine(fs.Output(), "  - Producer-only flags require `-conf`: -conf-uri, -tool-uri, -home,"); err != nil {
+		return err
+	}
+	if err := writeLine(fs.Output(), "    -log-dir, -fail-no-boot."); err != nil {
+		return err
+	}
+	if err := writeLine(fs.Output(), ""); err != nil {
+		return err
+	}
+	if err := writeLine(fs.Output(), "Flags:"); err != nil {
+		return err
+	}
+	fs.PrintDefaults()
+	return nil
+}
+
+func firstMisusedConsumerProducerOnlyFlag(setFlags map[string]bool) string {
+	orderedProducerOnlyFlags := []string{
+		"conf-uri",
+		"tool-uri",
+		"home",
+		"log-dir",
+		"fail-no-boot",
+	}
+	for _, name := range orderedProducerOnlyFlags {
+		if setFlags[name] {
+			return name
+		}
+	}
+	return ""
+}
+
+// promptInitFlags interactively fills unset init values for image-producer mode
+// (`decomk init -conf`).
 func promptInitFlags(f *initFlags, setFlags map[string]bool, in io.Reader, out io.Writer) error {
 	reader := bufio.NewReader(in)
 	var err error
@@ -518,14 +552,147 @@ func validateRemoteIdentity(remoteIdentityUser, remoteIdentityUID string) error 
 	return nil
 }
 
-func loadProducerDefaultsFromConfURI(confURI string) (initProducerDefaults, error) {
-	repoURL, gitRef, err := parseGitSourceURI(confURI)
+// resolveConsumerInitImage resolves the image for image-consumer init using
+// explicit precedence:
+//  1. -image
+//  2. -conf-url derived image
+//  3. interactive source selection
+//  4. existing local image in -no-prompt mode
+//
+// Intent: Make consumer init image resolution deterministic while keeping the
+// generated consumer template minimal (`name` + `image`).
+// Source: DI-016-20260427-200729 (TODO/016)
+func resolveConsumerInitImage(f *initFlags, setFlags map[string]bool, canPrompt bool, in io.Reader, out io.Writer) error {
+	if setFlags["image"] {
+		if strings.TrimSpace(f.image) == "" {
+			return fmt.Errorf("-image cannot be empty")
+		}
+		return nil
+	}
+
+	if setFlags["conf-url"] {
+		image, err := loadConsumerImageFromConfURL(f.confURL)
+		if err != nil {
+			return fmt.Errorf("derive image from -conf-url %q: %w", f.confURL, err)
+		}
+		f.image = image
+		return nil
+	}
+
+	existingImage := strings.TrimSpace(f.image)
+	if !canPrompt {
+		if existingImage != "" {
+			f.image = existingImage
+			return nil
+		}
+		return fmt.Errorf("image consumer init requires -image or -conf-url (or an existing image in .devcontainer/devcontainer.json when using -no-prompt)")
+	}
+
+	reader := bufio.NewReader(in)
+	chosenImage, err := promptConsumerInitImageSource(reader, out, existingImage, f.confURL)
 	if err != nil {
-		return initProducerDefaults{}, err
+		return err
+	}
+	f.image = strings.TrimSpace(chosenImage)
+	return nil
+}
+
+func promptConsumerInitImageSource(reader *bufio.Reader, out io.Writer, existingImage, defaultConfURL string) (string, error) {
+	for {
+		if err := writeLine(out, "Select image source:"); err != nil {
+			return "", err
+		}
+		if err := writeLine(out, "  1) image producer/conf repo URL (HTTP(S), optional ?ref=...)"); err != nil {
+			return "", err
+		}
+		if err := writeLine(out, "  2) image URI"); err != nil {
+			return "", err
+		}
+		if existingImage != "" {
+			if err := writeFormat(out, "  3) keep existing image URI: %s\n", existingImage); err != nil {
+				return "", err
+			}
+		}
+
+		selectionPrompt := "Select image source (1 or 2"
+		if existingImage != "" {
+			selectionPrompt = "Select image source (1, 2, or 3"
+		}
+		selectionPrompt += ")"
+		selection, err := promptWithDefault(reader, out, selectionPrompt, "1")
+		if err != nil {
+			return "", err
+		}
+		selection = strings.TrimSpace(selection)
+
+		switch selection {
+		case "1":
+			confURL, promptErr := promptWithDefault(reader, out, "Image producer/conf repo URL (HTTP(S)[?ref=...])", defaultConfURL)
+			if promptErr != nil {
+				return "", promptErr
+			}
+			confURL = strings.TrimSpace(confURL)
+			if confURL == "" {
+				if err := writeLine(out, "warning: conf URL cannot be empty; enter image URI manually."); err != nil {
+					return "", err
+				}
+				return promptRequiredImage(reader, out, "", "Image URI")
+			}
+			image, deriveErr := loadConsumerImageFromConfURL(confURL)
+			if deriveErr != nil {
+				if err := writeFormat(out, "warning: derive image from %s failed: %v\n", confURL, deriveErr); err != nil {
+					return "", err
+				}
+				if err := writeLine(out, "warning: continuing with manual image prompt."); err != nil {
+					return "", err
+				}
+				return promptRequiredImage(reader, out, "", "Image URI")
+			}
+			return image, nil
+		case "2":
+			return promptRequiredImage(reader, out, "", "Image URI")
+		case "3":
+			if existingImage == "" {
+				if err := writeLine(out, "invalid selection: option 3 is available only when an existing image is present."); err != nil {
+					return "", err
+				}
+				continue
+			}
+			return existingImage, nil
+		default:
+			if err := writeLine(out, "invalid selection: choose 1, 2, or 3."); err != nil {
+				return "", err
+			}
+		}
+	}
+}
+
+func promptRequiredImage(reader *bufio.Reader, out io.Writer, defaultValue, label string) (string, error) {
+	currentDefault := strings.TrimSpace(defaultValue)
+	for {
+		value, err := promptWithDefault(reader, out, label, currentDefault)
+		if err != nil {
+			return "", err
+		}
+		value = strings.TrimSpace(value)
+		if value != "" {
+			return value, nil
+		}
+		if err := writeLine(out, "image URI cannot be empty"); err != nil {
+			return "", err
+		}
+		currentDefault = ""
+	}
+}
+
+func loadConsumerImageFromConfURL(confURL string) (string, error) {
+	repoURL, gitRef, err := parseHTTPSourceURL(confURL)
+	if err != nil {
+		return "", err
 	}
 	tmpRoot, err := os.MkdirTemp("/tmp", "decomk-init-conf-*")
 	if err != nil {
-		return initProducerDefaults{}, fmt.Errorf("create temp clone root: %w", err)
+		return "", fmt.Errorf("create temp clone root: %w", err)
 	}
 	defer func() {
 		if removeErr := os.RemoveAll(tmpRoot); removeErr != nil {
@@ -537,51 +704,50 @@ func loadProducerDefaultsFromConfURI(confURI string) (initProducerDefaults, erro
 
 	repoDir := filepath.Join(tmpRoot, "confrepo")
 	if err := runGitCommand("", "clone", repoURL, repoDir); err != nil {
-		return initProducerDefaults{}, err
+		return "", err
 	}
 	if err := checkoutGitRef(repoDir, gitRef); err != nil {
-		return initProducerDefaults{}, err
+		return "", err
 	}
 
 	defaults, hasDefaults, err := loadInitExistingDevcontainerDefaults(repoDir)
 	if err != nil {
-		return initProducerDefaults{}, err
+		return "", err
 	}
 	if !hasDefaults {
-		return initProducerDefaults{}, fmt.Errorf("producer conf repo does not contain .devcontainer/devcontainer.json")
+		return "", fmt.Errorf("image producer repo does not contain .devcontainer/devcontainer.json")
 	}
-
-	return initProducerDefaults{
-		ToolURI: strings.TrimSpace(defaults.ToolURI),
-		Home:    strings.TrimSpace(defaults.Home),
-		LogDir:  strings.TrimSpace(defaults.LogDir),
-	}, nil
+	image := strings.TrimSpace(defaults.Image)
+	if image == "" {
+		return "", fmt.Errorf("image producer repo .devcontainer/devcontainer.json does not contain a non-empty image field")
+	}
+	return image, nil
 }
 
-func parseGitSourceURI(gitURI string) (repoURL string, gitRef string, err error) {
-	if !strings.HasPrefix(gitURI, "git:") {
-		return "", "", fmt.Errorf("git source URI must start with git: (got %q)", gitURI)
+// parseHTTPSourceURL validates image-producer/conf source URLs for consumer
+// image derivation and extracts optional `?ref=...`.
+//
+// Intent: Keep consumer derivation input explicit and non-ambiguous by
+// accepting only HTTP(S) URLs with optional ref query.
+// Source: DI-016-20260427-200729 (TODO/016)
+func parseHTTPSourceURL(rawURL string) (repoURL string, gitRef string, err error) {
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil {
+		return "", "", fmt.Errorf("parse conf URL %q: %w", rawURL, err)
 	}
-	payload := strings.TrimPrefix(gitURI, "git:")
-	if payload == "" {
-		return "", "", fmt.Errorf("git source URI is missing repository URL: %q", gitURI)
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return "", "", fmt.Errorf("conf URL must use http or https scheme (got %q)", parsed.Scheme)
 	}
-
-	repoURL = payload
-	query := ""
-	if questionMarkIndex := strings.Index(payload, "?"); questionMarkIndex >= 0 {
-		repoURL = payload[:questionMarkIndex]
-		query = payload[questionMarkIndex+1:]
+	if parsed.Host == "" {
+		return "", "", fmt.Errorf("conf URL must include a host (got %q)", rawURL)
 	}
+	queryValues := parsed.Query()
+	gitRef = strings.TrimSpace(queryValues.Get("ref"))
+	parsed.RawQuery = ""
+	parsed.Fragment = ""
+	repoURL = parsed.String()
 	if strings.TrimSpace(repoURL) == "" {
-		return "", "", fmt.Errorf("git source URI is missing repository URL: %q", gitURI)
-	}
-	if query != "" {
-		values, parseErr := url.ParseQuery(query)
-		if parseErr != nil {
-			return "", "", fmt.Errorf("parse git URI query %q: %w", query, parseErr)
-		}
-		gitRef = strings.TrimSpace(values.Get("ref"))
+		return "", "", fmt.Errorf("conf URL must include repository location (got %q)", rawURL)
 	}
 	return repoURL, gitRef, nil
 }
@@ -616,29 +782,6 @@ func runGitCommand(dir string, args ...string) error {
 		return fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, trimmedOutput)
 	}
 	return nil
-}
-
-// applyInitDefaultsFromProducerConf applies producer-conf defaults only when
-// corresponding CLI flags are unset.
-//
-// Intent: Keep consumer init precedence deterministic (`CLI > producer >
-// existing local > built-ins`) for shared bootstrap defaults while excluding
-// identity transport from producer devcontainer metadata.
-// Source: DI-001-20260425-113454 (TODO/001)
-func applyInitDefaultsFromProducerConf(f *initFlags, setFlags map[string]bool, defaults initProducerDefaults) {
-	if !setFlags["tool-uri"] && defaults.ToolURI != "" {
-		f.toolURI = defaults.ToolURI
-	}
-	if !setFlags["home"] && defaults.Home != "" {
-		f.home = defaults.Home
-	}
-	if !setFlags["log-dir"] && defaults.LogDir != "" {
-		f.logDir = defaults.LogDir
-	}
-}
-
-func boolPointer(value bool) *bool {
-	return &value
 }
 
 // isInteractiveInput reports whether file is connected to a terminal-like input.
@@ -706,14 +849,6 @@ func applyInitDefaultsFromExistingDevcontainer(f *initFlags, setFlags map[string
 	if defaults.BuildDockerfile != "" {
 		f.buildDockerfile = defaults.BuildDockerfile
 		f.buildContext = defaults.BuildContext
-		// Build-backed devcontainers should continue to render a build stanza
-		// unless the operator explicitly passes -image to switch modes. Producer
-		// mode keeps image defaults because `-image` supplies Dockerfile FROM.
-		if !setFlags["image"] {
-			if !f.confMode {
-				f.image = ""
-			}
-		}
 	}
 	if !setFlags["conf-uri"] && defaults.ConfURI != "" {
 		f.confURI = defaults.ConfURI
@@ -912,22 +1047,65 @@ func parseDockerfileEnvAssignments(line string) map[string]string {
 	return assignments
 }
 
-// stripJSONCLineCommentsForInit removes full-line // comments from devcontainer
-// JSON so common JSONC files can be decoded as ordinary JSON.
+// stripJSONCLineCommentsForInit removes `//` JSONC line comments (both full-line
+// and inline) while preserving `//` sequences that appear inside JSON strings.
 func stripJSONCLineCommentsForInit(content []byte) ([]byte, error) {
-	scanner := bufio.NewScanner(bytes.NewReader(content))
-	lines := make([]string, 0)
-	for scanner.Scan() {
-		line := scanner.Text()
-		if strings.HasPrefix(strings.TrimSpace(line), "//") {
+	var out bytes.Buffer
+	inString := false
+	escapeNext := false
+	inLineComment := false
+
+	for index := 0; index < len(content); index++ {
+		character := content[index]
+
+		if inLineComment {
+			if character == '\n' {
+				inLineComment = false
+				if _, err := out.Write([]byte{character}); err != nil {
+					return nil, err
+				}
+			}
 			continue
 		}
-		lines = append(lines, line)
+
+		if inString {
+			if _, err := out.Write([]byte{character}); err != nil {
+				return nil, err
+			}
+			if escapeNext {
+				escapeNext = false
+				continue
+			}
+			if character == '\\' {
+				escapeNext = true
+				continue
+			}
+			if character == '"' {
+				inString = false
+			}
+			continue
+		}
+
+		if character == '"' {
+			inString = true
+			if _, err := out.Write([]byte{character}); err != nil {
+				return nil, err
+			}
+			continue
+		}
+
+		if character == '/' && index+1 < len(content) && content[index+1] == '/' {
+			inLineComment = true
+			index++
+			continue
+		}
+
+		if _, err := out.Write([]byte{character}); err != nil {
+			return nil, err
+		}
 	}
-	if err := scanner.Err(); err != nil {
-		return nil, err
-	}
-	return []byte(strings.Join(lines, "\n")), nil
+
+	return out.Bytes(), nil
 }
 
 func stringValueFromAnyMap(values map[string]any, key string) string {
@@ -948,16 +1126,16 @@ func stringValueFromAnyMap(values map[string]any, key string) string {
 
 // writeInitStage0 renders embedded templates and writes them to
 // <repoRoot>/.devcontainer/.
-func writeInitStage0(repoRoot string, data stage0.DevcontainerTemplateData, force bool) ([]initWriteResult, error) {
+func writeInitStage0(repoRoot string, data initConsumerDevcontainerTemplateData, force bool) ([]initWriteResult, error) {
 	devcontainerDir := filepath.Join(repoRoot, ".devcontainer")
 	if err := os.MkdirAll(devcontainerDir, 0o755); err != nil {
 		return nil, err
 	}
 
-	// Intent: Use the shared stage-0 renderer so decomk init and generated
-	// examples stay in lockstep with one template/data contract.
-	// Source: DI-001-20260312-141200 (TODO/001)
-	devcontainerJSON, err := stage0.RenderDevcontainerJSON(initDevcontainerJSONTemplate, data)
+	// Intent: Keep image-consumer init output minimal (`name` + `image`) by
+	// rendering through a dedicated consumer template contract.
+	// Source: DI-016-20260427-200729 (TODO/016)
+	devcontainerJSON, err := stage0.RenderTemplate("consumer.devcontainer.json", initConsumerDevcontainerJSONTemplate, data)
 	if err != nil {
 		return nil, err
 	}

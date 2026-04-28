@@ -2,6 +2,15 @@
 
 ## Decision Intent Log
 
+ID: DI-001-20260427-200729
+Date: 2026-04-27 20:07:29
+Status: active
+Decision: For image-consumer `decomk init`, switch to minimal consumer devcontainer output (`name` + `image`) with image resolution via `-image` or `-conf-url` (HTTP(S)+optional `?ref=`), keep producer-only flags recognized but misuse-checked in consumer mode (`-<flag> is only valid with -conf` + usage), and prepend an image producer/image consumer note to init help while keeping flat Go flag output.
+Intent: Keep consumer repos low-churn and image-centric while preserving one command surface and clear mode-scoped behavior for shared producer settings.
+Constraints: No migration guidance text (pre-production); consumer misuse check order is deterministic (`conf-uri`, `tool-uri`, `home`, `log-dir`, `fail-no-boot`); producer mode behavior remains unchanged unless explicitly scoped by TODO 016.
+Affects: `cmd/decomk/init.go`, `cmd/decomk/init_templates.go`, `cmd/decomk/templates/consumer.devcontainer.json.tmpl`, `cmd/decomk/init_test.go`, `README.md`, `TODO/016-consumer-init-minimal-template-and-image-source.md`.
+Supersedes: DI-001-20260425-113454 (consumer config-source and prompt behavior details only), DI-001-20260424-190437 (consumer output-shape details only)
+
 ID: DI-001-20260425-232447
 Date: 2026-04-25 23:24:47
 Status: active

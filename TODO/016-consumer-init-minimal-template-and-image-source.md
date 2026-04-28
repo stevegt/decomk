@@ -2,9 +2,26 @@
 
 ## Decision Intent Log
 
+ID: DI-016-20260427-200729
+Date: 2026-04-27 20:07:29
+Status: active
+Decision: Keep producer-only legacy flags recognized in `decomk init` but treat them as misuse in image-consumer mode: fail with per-flag message `-<flag> is only valid with -conf`, print normal init usage, and report the first offending flag in deterministic order. Keep Go's flat flag list and prepend a detailed mode note using "image producer" / "image consumer" terminology, including that the image producer repo is usually the conf repo.
+Intent: Keep CLI behavior explicit and user-friendly without introducing hidden mode-specific flag parsers, while making mode semantics obvious from standard help output.
+Constraints:
+- No migration guidance text for removed consumer behavior; decomk is pre-production.
+- Producer-only misuse checks in consumer mode cover `-conf-uri`, `-tool-uri`, `-home`, `-log-dir`, and `-fail-no-boot`.
+- Usage output stays flat (`PrintDefaults`) with a prepended explanatory note (no section renderer).
+Affects:
+- `cmd/decomk/init.go`
+- `cmd/decomk/init_test.go`
+- `README.md`
+- `TODO/001-decomk-devcontainer-tool-bootstrap.md`
+Supersedes:
+- DI-016-20260428-024605 (legacy-flag guidance wording and usage-output presentation details only)
+
 ID: DI-016-20260428-024605  
 Date: 2026-04-28 02:46:05  
-Status: active  
+Status: superseded  
 Decision: Redesign consumer `decomk init` so generated consumer `.devcontainer/devcontainer.json` contains only `name` and `image`, add consumer-facing `-conf-url` (HTTP URL) for image derivation via producer repo lookup, replace legacy consumer env prompts/flags with hard errors, and implement an explicit interactive source-selection menu for image acquisition.  
 Intent: Keep consumer repos minimal and low-churn while still giving developers an easy, authoritative path to discover image tags from a familiar GitHub HTTP repo URL.  
 Constraints:  
@@ -13,7 +30,7 @@ Constraints:
 - `-image` must short-circuit conf URL prompting.  
 - `-conf-url` accepts HTTP(S) only (not SSH), with optional `?ref=<branch|tag|sha>`.  
 - Producer (`decomk init -conf`) behavior remains separate and unchanged by this TODO unless explicitly listed below.  
-- Consumer-mode legacy flags `-conf-uri`, `-tool-uri`, `-home`, `-log-dir`, `-fail-no-boot` must hard-fail with actionable migration guidance.  
+- Consumer-mode legacy flags `-conf-uri`, `-tool-uri`, `-home`, `-log-dir`, `-fail-no-boot` must fail as mode misuse with clear per-flag errors.  
 - JSONC parser used for image derivation must support full-line and inline `//` comments safely.  
 Affects:  
 - `cmd/decomk/init.go`  
@@ -57,9 +74,10 @@ Make consumer `decomk init` decision-light and stable by generating only identit
 12. Interactive derivation failure warns and continues to manual image prompt.
 13. `-no-prompt` with no `-image` and no `-conf-url`: reuse existing image if present, otherwise fail.
 14. `-no-prompt` derivation failure is hard fail.
-15. Consumer hard-error legacy flags: `-conf-uri`, `-tool-uri`, `-home`, `-log-dir`, `-fail-no-boot`.
+15. Consumer legacy flags fail as mode misuse errors: `-conf-uri`, `-tool-uri`, `-home`, `-log-dir`, `-fail-no-boot`.
 16. Existing consumer `build` stanzas are not preserved; consumer output is image-based minimal contract.
 17. Template architecture uses 3-template model: producer full template, consumer minimal template, examples/selftest full template.
+18. Keep Go's flat init flag list and prepend a detailed mode note (image producer vs image consumer; producer repo usually equals conf repo).
 
 ## Scope
 
@@ -67,7 +85,7 @@ In scope:
 1. Consumer init prompt/flag/render behavior in `cmd/decomk/init.go`.
 2. New consumer template embedding and render path.
 3. Unit tests for new behavior and regressions.
-4. README updates for consumer command UX and migration.
+4. README updates for consumer command UX.
 5. TE artifact docs and DI append updates.
 
 Out of scope:
@@ -82,12 +100,13 @@ Out of scope:
 
 1. Add consumer flag:
    - `-conf-url <http(s) repo URL[?ref=...]>`
-2. Consumer-mode legacy hard errors:
+2. Consumer-mode legacy misuse errors:
    - `-conf-uri`
    - `-tool-uri`
    - `-home`
    - `-log-dir`
    - `-fail-no-boot`
+   - report first offending flag in deterministic order, then print normal init usage.
 3. Interactive image-source menu:
    - Option 1: conf repo URL
    - Option 2: image URI
@@ -175,7 +194,7 @@ Add/update tests in `cmd/decomk/init_test.go` covering:
    - uses existing image when available.
 10. `-no-prompt` with no sources and no existing image:
    - fails with guidance.
-11. Consumer legacy flags hard-fail:
+11. Consumer legacy flags fail as misuse errors:
    - each of `-conf-uri`, `-tool-uri`, `-home`, `-log-dir`, `-fail-no-boot`.
 12. HTTP URL parser:
    - accepts http/https.
@@ -191,9 +210,8 @@ Add/update tests in `cmd/decomk/init_test.go` covering:
 1. Update `README.md` consumer init docs:
    - new `-conf-url` behavior and HTTP URL requirement.
    - menu behavior and image override semantics.
-   - legacy consumer flags now hard error.
+   - legacy consumer flags now report mode misuse.
    - consumer output is minimal and image-centric.
-2. Add migration note from `-conf-uri` to `-conf-url` for consumer image derivation use-case.
 
 ## Thought Experiments (Required Artifacts)
 
@@ -220,27 +238,27 @@ Add/update tests in `cmd/decomk/init_test.go` covering:
 
 ## Subtasks
 
-- [ ] 016.1 Add this TODO to `TODO/TODO.md` in priority order.
-- [ ] 016.2 Append DI entries to `TODO/001-decomk-devcontainer-tool-bootstrap.md` referencing this TODO.
-- [ ] 016.3 Add TE doc `TE-20260428-020715-consumer-init-image-source.md`.
-- [ ] 016.4 Add TE doc `TE-20260428-023011-template-architecture.md`.
-- [ ] 016.5 Add new consumer template file `cmd/decomk/templates/consumer.devcontainer.json.tmpl`.
-- [ ] 016.6 Embed consumer template in `cmd/decomk/init_templates.go`.
-- [ ] 016.7 Implement consumer minimal render path in `cmd/decomk/init.go`.
-- [ ] 016.8 Add `-conf-url` flag and parser in `cmd/decomk/init.go`.
-- [ ] 016.9 Add consumer legacy-flag hard-error validation in `cmd/decomk/init.go`.
-- [ ] 016.10 Implement interactive source menu flow in `cmd/decomk/init.go`.
-- [ ] 016.11 Implement keep-existing-image menu option behavior.
-- [ ] 016.12 Implement conf-url derivation via clone + ref checkout + parse.
-- [ ] 016.13 Upgrade JSONC comment handling for derivation parser.
-- [ ] 016.14 Implement non-interactive precedence/failure behavior exactly per locks.
-- [ ] 016.15 Ensure `-image` short-circuits conf-url prompting.
-- [ ] 016.16 Keep consumer stage0 script generation unchanged.
-- [ ] 016.17 Update consumer init tests in `cmd/decomk/init_test.go`.
-- [ ] 016.18 Update `README.md` for new consumer UX and migration guidance.
-- [ ] 016.19 Run `go test ./...`.
-- [ ] 016.20 Run `errcheck ./...`.
-- [ ] 016.21 Perform comment-delta audit on touched code files.
+- [x] 016.1 Add this TODO to `TODO/TODO.md` in priority order.
+- [x] 016.2 Append DI entries to `TODO/001-decomk-devcontainer-tool-bootstrap.md` referencing this TODO.
+- [x] 016.3 Add TE doc `TE-20260428-020715-consumer-init-image-source.md`.
+- [x] 016.4 Add TE doc `TE-20260428-023011-template-architecture.md`.
+- [x] 016.5 Add new consumer template file `cmd/decomk/templates/consumer.devcontainer.json.tmpl`.
+- [x] 016.6 Embed consumer template in `cmd/decomk/init_templates.go`.
+- [x] 016.7 Implement consumer minimal render path in `cmd/decomk/init.go`.
+- [x] 016.8 Add `-conf-url` flag and parser in `cmd/decomk/init.go`.
+- [x] 016.9 Add consumer legacy-flag misuse validation in `cmd/decomk/init.go`.
+- [x] 016.10 Implement interactive source menu flow in `cmd/decomk/init.go`.
+- [x] 016.11 Implement keep-existing-image menu option behavior.
+- [x] 016.12 Implement conf-url derivation via clone + ref checkout + parse.
+- [x] 016.13 Upgrade JSONC comment handling for derivation parser.
+- [x] 016.14 Implement non-interactive precedence/failure behavior exactly per locks.
+- [x] 016.15 Ensure `-image` short-circuits conf-url prompting.
+- [x] 016.16 Keep consumer stage0 script generation unchanged.
+- [x] 016.17 Update consumer init tests in `cmd/decomk/init_test.go`.
+- [x] 016.18 Update `README.md` for new consumer UX.
+- [x] 016.19 Run `go test ./...`.
+- [x] 016.20 Run `errcheck ./...`.
+- [x] 016.21 Perform comment-delta audit on touched code files.
 - [ ] 016.22 Prepare Decision Matrix + Runtime Path Touch Matrix in final handoff.
 
 ## Acceptance Criteria
@@ -251,7 +269,7 @@ Add/update tests in `cmd/decomk/init_test.go` covering:
 4. `-image` suppresses conf-url prompt flow.
 5. `-conf-url` supports HTTP(S) plus optional `?ref=...` and derives image correctly.
 6. Derivation failures behave as locked: interactive warn+manual, non-interactive fail.
-7. Consumer legacy flags hard-fail with migration guidance.
+7. Consumer legacy flags fail as mode misuse errors and print init usage.
 8. Tests cover all locked behaviors and pass.
 9. `errcheck ./...` passes.
 10. TE docs and DI updates are present and linked.
