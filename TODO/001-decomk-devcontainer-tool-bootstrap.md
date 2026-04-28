@@ -2,6 +2,14 @@
 
 ## Decision Intent Log
 
+ID: DI-001-20260428-041115
+Date: 2026-04-28 04:11:15
+Status: active
+Decision: Print the exact make argv on stdout immediately before decomk executes make in both `plan` and `run` modes.
+Intent: Give operators a deterministic, copy/paste-ready command line for debugging and audit clarity without needing to infer argv ordering from logs or code.
+Constraints: The printed argv order must exactly match execution order (`flags`, `-f`, tuples, targets); output must be emitted from decomk (not make), and should not alter invocation semantics.
+Affects: `cmd/decomk/main.go`, `cmd/decomk/main_test.go`, `TODO/001-decomk-devcontainer-tool-bootstrap.md`.
+
 ID: DI-001-20260427-200729
 Date: 2026-04-27 20:07:29
 Status: active

@@ -215,6 +215,103 @@ func TestCmdRun_RequiresActionArg(t *testing.T) {
 	}
 }
 
+func TestBuildMakeArgv_Order(t *testing.T) {
+	t.Parallel()
+
+	got := buildMakeArgv(
+		[]string{"make"},
+		[]string{"-n"},
+		"/tmp/Makefile",
+		[]string{"FOO=bar", "BAR=baz"},
+		[]string{"Block00_base", "Block10_common"},
+	)
+	want := []string{
+		"make",
+		"-n",
+		"-f", "/tmp/Makefile",
+		"FOO=bar",
+		"BAR=baz",
+		"Block00_base",
+		"Block10_common",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("buildMakeArgv(): got %#v want %#v", got, want)
+	}
+}
+
+func TestShellJoinArgv_QuotesUnsafeArgs(t *testing.T) {
+	t.Parallel()
+
+	got := shellJoinArgv([]string{
+		"make",
+		"-f",
+		"/tmp/has space/Makefile",
+		"FOO=bar",
+		"TARGETS=one two",
+	})
+	want := "make -f '/tmp/has space/Makefile' FOO=bar 'TARGETS=one two'"
+	if got != want {
+		t.Fatalf("shellJoinArgv(): got %q want %q", got, want)
+	}
+}
+
+func TestCmdPlan_PrintsMakeCommandBeforeMakeOutput(t *testing.T) {
+	t.Parallel()
+
+	home := t.TempDir()
+	workspacesDir := t.TempDir()
+	configPath := filepath.Join(t.TempDir(), "decomk.conf")
+	makefilePath := filepath.Join(t.TempDir(), "Makefile")
+
+	if err := os.WriteFile(configPath, []byte("DEFAULT:\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile(configPath): %v", err)
+	}
+
+	makefile := strings.Join([]string{
+		"SHELL := /bin/bash",
+		".RECIPEPREFIX := >",
+		"target:",
+		">@echo plan-run-marker",
+		"",
+	}, "\n")
+	if err := os.WriteFile(makefilePath, []byte(makefile), 0o600); err != nil {
+		t.Fatalf("WriteFile(makefilePath): %v", err)
+	}
+
+	args := []string{
+		"-home", home,
+		"-workspaces", workspacesDir,
+		"-config", configPath,
+		"-makefile", makefilePath,
+		"target",
+	}
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code, err := cmdPlan(args, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("cmdPlan() error: %v (stderr=%q)", err, stderr.String())
+	}
+	if code != 0 {
+		t.Fatalf("cmdPlan() code: got %d want 0 (stderr=%q)", code, stderr.String())
+	}
+
+	outText := stdout.String()
+	makeCommandNeedle := "make command: make -n -f " + makefilePath
+	makeCommandIdx := strings.Index(outText, makeCommandNeedle)
+	if makeCommandIdx < 0 {
+		t.Fatalf("stdout missing make command line %q:\n%s", makeCommandNeedle, outText)
+	}
+
+	makeOutputIdx := strings.Index(outText, "echo plan-run-marker")
+	if makeOutputIdx < 0 {
+		t.Fatalf("stdout missing expected make -n output marker:\n%s", outText)
+	}
+	if makeCommandIdx > makeOutputIdx {
+		t.Fatalf("make command line appears after make output (cmd=%d output=%d):\n%s", makeCommandIdx, makeOutputIdx, outText)
+	}
+}
+
 func TestSelectTargets_PassthroughInstallTuple(t *testing.T) {
 	t.Parallel()
 

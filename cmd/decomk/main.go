@@ -543,6 +543,15 @@ func cmdExecute(args []string, stdout, stderr io.Writer, mode executionMode) (ex
 		}
 	}
 
+	makeArgv := buildMakeArgv(makeCmd, mode.MakeFlags, plan.Makefile, makeTuples, targets)
+	// Intent: Print the exact argv decomk is about to execute so operators can
+	// see/copy the concrete make invocation without reverse-engineering tuple and
+	// target ordering from code or logs.
+	// Source: DI-001-20260428-041115 (TODO/001)
+	if err := writeLine(stdout, "make command:", shellJoinArgv(makeArgv)); err != nil {
+		return 1, err
+	}
+
 	exitCode, runErr := makeexec.RunWithFlagsCommand(plan.StampDir, plan.Makefile, makeCmd, mode.MakeFlags, makeTuples, targets, makeEnv, out, errOut)
 	if !mode.DryRun {
 		// Intent: Use DECOMK_STAGE0_PHASE as the single phase source and let
@@ -2063,4 +2072,32 @@ func shellQuote(s string) string {
 	}
 	// Close/open around any embedded single quote.
 	return "'" + strings.ReplaceAll(s, "'", `'"'"'`) + "'"
+}
+
+// buildMakeArgv renders the exact argv decomk passes to exec.Command for make.
+//
+// Ordering is intentionally identical to makeexec.RunWithFlagsCommand:
+// command prefix, then flags, optional "-f <makefile>", tuples, and targets.
+func buildMakeArgv(command, flags []string, makefile string, tuples, targets []string) []string {
+	argv := append([]string(nil), command...)
+	argv = append(argv, flags...)
+	if makefile != "" {
+		argv = append(argv, "-f", makefile)
+	}
+	argv = append(argv, tuples...)
+	argv = append(argv, targets...)
+	return argv
+}
+
+// shellJoinArgv returns a shell-safe command preview for humans.
+func shellJoinArgv(argv []string) string {
+	parts := make([]string, 0, len(argv))
+	for _, arg := range argv {
+		if arg == "" || strings.ContainsAny(arg, " \t\n'\"`$&;|<>*?()[]{}!#~") {
+			parts = append(parts, shellQuote(arg))
+			continue
+		}
+		parts = append(parts, arg)
+	}
+	return strings.Join(parts, " ")
 }
