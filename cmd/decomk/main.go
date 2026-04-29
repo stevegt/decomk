@@ -698,7 +698,7 @@ func createRunLogDir(plan *resolvedPlan, runID string, stderr io.Writer) (string
 // renderRunMotdBody renders the post-make status summary body for MOTD.
 //
 // The content intentionally mirrors an operator-oriented quick status template:
-//   - visible stamp names (ls-like listing from DECOMK_STAMPDIR)
+//   - visible stamp names (compact ls-like listing from DECOMK_STAMPDIR)
 //   - resolved context keys
 //   - resolved make targets
 //   - lifecycle phase + success/error status
@@ -736,10 +736,11 @@ func renderRunMotdBody(stampDir string, contextKeys, targets []string, phase str
 
 	var body strings.Builder
 	if readErr == nil {
-		for _, stampName := range stampNames {
-			body.WriteString(stampName)
-			body.WriteString("\n")
-		}
+		// Intent: Keep the stamp summary compact in MOTD while preserving sorted,
+		// visible-only names from the stamp directory.
+		// Source: DI-005-20260429-005528 (TODO/005)
+		body.WriteString(strings.Join(stampNames, " "))
+		body.WriteString("\n")
 	} else {
 		body.WriteString(fmt.Sprintf("(unable to list stamp dir %s: %v)\n", stampDir, readErr))
 	}

@@ -2,6 +2,14 @@
 
 ## Decision Intent Log
 
+ID: DI-005-20260429-005528
+Date: 2026-04-29 00:55:28
+Status: active
+Decision: Render the stamp summary in each run-phase MOTD file as one space-delimited line instead of one line per stamp file.
+Intent: Keep `/etc/motd.d` output compact and readable at login while preserving sorted, visible-only stamp names.
+Constraints: Hidden stamp files remain omitted, stamp ordering remains sorted, and the rest of the MOTD body format is unchanged.
+Affects: `cmd/decomk/main.go`, `cmd/decomk/main_test.go`, `TODO/005-decomk-log-dir-and-terminology.md`.
+
 ID: DI-005-20260426-013218
 Date: 2026-04-26 01:32:18
 Status: active

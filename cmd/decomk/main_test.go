@@ -828,8 +828,11 @@ func TestRenderRunMotdBody_Success(t *testing.T) {
 		"",
 	))
 
-	if !strings.Contains(got, "alpha\n") || !strings.Contains(got, "beta\n") {
-		t.Fatalf("renderRunMotdBody() missing stamp listing:\n%s", got)
+	if !strings.Contains(got, "alpha beta\n") {
+		t.Fatalf("renderRunMotdBody() missing compact stamp listing:\n%s", got)
+	}
+	if strings.Contains(got, "alpha\nbeta\n") || strings.Contains(got, "beta\nalpha\n") {
+		t.Fatalf("renderRunMotdBody() should not render one stamp per line:\n%s", got)
 	}
 	if strings.Contains(got, ".hidden\n") {
 		t.Fatalf("renderRunMotdBody() should not list hidden stamp files:\n%s", got)
