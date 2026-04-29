@@ -2,4 +2,4 @@
 
 package main
 
-const generatedDecomkVersion = "v0.28.0"
+const generatedDecomkVersion = "v0.29.0"
