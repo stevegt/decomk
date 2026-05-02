@@ -29,8 +29,14 @@ For deeper design background, see:
 - `VERSION` at repo root is the canonical CLI release version source.
 - `go generate ./...` updates `cmd/decomk/version_generated.go` from `VERSION`.
 - `decomk version` prints the generated value at runtime (unless overridden by build-time ldflags).
+- Immutable git tags from `VERSION` are the audit/release identity.
+- Moving git branches are the tool-install channels:
+  - `main` — active development
+  - `testing` — opt-in validation channel
+  - `stable` — default consumer channel
+- `@latest` is not the channel contract for this repo; generated stage-0 defaults and normal operator installs should follow `@stable`, while `@testing` is reserved for validation before stable promotion.
 
-Minor release workflow:
+Immutable release tag workflow:
 
 ```bash
 make release-minor
@@ -45,6 +51,23 @@ This runs `scripts/release.sh minor`, which:
 5. creates a matching git tag,
 6. pushes branch and tags.
 
+Channel promotion workflow:
+
+```bash
+# from branch main
+make promote-testing
+
+# after validation passes, from branch testing
+make promote-stable
+```
+
+Promotion rules:
+
+1. `release-minor` runs on `main` and only creates/pushes an immutable version tag.
+2. `promote-testing` fast-forwards/pushes `testing` from the current `main` HEAD.
+3. `promote-stable` fast-forwards/pushes `stable` from the current `testing` HEAD.
+4. Both promotion commands refuse dirty repos and refuse non-fast-forward channel movement.
+
 ## Step-by-step onboarding
 
 ### 1) Bootstrap one shared conf repo with `decomk init -conf`
@@ -52,7 +75,13 @@ This runs `scripts/release.sh minor`, which:
 Install decomk on your own machine:
 
 ```bash
-go install github.com/stevegt/decomk/cmd/decomk@latest
+go install github.com/stevegt/decomk/cmd/decomk@stable
+```
+
+To validate pending branch-channel changes before they reach stable:
+
+```bash
+go install github.com/stevegt/decomk/cmd/decomk@testing
 ```
 
 In your shared conf repo:
@@ -208,7 +237,7 @@ Generated copy:
 
 Primary stage-0 vars in `devcontainer.json`:
 
-- `DECOMK_TOOL_URI` — tool source (`go:` or `git:` URI)
+- `DECOMK_TOOL_URI` — tool source (`go:` or `git:` URI; generated default points at `go:github.com/stevegt/decomk/cmd/decomk@stable`)
 - `DECOMK_CONF_URI` — config source (`git:` URI)
 - `DECOMK_HOME` — state root (default `/var/decomk`)
 - `DECOMK_LOG_DIR` — run-log root (default `/var/log/decomk`)
@@ -396,7 +425,7 @@ the step has succeeded.
 
 4) Stage-0 bootstrap (outside decomk core)
    - lifecycle tooling (for example `.devcontainer/decomk-stage0.sh`) ensures a `decomk` binary is available in `PATH`:
-     - `DECOMK_TOOL_URI=go:<module>@<version>`: `go install <module>@<version>`
+     - `DECOMK_TOOL_URI=go:<module>@<version>`: `go install <module>@<version>` (typically an immutable tag or moving channel branch such as `testing` / `stable`)
      - `DECOMK_TOOL_URI=git:<repo-url>[?ref=<git-ref>]`: clone/pull repo into `<DECOMK_HOME>/src/decomk`, optionally checkout ref, then `go install ./cmd/decomk`
    - lifecycle tooling syncs `DECOMK_CONF_URI=git:<repo-url>[?ref=<git-ref>]` into `<DECOMK_HOME>/conf`
    - `decomk plan/run` consumes this local state and does not clone/pull repos itself.

@@ -90,7 +90,7 @@ failure-policy and documentation contracts in the decomk repo.
   decomk init -repo-root . -f -no-prompt \
     -name "mob-sandbox" \
     -conf-uri "git:https://github.com/ciwg/decomk-conf-cswg.git?ref=main" \
-    -tool-uri "go:github.com/stevegt/decomk/cmd/decomk@latest" \
+    -tool-uri "go:github.com/stevegt/decomk/cmd/decomk@testing" \
     -home "/var/decomk" \
     -log-dir "/var/log/decomk"
   ```

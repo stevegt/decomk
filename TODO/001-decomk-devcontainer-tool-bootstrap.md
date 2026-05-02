@@ -2,6 +2,15 @@
 
 ## Decision Intent Log
 
+ID: DI-001-20260502-233406
+Date: 2026-05-02 23:34:06
+Status: active
+Decision: Use moving git branches `testing` and `stable` as the canonical tool-install channels for this repo, keep `VERSION` git tags as immutable releases, default generated `DECOMK_TOOL_URI` to the `stable` branch, and promote branches explicitly in the order `main -> testing -> stable`.
+Intent: Give decomk operators a controlled branch-channel model for `go install` and stage-0 bootstrap without relying on Go's `@latest` resolution, while preserving immutable tags for audit and rollback.
+Constraints: `main` remains the development branch; `make release-minor` creates/pushes immutable tags only; `testing` promotion happens from `main`; `stable` promotion happens from `testing`; branch movement must be explicit and fast-forward-only.
+Affects: `stage0/stage0.go`, `cmd/decomk/templates/decomk-stage0.sh.tmpl`, generated stage-0 examples, `scripts/release.sh`, `Makefile`, `README.md`, `TODO/012-mob-sandbox-pilot.md`, `TODO/001-decomk-devcontainer-tool-bootstrap.md`.
+Supersedes: DI-001-20260423-051500
+
 ID: DI-001-20260428-041115
 Date: 2026-04-28 04:11:15
 Status: active

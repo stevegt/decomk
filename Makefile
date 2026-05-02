@@ -2,7 +2,7 @@
 # so developers and CI can enforce template/example sync consistently.
 # Source: DI-001-20260312-141200 (TODO/001)
 
-.PHONY: generate check-generated check-no-shell-swallow check-no-go-blank-assign check-errcheck test verify selftest-devpod selftest-codespaces selftest-codespaces-clean release-minor
+.PHONY: generate check-generated check-no-shell-swallow check-no-go-blank-assign check-errcheck test verify selftest-devpod selftest-codespaces selftest-codespaces-clean release-minor promote-testing promote-stable
 
 all: verify
 
@@ -64,6 +64,15 @@ selftest-codespaces-clean:
 # Source: DI-001-20260423-204251 (TODO/001)
 release-minor:
 	bash scripts/release.sh minor
+
+# Intent: Keep testing/stable branch promotion explicit and scripted so channel
+# movement is fast-forward-only and repeatable across operators.
+# Source: DI-001-20260502-233406 (TODO/001)
+promote-testing:
+	bash scripts/release.sh promote-testing
+
+promote-stable:
+	bash scripts/release.sh promote-stable
 
 install-latest:
 	latest_version=$$(git tag | sort -n -t '.' -k 2 | tail -1); \

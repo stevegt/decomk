@@ -32,11 +32,11 @@ const (
 	// DefaultToolURI is the canonical stage-0 tool source expression used when
 	// no explicit DECOMK_TOOL_URI is provided in generated devcontainer files.
 	//
-	// Intent: Keep stage-0 bootstrap source selection on one explicit URI grammar
-	// (`go:` / `git:`) so install-vs-clone behavior is determined by source value
-	// instead of a parallel mode variable family.
-	// Source: DI-001-20260423-051500 (TODO/001)
-	DefaultToolURI = "go:github.com/stevegt/decomk/cmd/decomk@latest"
+	// Intent: Default generated stage-0 bootstrap to the stable moving branch so
+	// consumers follow an explicit release channel, while leaving immutable tags
+	// available for audit/rollback and `testing` available for validation.
+	// Source: DI-001-20260502-233406 (TODO/001)
+	DefaultToolURI = "go:github.com/stevegt/decomk/cmd/decomk@stable"
 
 	// DefaultDevcontainerImage is the canonical base image used by stage-0
 	// generated devcontainer.json files when no build dockerfile is configured.

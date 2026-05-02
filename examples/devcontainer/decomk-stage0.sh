@@ -32,7 +32,10 @@ esac
 # Source: DI-001-20260412-170500 (TODO/001)
 DECOMK_HOME="${DECOMK_HOME:-/var/decomk}"
 DECOMK_LOG_DIR="${DECOMK_LOG_DIR:-/var/log/decomk}"
-DECOMK_TOOL_URI="${DECOMK_TOOL_URI:-go:github.com/stevegt/decomk/cmd/decomk@latest}"
+# Intent: Default stage-0 tool bootstrap to the stable channel branch so
+# generated consumers follow explicit repo-controlled channels instead of Go's
+# `@latest` selection semantics. Source: DI-001-20260502-233406 (TODO/001)
+DECOMK_TOOL_URI="${DECOMK_TOOL_URI:-go:github.com/stevegt/decomk/cmd/decomk@stable}"
 DECOMK_CONF_URI="${DECOMK_CONF_URI:-}"
 DECOMK_REMOTE_USER="${DECOMK_REMOTE_USER:-}"
 DECOMK_REMOTE_UID="${DECOMK_REMOTE_UID:-}"
