@@ -127,6 +127,83 @@ func TestCmdBranchRender_AutoChannel(t *testing.T) {
 	}
 }
 
+func TestCmdBranchRender_CommentsOverrideCommand(t *testing.T) {
+	repoRoot := t.TempDir()
+	writeBranchRegistryFixture(t, repoRoot, branchRegistryFixtureWithOverrideComment())
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code, err := cmdBranch([]string{"render", "-repo-root", repoRoot, "-channel", "main"}, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("cmdBranch(render main with comments) error: %v\nstderr=%s", err, stderr.String())
+	}
+	if code != 0 {
+		t.Fatalf("cmdBranch(render main with comments) code: got %d want 0\nstderr=%s", code, stderr.String())
+	}
+
+	content, err := os.ReadFile(filepath.Join(repoRoot, branchDevcontainerPath))
+	if err != nil {
+		t.Fatalf("ReadFile(rendered devcontainer with comments): %v", err)
+	}
+	renderedText := string(content)
+	commentBlock := "  // Intent: Preserve decomk's producer/consumer split while moving the GUI stack into explicit, standard system locations and avoiding legacy popup/autostart reminder behavior.\n  // Source: DI-004-20260430-182956\n  \"overrideCommand\": false,"
+	if !strings.Contains(renderedText, commentBlock) {
+		t.Fatalf("rendered devcontainer comments: missing block %q in\n%s", commentBlock, renderedText)
+	}
+}
+
+func TestCmdBranchRender_CheckFailsWhenCommentsDrift(t *testing.T) {
+	repoRoot := t.TempDir()
+	writeBranchRegistryFixture(t, repoRoot, branchRegistryFixtureWithOverrideComment())
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code, err := cmdBranch([]string{"render", "-repo-root", repoRoot, "-channel", "main"}, &stdout, &stderr)
+	if err != nil {
+		t.Fatalf("cmdBranch(render main with comments) error: %v\nstderr=%s", err, stderr.String())
+	}
+	if code != 0 {
+		t.Fatalf("cmdBranch(render main with comments) code: got %d want 0\nstderr=%s", code, stderr.String())
+	}
+
+	writeBranchRegistryFixture(t, repoRoot, strings.ReplaceAll(
+		branchRegistryFixtureWithOverrideComment(),
+		"legacy popup/autostart reminder behavior.",
+		"legacy popup/autostart reminder behavior changed.",
+	))
+
+	stdout.Reset()
+	stderr.Reset()
+	code, err = cmdBranch([]string{"render", "-repo-root", repoRoot, "-channel", "main", "-check"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatalf("cmdBranch(render -check comment drift) error: got nil want stale error")
+	}
+	if code != 1 {
+		t.Fatalf("cmdBranch(render -check comment drift) code: got %d want 1", code)
+	}
+	if !strings.Contains(err.Error(), "is stale") {
+		t.Fatalf("cmdBranch(render -check comment drift) error: got %q want stale message", err.Error())
+	}
+}
+
+func TestCmdBranchRender_RejectsCommentKeyForMissingRenderedField(t *testing.T) {
+	repoRoot := t.TempDir()
+	writeBranchRegistryFixture(t, repoRoot, branchRegistryFixtureWithImageComment())
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	code, err := cmdBranch([]string{"render", "-repo-root", repoRoot, "-channel", "main"}, &stdout, &stderr)
+	if err == nil {
+		t.Fatalf("cmdBranch(render main with image comment) error: got nil want comment-key rejection")
+	}
+	if code != 1 {
+		t.Fatalf("cmdBranch(render main with image comment) code: got %d want 1", code)
+	}
+	if !strings.Contains(err.Error(), "comment key \"image\" does not match a rendered field for channel \"main\"") {
+		t.Fatalf("cmdBranch(render main with image comment) error: got %q want comment-key rejection", err.Error())
+	}
+}
+
 func branchRegistryFixture() string {
 	return `{
   "version": 1,
@@ -168,6 +245,36 @@ func branchRegistryFixture() string {
     }
   }
 }`
+}
+
+func branchRegistryFixtureWithOverrideComment() string {
+	return strings.Replace(
+		branchRegistryFixture(),
+		`    "name": "decomk-conf-cswg",`+"\n",
+		`    "name": "decomk-conf-cswg",`+"\n"+
+			`    "comments": {`+"\n"+
+			`      "overrideCommand": [`+"\n"+
+			`        "Intent: Preserve decomk's producer/consumer split while moving the GUI stack into explicit, standard system locations and avoiding legacy popup/autostart reminder behavior.",`+"\n"+
+			`        "Source: DI-004-20260430-182956"`+"\n"+
+			`      ]`+"\n"+
+			`    },`+"\n",
+		1,
+	)
+}
+
+func branchRegistryFixtureWithImageComment() string {
+	return strings.Replace(
+		branchRegistryFixture(),
+		`    "name": "decomk-conf-cswg",`+"\n",
+		`    "name": "decomk-conf-cswg",`+"\n"+
+			`    "comments": {`+"\n"+
+			`      "image": [`+"\n"+
+			`        "Intent: Image comments should fail on build channels.",`+"\n"+
+			`        "Source: DI-018-test"`+"\n"+
+			`      ]`+"\n"+
+			`    },`+"\n",
+		1,
+	)
 }
 
 func writeBranchRegistryFixture(t *testing.T, repoRoot, content string) {

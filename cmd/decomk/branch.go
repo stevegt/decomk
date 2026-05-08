@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/stevegt/decomk/stage0"
+	"github.com/tailscale/hujson"
 )
 
 const (
@@ -46,15 +47,16 @@ type branchRegistry struct {
 }
 
 type branchDevcontainerDefaults struct {
-	Path                 string            `json:"path"`
-	Name                 string            `json:"name"`
-	Build                *branchBuild      `json:"build,omitempty"`
-	Image                string            `json:"image,omitempty"`
-	OverrideCommand      *bool             `json:"overrideCommand,omitempty"`
-	ContainerEnv         map[string]string `json:"containerEnv,omitempty"`
-	UpdateRemoteUserUID  *bool             `json:"updateRemoteUserUID,omitempty"`
-	UpdateContentCommand string            `json:"updateContentCommand,omitempty"`
-	PostCreateCommand    string            `json:"postCreateCommand,omitempty"`
+	Path                 string              `json:"path"`
+	Name                 string              `json:"name"`
+	Comments             map[string][]string `json:"comments,omitempty"`
+	Build                *branchBuild        `json:"build,omitempty"`
+	Image                string              `json:"image,omitempty"`
+	OverrideCommand      *bool               `json:"overrideCommand,omitempty"`
+	ContainerEnv         map[string]string   `json:"containerEnv,omitempty"`
+	UpdateRemoteUserUID  *bool               `json:"updateRemoteUserUID,omitempty"`
+	UpdateContentCommand string              `json:"updateContentCommand,omitempty"`
+	PostCreateCommand    string              `json:"postCreateCommand,omitempty"`
 }
 
 type branchChannel struct {
@@ -77,6 +79,10 @@ type branchRenderedDevcontainer struct {
 	UpdateRemoteUserUID  *bool             `json:"updateRemoteUserUID,omitempty"`
 	UpdateContentCommand string            `json:"updateContentCommand,omitempty"`
 	PostCreateCommand    string            `json:"postCreateCommand,omitempty"`
+}
+
+type plannedBranchField struct {
+	key string
 }
 
 // cmdBranch routes branch-channel commands.
@@ -302,13 +308,54 @@ func (registry *branchRegistry) render(channelName string) (string, []byte, erro
 		devcontainer.Image = ""
 	}
 
-	jsonContent, err := json.MarshalIndent(devcontainer, "", "  ")
+	plannedFields := planBranchFields(devcontainer)
+	fieldKeys := make([]string, 0, len(plannedFields))
+	for _, plannedField := range plannedFields {
+		fieldKeys = append(fieldKeys, plannedField.key)
+	}
+	if err := validateCommentKeys(registry.Devcontainer.Comments, fieldKeys, channelName); err != nil {
+		return "", nil, err
+	}
+	renderedContent, err := writeBranchDevcontainer(devcontainer, plannedFields, registry.Devcontainer.Comments)
 	if err != nil {
 		return "", nil, err
 	}
-	renderedContent := append([]byte(branchRenderHeader), jsonContent...)
-	renderedContent = append(renderedContent, '\n')
 	return targetPath, renderedContent, nil
+}
+
+// planBranchFields keeps comment targeting aligned with the exact set and order
+// of top-level keys that the current renderer will emit for the selected
+// channel.
+//
+// Intent: Validate registry-owned comment targets against the actual rendered
+// top-level devcontainer fields so generated JSONC stays deterministic and
+// comment placement cannot silently drift.
+// Source: DI-018-20260507-204852 (TODO/018)
+func planBranchFields(devcontainer branchRenderedDevcontainer) []plannedBranchField {
+	plannedFields := []plannedBranchField{
+		{key: "name"},
+	}
+	if devcontainer.Build != nil {
+		plannedFields = append(plannedFields, plannedBranchField{key: "build"})
+	} else if strings.TrimSpace(devcontainer.Image) != "" {
+		plannedFields = append(plannedFields, plannedBranchField{key: "image"})
+	}
+	if devcontainer.OverrideCommand != nil {
+		plannedFields = append(plannedFields, plannedBranchField{key: "overrideCommand"})
+	}
+	if len(devcontainer.ContainerEnv) != 0 {
+		plannedFields = append(plannedFields, plannedBranchField{key: "containerEnv"})
+	}
+	if devcontainer.UpdateRemoteUserUID != nil {
+		plannedFields = append(plannedFields, plannedBranchField{key: "updateRemoteUserUID"})
+	}
+	if strings.TrimSpace(devcontainer.UpdateContentCommand) != "" {
+		plannedFields = append(plannedFields, plannedBranchField{key: "updateContentCommand"})
+	}
+	if strings.TrimSpace(devcontainer.PostCreateCommand) != "" {
+		plannedFields = append(plannedFields, plannedBranchField{key: "postCreateCommand"})
+	}
+	return plannedFields
 }
 
 func validateBranchSource(buildSource *branchBuild, imageSource string) error {
@@ -329,6 +376,29 @@ func validateBranchSource(buildSource *branchBuild, imageSource string) error {
 	return nil
 }
 
+// validateCommentKeys rejects registry-owned comment targets that do not map to
+// a field actually rendered for the selected channel.
+//
+// Intent: Fail fast when `.decomk/channels.json` tries to preserve DI/comment
+// context for a field that is absent from the rendered devcontainer file.
+// Source: DI-018-20260507-204852 (TODO/018)
+func validateCommentKeys(comments map[string][]string, fieldKeys []string, channelName string) error {
+	if len(comments) == 0 {
+		return nil
+	}
+	allowedKeys := make(map[string]struct{}, len(fieldKeys))
+	for _, fieldKey := range fieldKeys {
+		allowedKeys[fieldKey] = struct{}{}
+	}
+	for commentKey := range comments {
+		if _, ok := allowedKeys[commentKey]; ok {
+			continue
+		}
+		return fmt.Errorf("comment key %q does not match a rendered field for channel %q", commentKey, channelName)
+	}
+	return nil
+}
+
 // validateBranchToolURI blocks promoted channels from following `@latest`, which
 // would reintroduce tool drift after the registry has already pinned build/image
 // and conf-repo refs per channel.
@@ -344,6 +414,116 @@ func validateBranchToolURI(channelName string, containerEnv map[string]string) e
 		return fmt.Errorf("channel %q cannot use DECOMK_TOOL_URI ending in @latest", channelName)
 	}
 	return nil
+}
+
+// writeBranchDevcontainer preserves the current generated devcontainer layout,
+// then uses HuJSON AST mutation to inject registry-owned JSONC comment blocks
+// immediately before matching top-level fields.
+//
+// Intent: Keep the existing rendered JSON shape stable while allowing downstream
+// repos to preserve DI/comment provenance inside generated devcontainer files.
+// Source: DI-018-20260507-204852 (TODO/018)
+func writeBranchDevcontainer(devcontainer branchRenderedDevcontainer, plannedFields []plannedBranchField, comments map[string][]string) ([]byte, error) {
+	jsonContent, err := json.MarshalIndent(devcontainer, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	renderedContent := append([]byte(branchRenderHeader), jsonContent...)
+	renderedContent = append(renderedContent, '\n')
+	if len(comments) == 0 {
+		return renderedContent, nil
+	}
+
+	parsedContent, err := hujson.Parse(renderedContent)
+	if err != nil {
+		return nil, fmt.Errorf("parse rendered devcontainer as hujson: %w", err)
+	}
+	object, ok := parsedContent.Value.(*hujson.Object)
+	if !ok {
+		return nil, fmt.Errorf("rendered devcontainer root is not a hujson object")
+	}
+	fieldIndexes, err := plannedBranchFieldIndexes(object, plannedFields)
+	if err != nil {
+		return nil, err
+	}
+	for _, plannedField := range plannedFields {
+		commentLines, ok := comments[plannedField.key]
+		if !ok {
+			continue
+		}
+		memberIndex, ok := fieldIndexes[plannedField.key]
+		if !ok {
+			return nil, fmt.Errorf("rendered devcontainer field %q missing from hujson object", plannedField.key)
+		}
+		member := object.Members[memberIndex]
+		member.Name.BeforeExtra = branchCommentExtra(member.Name.BeforeExtra, commentLines)
+		object.Members[memberIndex] = member
+	}
+	parsedContent.Value = object
+	packedContent := parsedContent.Pack()
+	if len(packedContent) == 0 || packedContent[len(packedContent)-1] != '\n' {
+		packedContent = append(packedContent, '\n')
+	}
+	return packedContent, nil
+}
+
+// plannedBranchFieldIndexes maps the actual HuJSON object members back to the
+// planned top-level field keys so comment injection can target the exact member
+// that will be written to disk.
+func plannedBranchFieldIndexes(object *hujson.Object, plannedFields []plannedBranchField) (map[string]int, error) {
+	fieldIndexes := make(map[string]int, len(object.Members))
+	for memberIndex, member := range object.Members {
+		fieldKey, err := branchObjectMemberKey(member)
+		if err != nil {
+			return nil, err
+		}
+		fieldIndexes[fieldKey] = memberIndex
+	}
+	for _, plannedField := range plannedFields {
+		if _, ok := fieldIndexes[plannedField.key]; ok {
+			continue
+		}
+		return nil, fmt.Errorf("rendered devcontainer field %q missing from hujson object", plannedField.key)
+	}
+	return fieldIndexes, nil
+}
+
+func branchObjectMemberKey(member hujson.ObjectMember) (string, error) {
+	nameLiteral, ok := member.Name.Value.(hujson.Literal)
+	if !ok {
+		return "", fmt.Errorf("rendered devcontainer member name is not a string literal")
+	}
+	var fieldKey string
+	if err := json.Unmarshal([]byte(nameLiteral), &fieldKey); err != nil {
+		return "", fmt.Errorf("decode rendered devcontainer member name: %w", err)
+	}
+	return fieldKey, nil
+}
+
+// branchCommentExtra preserves the existing field indentation and inserts each
+// configured registry comment line immediately before the matching JSON field.
+func branchCommentExtra(existing hujson.Extra, commentLines []string) hujson.Extra {
+	if len(commentLines) == 0 {
+		return existing
+	}
+	existingText := string(existing)
+	linePrefix := ""
+	indent := existingText
+	newlineIndex := strings.LastIndexByte(existingText, '\n')
+	if newlineIndex >= 0 {
+		linePrefix = existingText[:newlineIndex+1]
+		indent = existingText[newlineIndex+1:]
+	}
+	var builder strings.Builder
+	builder.WriteString(linePrefix)
+	for _, commentLine := range commentLines {
+		builder.WriteString(indent)
+		builder.WriteString("// ")
+		builder.WriteString(commentLine)
+		builder.WriteByte('\n')
+	}
+	builder.WriteString(indent)
+	return hujson.Extra(builder.String())
 }
 
 func mergeStringMaps(base, overlay map[string]string) map[string]string {
