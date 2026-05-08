@@ -112,6 +112,20 @@ func run(args []string, stdout, stderr io.Writer) int {
 			return code
 		}
 		return code
+	case "branch":
+		// Intent: Keep branch/channel devcontainer rendering first-class in
+		// decomk so conf repos have one authoritative command for materializing
+		// build/image, conf-ref, and tool-ref channel policy before devcontainer
+		// startup reads `.devcontainer/devcontainer.json`.
+		// Source: DI-017-20260507-133819 (TODO/017)
+		code, err := cmdBranch(args[2:], stdout, stderr)
+		if err != nil {
+			if printErr := writeLine(stderr, err.Error()); printErr != nil {
+				return 1
+			}
+			return code
+		}
+		return code
 	default:
 		if err := writeLine(stderr, "unknown command:", args[1]); err != nil {
 			return 1
@@ -152,6 +166,7 @@ Commands:
   plan    Print resolved tuples/targets + env exports; run make -n (dry-run); do not write env export file
   run     Resolve, write env export file, and run make in the stamp dir
   checkpoint  Build/push/tag checkpoint images for shared updateContent setup
+  branch  Render/check branch-channel devcontainer config from .decomk/channels.json
 
 ARGS (required for plan/run):
   Positional args are interpreted isconf-style:
