@@ -6,6 +6,14 @@
 
 all: verify
 
+ship: test commit-push selftest-codespaces release-minor install-latest
+
+commit-push:
+	git add -A
+	# 'grok' is stevegt/grokker, not the xAI thing
+	grok commit | git commit -F-
+	git push
+
 generate:
 	go generate ./...
 
