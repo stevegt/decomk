@@ -7,10 +7,16 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends \
     ca-certificates \
     git \
-    golang-go \
+    golang-1.23-go \
     make \
     sudo \
  && rm -rf /var/lib/apt/lists/*
+
+# Intent: Keep Go toolchain ownership in the image so stage0 consumes a
+# deterministic compiler and never asks the Go command to auto-download one.
+# Source: DI-019-20260510-111726 (TODO/019)
+ENV PATH=/usr/lib/go-1.23/bin:$PATH
+ENV GOTOOLCHAIN=local
 
 # Intent: Before changing these values, inspect the base image identities first.
 # Example: docker run --rm -it mcr.microsoft.com/devcontainers/base:ubuntu-24.04 cat /etc/passwd

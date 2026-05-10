@@ -19,6 +19,14 @@ Constraints: Use helper names in the `write/keys` family (`planBranchFields`, `w
 Affects: `cmd/decomk/branch.go`, `cmd/decomk/branch_test.go`, `TODO/018-rendered-devcontainer-comment-preservation.md`, `go.mod`, `go.sum`
 Supersedes: DI-018-20260507-153000
 
+ID: DI-018-20260507-210842
+Date: 2026-05-07 21:08:42 -0700
+Status: superseded
+Decision: Keep the hujson-required Go minimum at the first patch-qualified Go 1.23 release by setting the module directive to `go 1.23.0`.
+Intent: Prevent older bootstrap Go commands from resolving the non-existent `go1.23` toolchain while preserving the narrow language-version bump required by hujson.
+Constraints: Do not change stage-0 install semantics or selftest image policy for this fix; keep the change limited to module metadata and this TODO evidence.
+Affects: `go.mod`, `TODO/018-rendered-devcontainer-comment-preservation.md`
+
 ## Goal
 
 Teach `decomk branch render` to preserve intentional generated devcontainer comments from `.decomk/channels.json`, so downstream repos can keep comment and DI provenance while treating `.devcontainer/devcontainer.json` as a rendered artifact.
