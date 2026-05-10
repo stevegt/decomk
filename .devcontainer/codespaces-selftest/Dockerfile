@@ -17,6 +17,8 @@ RUN apt-get update \
 # Source: DI-019-20260510-111726 (TODO/019)
 ENV PATH=/usr/lib/go-1.23/bin:$PATH
 ENV GOTOOLCHAIN=local
+RUN ln -sf /usr/lib/go-1.23/bin/go /usr/local/bin/go \
+ && ln -sf /usr/lib/go-1.23/bin/gofmt /usr/local/bin/gofmt
 
 # Intent: Before changing these values, inspect the base image identities first.
 # Example: docker run --rm -it mcr.microsoft.com/devcontainers/base:ubuntu-24.04 cat /etc/passwd

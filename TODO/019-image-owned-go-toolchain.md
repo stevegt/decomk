@@ -27,6 +27,14 @@ Intent: Keep the module directive aligned with Go module convention and the hujs
 Constraints: Do not reintroduce Go 1.22 compatibility work; do not encode patch-level compiler selection in `go.mod`; keep image-level `golang-1.23-go` and `GOTOOLCHAIN=local` as the runtime bootstrap controls.
 Affects: `go.mod`, `TODO/019-image-owned-go-toolchain.md`.
 
+ID: DI-019-20260510-114103
+Date: 2026-05-10 11:41:03 -0700
+Status: active
+Decision: Expose the image-owned Go 1.23 toolchain through `/usr/local/bin/go` and `/usr/local/bin/gofmt` symlinks in decomk-owned Dockerfiles.
+Intent: Keep stage0 generic while making root-escalated `command -v go` work under sudo `secure_path`, which can drop Dockerfile `ENV PATH=/usr/lib/go-1.23/bin:$PATH`.
+Constraints: Do not add `GOTOOLCHAIN=local` or package-specific policy to stage0; keep Go version selection in image-owned Dockerfiles/templates; preserve explicit `golang-1.23-go` package selection.
+Affects: `.devcontainer/codespaces-selftest/Dockerfile`, `cmd/decomk/templates/confrepo.Dockerfile.tmpl`, `examples/confrepo/.devcontainer/Dockerfile`, `cmd/decomk/toolchain_dockerfile_test.go`, `TODO/019-image-owned-go-toolchain.md`.
+
 ## Goal
 
 Make decomk bootstrap images provide a deterministic Go toolchain that is new
@@ -41,6 +49,7 @@ automatic toolchain download path during container startup.
 - Current `github.com/tailscale/hujson` usage raises decomk's module minimum to Go 1.23.
 - Image policy should own `GOTOOLCHAIN=local`; stage0 should not carry image-specific compiler-download policy.
 - Local Docker validation built the Codespaces selftest image and verified `go` resolves to `/usr/lib/go-1.23/bin/go`, `go version` reports `go1.23.1 linux/amd64`, and `go env GOTOOLCHAIN` reports `local`.
+- Codespaces artifact `/tmp/decomk-codespaces.XrFR3m` shows `golang-1.23-go` installed successfully, no implicit `go: downloading go1...` line, and no decomk log directory; this points at root-stage0 Go lookup before log setup, consistent with sudo `secure_path` dropping Dockerfile PATH.
 
 ## Scope
 

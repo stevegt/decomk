@@ -19,6 +19,8 @@ func TestImageOwnedGoToolchainPolicy(t *testing.T) {
 		"golang-1.23-go",
 		"ENV PATH=/usr/lib/go-1.23/bin:$PATH",
 		"ENV GOTOOLCHAIN=local",
+		"ln -sf /usr/lib/go-1.23/bin/go /usr/local/bin/go",
+		"ln -sf /usr/lib/go-1.23/bin/gofmt /usr/local/bin/gofmt",
 	}
 	tests := []struct {
 		name    string
