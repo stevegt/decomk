@@ -7,7 +7,7 @@ This list is sorted by priority (not number). TODO numbers are stable; do not re
 - [ ] 001 - decomk: isconf-like devcontainer tool bootstrap (`TODO/001-decomk-devcontainer-tool-bootstrap.md`)
 - [ ] 017 - decomk: channel branch rendering and promotion (`TODO/017-channel-branch-rendering-and-promotion.md`)
 - [ ] 018 - decomk: rendered devcontainer comment preservation (`TODO/018-rendered-devcontainer-comment-preservation.md`)
-- [ ] 019 - decomk: image-owned Go toolchain (`TODO/019-image-owned-go-toolchain.md`)
+- [x] 019 - decomk: stage0 Go toolchain boundary (`TODO/019-image-owned-go-toolchain.md`)
 - [ ] 016 - consumer `decomk init`: minimal template + image source flow (`TODO/016-consumer-init-minimal-template-and-image-source.md`)
 - [ ] 012 - mob-sandbox pilot for decomk stage-0 (`TODO/012-mob-sandbox-pilot.md`)
 - [ ] 015 - mob-sandbox: fix prebuild `/var/*` permissions via checkpoint image rollout (`TODO/015-mob-sandbox-prebuild-var-perms-via-checkpoint-image.md`)

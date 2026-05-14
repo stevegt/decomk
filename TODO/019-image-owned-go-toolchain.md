@@ -1,4 +1,4 @@
-# TODO 019 - image-owned Go toolchain
+# TODO 019 - decomk-side Go toolchain boundary
 
 ## Decision Intent Log
 
@@ -35,11 +35,21 @@ Intent: Keep stage0 generic while making root-escalated `command -v go` work und
 Constraints: Do not add `GOTOOLCHAIN=local` or package-specific policy to stage0; keep Go version selection in image-owned Dockerfiles/templates; preserve explicit `golang-1.23-go` package selection.
 Affects: `.devcontainer/codespaces-selftest/Dockerfile`, `cmd/decomk/templates/confrepo.Dockerfile.tmpl`, `examples/confrepo/.devcontainer/Dockerfile`, `cmd/decomk/toolchain_dockerfile_test.go`, `TODO/019-image-owned-go-toolchain.md`.
 
+ID: DI-019-20260513-221053
+Date: 2026-05-13 22:10:53 -0700
+Status: active
+Decision: Close TODO 019 as decomk-side provenance only; move ongoing production image toolchain policy ownership to the `decomk-conf-cswg` repo.
+Intent: Keep decomk responsible for the generic stage0/toolchain boundary and generated-template guardrails, while keeping base-image, APT package, snapshot, symlink, and producer-image release policy in the conf repo that owns those images.
+Constraints: Preserve existing DI links used by decomk comments and tests; do not continue production image planning in this repo; treat `/tmp/decomk-codespaces.eSnnoS` as the post-push Codespaces evidence for the decomk-side fix.
+Affects: `TODO/019-image-owned-go-toolchain.md`, `TODO/TODO.md`.
+Supersedes: DI-019-20260510-111726, DI-019-20260510-112226, DI-019-20260510-114103
+
 ## Goal
 
-Make decomk bootstrap images provide a deterministic Go toolchain that is new
-enough for the decomk module, while keeping stage0 generic and preventing Go's
-automatic toolchain download path during container startup.
+Keep decomk's generic stage0 contract clear: stage0 consumes an image-provided
+`go` command and must not own image-specific compiler download or package
+selection policy. The production image policy belongs in `decomk-conf-cswg`,
+which owns the producer Dockerfile, APT snapshot strategy, and release tags.
 
 ## Current findings
 
@@ -50,21 +60,47 @@ automatic toolchain download path during container startup.
 - Image policy should own `GOTOOLCHAIN=local`; stage0 should not carry image-specific compiler-download policy.
 - Local Docker validation built the Codespaces selftest image and verified `go` resolves to `/usr/lib/go-1.23/bin/go`, `go version` reports `go1.23.1 linux/amd64`, and `go env GOTOOLCHAIN` reports `local`.
 - Codespaces artifact `/tmp/decomk-codespaces.XrFR3m` shows `golang-1.23-go` installed successfully, no implicit `go: downloading go1...` line, and no decomk log directory; this points at root-stage0 Go lookup before log setup, consistent with sudo `secure_path` dropping Dockerfile PATH.
+- Codespaces artifact `/tmp/decomk-codespaces.eSnnoS` shows `run_exit_code 0`, successful updateContent execution as root, successful diagnostic capture, and no implicit `go: downloading go1...` line.
+
+## Ownership split
+
+This TODO was initially too broad for the decomk repo. Keep only these
+decomk-side responsibilities here:
+
+- stage0 remains generic and never sets `GOTOOLCHAIN=local`;
+- generated templates make the expected image/toolchain boundary explicit;
+- selftests catch regressions that would reintroduce implicit Go toolchain
+  downloads during bootstrap;
+- DI links used by decomk comments and tests remain resolvable.
+
+Move or keep ongoing production-image decisions in `decomk-conf-cswg`,
+primarily under that repo's TODO 007 (`apt-pin` / package snapshots) and TODO
+006 (checkpoint-backed release image automation), including:
+
+- base image selection;
+- exact APT package names and versions;
+- APT snapshot or OCI package-cache strategy;
+- `/usr/local/bin/go` and `/usr/local/bin/gofmt` symlink policy for producer
+  images;
+- checkpoint image release and channel promotion evidence.
 
 ## Scope
 
 In scope:
 
-- Updating decomk-owned Dockerfiles/templates that build decomk from source.
-- Making Go 1.23 selection explicit in image configuration.
-- Proving stage0 uses image-provided Go without implicit toolchain downloads.
-- Resolving the uncommitted TODO 018/go.mod diagnostic change consistently with this TODO.
+- Preserving decomk-side DI provenance for the already-implemented stage0 and
+  template boundary.
+- Keeping generated examples and tests aligned with the generic stage0
+  contract.
+- Recording the post-push Codespaces evidence that closed the decomk-side
+  regression.
 
 Out of scope:
 
 - Switching to Ubuntu 26.04 before a devcontainers base tag exists.
 - Replacing `github.com/tailscale/hujson` solely to preserve Go 1.22 compatibility.
 - Adding `GOTOOLCHAIN=local` to stage0.
+- Continuing production producer-image planning in this repo.
 
 ## Subtasks
 
@@ -74,12 +110,13 @@ Out of scope:
 - [x] 019.4 Update producer Dockerfile template policy for images that must build decomk from source.
 - [x] 019.5 Add or adjust tests proving image-owned Go policy; post-push log evidence for no `go: downloading go1...` remains 019.7.
 - [x] 019.6 Decide whether `DI-018-20260507-210842` should be superseded by this TODO or revised before commit.
-- [ ] 019.7 Run Codespaces selftest after commit/push and verify there is no implicit Go toolchain download in preserved logs.
+- [x] 019.7 Run Codespaces selftest after commit/push and verify there is no implicit Go toolchain download in preserved logs.
+- [x] 019.8 Re-scope this TODO as decomk-side provenance and hand off ongoing production image policy to `decomk-conf-cswg`.
 
 ## Acceptance criteria
 
-- Decomk-owned bootstrap images use explicit Go 1.23 tooling on Ubuntu 24.04.
-- `GOTOOLCHAIN=local` is set by Dockerfile/image configuration, not by stage0.
 - Stage0 remains generic and production-identical across image policies.
+- Stage0 does not set `GOTOOLCHAIN=local`.
 - Selftest evidence shows no implicit Go toolchain download during bootstrap.
-- TODO 018 and `go.mod` are left in a coherent state with this image-owned toolchain decision.
+- Production image package/base/snapshot policy is tracked in `decomk-conf-cswg`, not here.
+- TODO 018 and `go.mod` are left in a coherent state with this decomk-side boundary decision.
