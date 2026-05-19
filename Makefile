@@ -1,6 +1,6 @@
 # Intent: Provide one top-level entrypoint for stage-0 generation/drift checks
 # so developers and CI can enforce template/example sync consistently.
-# Source: DI-001-20260312-141200 (TODO/001)
+# Source: DI-tikub (TODO-jirin)
 
 .PHONY: generate check-generated check-no-shell-swallow check-no-go-blank-assign check-errcheck test verify selftest-devpod selftest-codespaces selftest-codespaces-clean release-minor promote-testing promote-stable
 
@@ -21,7 +21,7 @@ check-generated:
 	# Intent: Keep both stage-0 and conf-repo generated examples in sync with
 	# embedded templates so `decomk init` (consumer and `-conf` producer mode)
 	# outputs cannot drift from checked-in references. Source:
-	# DI-013-20260424-190504 (TODO/013)
+	# DI-migil (TODO-rufiz)
 	go run ./cmd/stage0gen -check
 	go run ./cmd/confrepogen -check
 	go run ./cmd/versiongen -check
@@ -31,7 +31,7 @@ test:
 
 # Intent: Enforce fail-fast error-handling policy in both shell and Go code so
 # CI and local verify runs reject silent failures before runtime.
-# Source: DI-008-20260412-122157 (TODO/008)
+# Source: DI-golak (TODO-gamuz)
 check-no-shell-swallow:
 	@if rg -n '\|\|[[:space:]]*true' --glob 'Makefile' --glob '*.mk' --glob '*.sh' --glob '*.tmpl' . | rg -v "disallowed '\\|\\| true'"; then \
 		echo "disallowed '|| true' found; handle command exit codes explicitly"; \
@@ -57,7 +57,7 @@ verify: generate check-generated check-no-shell-swallow check-no-go-blank-assign
 # Intent: Provide stable top-level wrappers for both local DevPod and
 # Codespaces parity selftests so operators can run the same harness flows via
 # `make` without memorizing script paths or cleanup flags. Source:
-# DI-007-20260412-043200 (TODO/007)
+# DI-topir (TODO-fuviv)
 selftest-devpod:
 	examples/decomk-selftest/devpod-local/run.sh
 
@@ -69,13 +69,13 @@ selftest-codespaces-clean:
 
 # Intent: Provide a one-command release operator entrypoint that bumps VERSION,
 # commits, tags, and pushes through an explicit scripted workflow.
-# Source: DI-001-20260423-204251 (TODO/001)
+# Source: DI-gavaj (TODO-jirin)
 release-minor:
 	bash scripts/release.sh minor
 
 # Intent: Keep testing/stable branch promotion explicit and scripted so channel
 # movement is fast-forward-only and repeatable across operators.
-# Source: DI-001-20260502-233406 (TODO/001)
+# Source: DI-vikid (TODO-jirin)
 promote-testing:
 	bash scripts/release.sh promote-testing
 

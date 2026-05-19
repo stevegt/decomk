@@ -4,7 +4,7 @@ set -euo pipefail
 
 # Intent: Keep harness scripts focused on scenario logic by centralizing logging,
 # dependency checks, and DevPod workspace cleanup in one shared helper module.
-# Source: DI-007-20260309-124345 (TODO/007)
+# Source: DI-misov (TODO-fuviv)
 
 log() {
   printf '[decomk-selftest] %s\n' "$*"
@@ -30,7 +30,7 @@ run_logged() {
 ensure_docker_provider_selected() {
   # Intent: Force deterministic provider selection so the harness always validates
   # DevPod's local Docker-provider path rather than whichever provider was last used.
-  # Source: DI-007-20260309-124345 (TODO/007)
+  # Source: DI-misov (TODO-fuviv)
   if devpod provider use docker >/dev/null 2>&1; then
     log "docker provider selected"
     return 0
@@ -40,7 +40,7 @@ ensure_docker_provider_selected() {
   if ! devpod provider add docker >/dev/null 2>&1; then
     # Intent: `provider add docker` is not idempotent; if the provider already
     # exists, keep going and just retry provider selection.
-    # Source: DI-007-20260311-145221 (TODO/007)
+    # Source: DI-lipat (TODO-fuviv)
     log "docker provider add was not needed; retrying provider selection"
   fi
   run_logged devpod provider use docker
@@ -54,7 +54,7 @@ cleanup_workspace() {
   fi
   # Intent: Report workspace cleanup failures explicitly so harness teardown
   # never drops command errors silently.
-  # Source: DI-008-20260412-122157 (TODO/008)
+  # Source: DI-golak (TODO-gamuz)
   if ! devpod delete "$workspace_name" >/dev/null 2>&1; then
     log "cleanup warning: failed to delete DevPod workspace $workspace_name"
     return 1

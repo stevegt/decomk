@@ -6,7 +6,7 @@ This document records why decomk uses single-path checkpoints for shared
 block images and how that design reduces prebuild and first-boot time.
 
 This is a background/design document. Implementation work is tracked in
-`TODO/011-single-path-checkpoints.md`.
+`TODO/TODO-luvov-single-path-checkpoints.md`.
 
 ## Primary objective
 
@@ -44,7 +44,7 @@ separate comparator-heavy parity model as a primary requirement.
 
 ## Lifecycle facts this design depends on
 
-Empirical results in `TODO/009-phase-eval-lifecycle-spike.md` show:
+Empirical results in `TODO/TODO-dahuk-phase-eval-lifecycle-spike.md` show:
 
 - `updateContentCommand` is prebuild/common phase.
 - `postCreateCommand` is runtime/user phase.
@@ -103,15 +103,15 @@ The canonical handoff path is:
 4. `decomk checkpoint tag -m` (promote tested source to channel tags such as `stable`).
 
 The durable contract (command templates, artifact fields, retry rules) is
-maintained in `TODO/011-single-path-checkpoints.md` under
-`011.7 Operator/CI handoff contract`.
+maintained in `TODO/TODO-luvov-single-path-checkpoints.md` under
+`luvov.7 Operator/CI handoff contract`.
 
 ## Relationship to planning artifacts
 
-- `TODO/011-single-path-checkpoints.md`: single-path checkpoint
+- `TODO/TODO-luvov-single-path-checkpoints.md`: single-path checkpoint
   implementation plan.
-- `TODO/010-codespaces-block-prebuild-profiles.md`: block profile/path
+- `TODO/TODO-topan-codespaces-block-prebuild-profiles.md`: block profile/path
   selection.
-- `TODO/007-devpod-gcp-selfhost-migration.md`: broader self-hosting
+- `TODO/TODO-fuviv-devpod-gcp-selfhost-migration.md`: broader self-hosting
   migration context.
-- `TODO/009-phase-eval-lifecycle-spike.md`: lifecycle evidence baseline.
+- `TODO/TODO-dahuk-phase-eval-lifecycle-spike.md`: lifecycle evidence baseline.

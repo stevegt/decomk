@@ -34,7 +34,7 @@ import (
 // Intent: Default runtime version output to the generated value sourced from the
 // checked-in VERSION file so source builds and tagged releases use one canonical
 // version identifier.
-// Source: DI-001-20260423-204251 (TODO/001)
+// Source: DI-gavaj (TODO-jirin)
 //
 // Build pipelines can still override this via `-ldflags "-X main.decomkVersion=<value>"`.
 var decomkVersion = generatedDecomkVersion
@@ -72,7 +72,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		// Intent: Make stage-0 devcontainer bootstrap scaffolding first-class in
 		// decomk so new repos can be bootstrapped consistently without manual file
 		// copy/paste.
-		// Source: DI-001-20260311-161825 (TODO/001)
+		// Source: DI-votit (TODO-jirin)
 		code, err := cmdInit(args[2:], stdout, stderr)
 		if err != nil {
 			if printErr := writeLine(stderr, err.Error()); printErr != nil {
@@ -103,7 +103,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		// Intent: Provide first-class checkpoint lifecycle commands (`build`,
 		// `push`, `tag`) directly in decomk so operators can run one canonical CLI
 		// flow instead of ad-hoc external scripts.
-		// Source: DI-011-20260420-162554 (TODO/011)
+		// Source: DI-kalab (TODO-luvov)
 		code, err := cmdCheckpoint(args[2:], stdout, stderr)
 		if err != nil {
 			if printErr := writeLine(stderr, err.Error()); printErr != nil {
@@ -117,7 +117,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 		// decomk so conf repos have one authoritative command for materializing
 		// build/image, conf-ref, and tool-ref channel policy before devcontainer
 		// startup reads `.devcontainer/devcontainer.json`.
-		// Source: DI-017-20260507-133819 (TODO/017)
+		// Source: DI-hokan (TODO-punab)
 		code, err := cmdBranch(args[2:], stdout, stderr)
 		if err != nil {
 			if printErr := writeLine(stderr, err.Error()); printErr != nil {
@@ -141,7 +141,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 //
 // Intent: Route all user-facing writes through checked helpers so decomk never
 // silently drops output errors and continues on a broken stream.
-// Source: DI-008-20260412-122157 (TODO/008)
+// Source: DI-golak (TODO-gamuz)
 func writeLine(w io.Writer, values ...any) error {
 	_, err := fmt.Fprintln(w, values...)
 	return err
@@ -180,7 +180,7 @@ ARGS (required for plan/run):
 //
 // Intent: Provide a stable machine-readable version surface for scripts and
 // operators without requiring `-h` parsing or external package metadata lookup.
-// Source: DI-001-20260423-045924 (TODO/001)
+// Source: DI-solis (TODO-jirin)
 func cmdVersion(args []string, stdout, stderr io.Writer) (int, error) {
 	fs := flag.NewFlagSet("decomk version", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -238,7 +238,7 @@ type resolvedPlan struct {
 	//
 	// Intent: Prefer conventional system log locations by default while keeping
 	// "decomk run" reliable in non-root environments via a default-only fallback.
-	// Source: DI-005-20260309-172359 (TODO/005)
+	// Source: DI-miduh (TODO-mirut)
 	LogRoot string
 
 	// LogRootExplicit reports whether LogRoot was explicitly set by the user via
@@ -381,14 +381,14 @@ func cmdExecute(args []string, stdout, stderr io.Writer, mode executionMode) (ex
 	actionArgs := fs.Args()
 	// Intent: Require explicit action selection for both plan and run so decomk
 	// does not silently fall back to config-derived/no-arg target behavior.
-	// Source: DI-004-20260422-193652 (TODO/004)
+	// Source: DI-gusab (TODO-takoh)
 	if len(actionArgs) == 0 {
 		return 2, fmt.Errorf("decomk %s requires at least one action arg", mode.Name)
 	}
 
 	// Intent: Keep privilege escalation out of decomk core by requiring run mode
 	// to already execute as root (stage-0 performs any needed sudo re-exec).
-	// Source: DI-001-20260424-200248 (TODO/001)
+	// Source: DI-kataj (TODO-jirin)
 	if !mode.DryRun && os.Geteuid() != 0 {
 		return 1, fmt.Errorf("decomk run must execute as root; rerun via stage-0 bootstrap or root shell")
 	}
@@ -400,7 +400,7 @@ func cmdExecute(args []string, stdout, stderr io.Writer, mode executionMode) (ex
 	//
 	// Intent: Keep plan resolution deterministic and reusable (plan/run) while
 	// stage-0 owns root escalation policy.
-	// Source: DI-001-20260424-200248 (TODO/001)
+	// Source: DI-kataj (TODO-jirin)
 
 	if err := applyStartDir(f.startDir); err != nil {
 		return 1, err
@@ -419,7 +419,7 @@ func cmdExecute(args []string, stdout, stderr io.Writer, mode executionMode) (ex
 
 	// Intent: Resolve passthrough tuples and build one canonical env tuple stream
 	// once per invocation so env.sh and make receive the same effective values.
-	// Source: DI-001-20260313-224000 (TODO/001)
+	// Source: DI-vojik (TODO-jirin)
 	incomingEnvList := os.Environ()
 	incomingEnv := envMapFromList(incomingEnvList)
 	resolvedTuples, err := resolveTuplePassThroughs(plan.Tuples, incomingEnv)
@@ -462,7 +462,7 @@ func cmdExecute(args []string, stdout, stderr io.Writer, mode executionMode) (ex
 		}
 		// Intent: Preserve close errors from deferred lock release so decomk never
 		// drops lock lifecycle failures.
-		// Source: DI-008-20260412-122157 (TODO/008)
+		// Source: DI-golak (TODO-gamuz)
 		defer func() {
 			if lock == nil {
 				return
@@ -513,7 +513,7 @@ func cmdExecute(args []string, stdout, stderr io.Writer, mode executionMode) (ex
 		}
 		// Intent: Preserve deferred log close failures so successful runs don't hide
 		// file descriptor or fs-sync problems in audit logs.
-		// Source: DI-008-20260412-122157 (TODO/008)
+		// Source: DI-golak (TODO-gamuz)
 		defer func() {
 			if logFile == nil {
 				return
@@ -541,7 +541,7 @@ func cmdExecute(args []string, stdout, stderr io.Writer, mode executionMode) (ex
 	//
 	// Intent: Provide a clear, early signal when user-scoped recipe patterns are
 	// likely to fail in root-make mode.
-	// Source: DI-001-20260424-215415 (TODO/001)
+	// Source: DI-lafib (TODO-jirin)
 	remoteUser := resolveRemoteUser()
 	if remoteUser == "" {
 		if err := writeLine(errOut, "decomk: warning: DECOMK_REMOTE_USER is empty; Makefile recipes that drop privileges (runuser/su) may fail"); err != nil {
@@ -562,7 +562,7 @@ func cmdExecute(args []string, stdout, stderr io.Writer, mode executionMode) (ex
 	// Intent: Print the exact argv decomk is about to execute so operators can
 	// see/copy the concrete make invocation without reverse-engineering tuple and
 	// target ordering from code or logs.
-	// Source: DI-001-20260428-041115 (TODO/001)
+	// Source: DI-sugit (TODO-jirin)
 	if err := writeLine(stdout, "make command:", shellJoinArgv(makeArgv)); err != nil {
 		return 1, err
 	}
@@ -571,7 +571,7 @@ func cmdExecute(args []string, stdout, stderr io.Writer, mode executionMode) (ex
 	if !mode.DryRun {
 		// Intent: Use DECOMK_STAGE0_PHASE as the single phase source and let
 		// DECOMK_MOTD_PHASES decide whether/how that phase maps to a MOTD file.
-		// Source: DI-005-20260424-141017 (TODO/005)
+		// Source: DI-tuhul (TODO-mirut)
 		phase := strings.TrimSpace(os.Getenv("DECOMK_STAGE0_PHASE"))
 		if motdErr := writePhaseMotdSummary(plan, cookedTuples, targets, phase, exitCode, runErr, runLogPath); motdErr != nil {
 			if warnErr := writeLine(errOut, "decomk: warning:", motdErr.Error()); warnErr != nil {
@@ -720,7 +720,7 @@ func createRunLogDir(plan *resolvedPlan, runID string, stderr io.Writer) (string
 //
 // Intent: Publish a deterministic, latest-run status summary that operators can
 // inspect at login without opening make logs first.
-// Source: DI-005-20260424-110139 (TODO/005)
+// Source: DI-fomof (TODO-mirut)
 func renderRunMotdBody(stampDir string, contextKeys, targets []string, phase string, makeExitCode int, makeErr error, runLogPath string) []byte {
 	entries, readErr := os.ReadDir(stampDir)
 	var stampNames []string
@@ -753,7 +753,7 @@ func renderRunMotdBody(stampDir string, contextKeys, targets []string, phase str
 	if readErr == nil {
 		// Intent: Keep the stamp summary compact in MOTD while preserving sorted,
 		// visible-only names from the stamp directory.
-		// Source: DI-005-20260429-005528 (TODO/005)
+		// Source: DI-kudam (TODO-mirut)
 		body.WriteString(strings.Join(stampNames, " "))
 		body.WriteString("\n")
 	} else {
@@ -778,7 +778,7 @@ func renderRunMotdBody(stampDir string, contextKeys, targets []string, phase str
 //
 // Intent: Keep a dedicated version MOTD entry available when requested via
 // DECOMK_MOTD_PHASES without coupling it to a lifecycle phase name.
-// Source: DI-005-20260424-143700 (TODO/005)
+// Source: DI-jihuz (TODO-mirut)
 func renderVersionMotdBody() []byte {
 	var body strings.Builder
 	body.WriteString("\n")
@@ -793,7 +793,7 @@ func renderVersionMotdBody() []byte {
 //
 // Intent: Keep phase-to-filename mapping declarative in decomk.conf while
 // validating format strictly to prevent ambiguous or unsafe filenames.
-// Source: DI-005-20260424-141017 (TODO/005)
+// Source: DI-tuhul (TODO-mirut)
 func parseMotdPhaseMappings(raw string) (map[string]string, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -861,7 +861,7 @@ func isValidMotdPhaseName(value string) bool {
 //
 // Intent: Keep filename construction centralized so primary and fallback paths
 // always use the same `<NN>-decomk-<phase>` pattern.
-// Source: DI-005-20260424-141017 (TODO/005)
+// Source: DI-tuhul (TODO-mirut)
 func motdFilenameForPhase(mappings map[string]string, phase string) (string, bool) {
 	phase = strings.TrimSpace(phase)
 	if phase == "" {
@@ -890,7 +890,7 @@ func phaseFallbackMotdPath(home, filename string) string {
 //
 // Intent: Keep latest-run status discoverable even in non-root environments
 // where /etc/motd.d cannot be updated directly.
-// Source: DI-005-20260424-141017 (TODO/005)
+// Source: DI-tuhul (TODO-mirut)
 func writeRunMotdFallback(fallbackPath string, body []byte) (string, error) {
 	if err := state.EnsureParentDir(fallbackPath); err != nil {
 		return fallbackPath, fmt.Errorf("ensure fallback parent dir %s: %w", filepath.Dir(fallbackPath), err)
@@ -905,7 +905,7 @@ func writeRunMotdFallback(fallbackPath string, body []byte) (string, error) {
 //
 // Intent: Keep fallback/warning semantics consistent for run-phase and
 // version-phase MOTD outputs.
-// Source: DI-005-20260424-142032 (TODO/005)
+// Source: DI-birig (TODO-mirut)
 func writeMotdSummaryBody(body []byte, primaryPath, fallbackPath string) error {
 	prepErr := prepareRunMotdParent(primaryPath)
 	if prepErr == nil {
@@ -937,7 +937,7 @@ func writeMotdSummaryBody(body []byte, primaryPath, fallbackPath string) error {
 //
 // Intent: Proactively prepare /etc/motd.d before write attempts to avoid
 // predictable permission warnings when non-root decomk runs in devcontainers.
-// Source: DI-005-20260424-131352 (TODO/005)
+// Source: DI-jagot (TODO-mirut)
 func runAsRootNoPrompt(name string, args ...string) error {
 	commandName := name
 	commandArgs := append([]string(nil), args...)
@@ -984,7 +984,7 @@ func dirWritableByCurrentUser(dir string) (bool, error) {
 //
 // Intent: Prepare MOTD parent paths proactively so decomk can write MOTD
 // summaries directly instead of immediately dropping to fallback warnings.
-// Source: DI-005-20260424-131352 (TODO/005)
+// Source: DI-jagot (TODO-mirut)
 func mkdirAndChownDirForUser(dir, username string) error {
 	if err := os.MkdirAll(dir, 0o755); err == nil {
 		writable, writableErr := dirWritableByCurrentUser(dir)
@@ -1015,7 +1015,7 @@ func mkdirAndChownDirForUser(dir, username string) error {
 //
 // Intent: Align runtime behavior with the devcontainer expectation that decomk
 // should provision MOTD output paths before writing status files.
-// Source: DI-005-20260424-141017 (TODO/005)
+// Source: DI-tuhul (TODO-mirut)
 func prepareRunMotdParent(path string) error {
 	parentDir := filepath.Dir(path)
 	if parentDir == "." || parentDir == "" {
@@ -1040,7 +1040,7 @@ func prepareRunMotdParent(path string) error {
 //
 // Intent: Keep phase->filename behavior fully config-driven and skip MOTD
 // writes for unmapped phases or missing phase context.
-// Source: DI-005-20260424-141017 (TODO/005)
+// Source: DI-tuhul (TODO-mirut)
 func writePhaseMotdSummary(plan *resolvedPlan, cookedTuples, targets []string, phase string, makeExitCode int, makeErr error, runLogPath string) error {
 	tupleValues := effectiveTupleValues(cookedTuples)
 	rawMapping, hasMapping := tupleValues[motdPhaseMappingTuple]
@@ -1096,7 +1096,7 @@ func writePhaseMotdSummary(plan *resolvedPlan, cookedTuples, targets []string, p
 //
 // Intent: Preserve non-fatal MOTD fallback semantics while supporting phase-
 // specific primary/fallback paths selected by DECOMK_MOTD_PHASES.
-// Source: DI-005-20260424-141017 (TODO/005)
+// Source: DI-tuhul (TODO-mirut)
 func writeRunMotdSummary(plan *resolvedPlan, targets []string, phase string, makeExitCode int, makeErr error, runLogPath, primaryPath, fallbackPath string) error {
 	body := renderRunMotdBody(plan.StampDir, plan.ContextKeys, targets, phase, makeExitCode, makeErr, runLogPath)
 	return writeMotdSummaryBody(body, primaryPath, fallbackPath)
@@ -1191,7 +1191,7 @@ var runMotdRootDir = "/etc/motd.d"
 //
 // Intent: Support explicit log-root overrides while keeping the default robust
 // in non-root environments via a default-only fallback to <DECOMK_HOME>/log.
-// Source: DI-005-20260309-172359 (TODO/005)
+// Source: DI-miduh (TODO-mirut)
 func resolveLogRoot(flagOverride string) (logRoot string, explicit bool, err error) {
 	switch {
 	case flagOverride != "":
@@ -1264,7 +1264,7 @@ func resolvePlanFromFlags(f commonFlags) (*resolvedPlan, error) {
 	// Intent: Keep decomk core deterministic by resolving/running from existing
 	// local state only. Stage-0 lifecycle tooling (for example postCreate hooks)
 	// is responsible for tool/config clone-pull bootstrap.
-	// Source: DI-007-20260311-145221 (TODO/007)
+	// Source: DI-lipat (TODO-fuviv)
 	explicitConfig := f.config
 	if explicitConfig == "" {
 		explicitConfig = os.Getenv("DECOMK_CONFIG")
@@ -1313,7 +1313,7 @@ func resolvePlanFromFlags(f commonFlags) (*resolvedPlan, error) {
 	tuples, targets := resolve.Partition(expanded)
 	// Intent: Enforce tuple-only config output after macro expansion so target
 	// selection happens exclusively through explicit action args.
-	// Source: DI-004-20260422-193652 (TODO/004)
+	// Source: DI-gusab (TODO-takoh)
 	if len(targets) > 0 {
 		return nil, fmt.Errorf("invalid config: expanded non-tuple tokens %v; decomk.conf RHS tokens must be tuple assignments (NAME=value) or defined keys", targets)
 	}
@@ -1540,7 +1540,7 @@ func loadDefs(home, explicitConfig string) (defs contexts.Defs, paths []string, 
 	}
 	// Intent: Keep decomk.conf tuple-only by requiring every bare RHS token to be
 	// a defined key, so config files cannot accidentally smuggle literal targets.
-	// Source: DI-004-20260422-193652 (TODO/004)
+	// Source: DI-gusab (TODO-takoh)
 	if err := contexts.ValidateRefs(defs); err != nil {
 		return nil, nil, err
 	}
@@ -1685,7 +1685,7 @@ func fileExists(path string) bool {
 // Intent: Ensure Makefile recipes and nested scripts can reliably see decomk's
 // computed runtime metadata (including identity and version) without needing to
 // reconstruct it from logs.
-// Source: DI-001-20260424-215415 (TODO/001)
+// Source: DI-lafib (TODO-jirin)
 var computedVarOrder = []string{
 	"DECOMK_HOME",
 	"DECOMK_STAMPDIR",
@@ -1706,7 +1706,7 @@ var computedVarOrder = []string{
 //
 // Intent: Provide a stable non-root identity for user-scoped recipe steps when
 // make is running as root.
-// Source: DI-001-20260424-215415 (TODO/001)
+// Source: DI-lafib (TODO-jirin)
 func resolveRemoteUser() string {
 	if u := strings.TrimSpace(os.Getenv("SUDO_USER")); u != "" && u != "root" {
 		return u
@@ -1741,7 +1741,7 @@ func resolveRemoteUser() string {
 // Intent: Expose computed helpers and runtime metadata for Makefiles/scripts so
 // root-run make can still perform user-scoped work and diagnostics can confirm
 // the exact decomk binary version used for a run.
-// Source: DI-001-20260424-215415 (TODO/001)
+// Source: DI-lafib (TODO-jirin)
 func computedVars(plan *resolvedPlan, targets []string) map[string]string {
 	remoteUser := resolveRemoteUser()
 	var workspaces []string
@@ -1796,7 +1796,7 @@ func envMapFromList(envList []string) map[string]string {
 // Intent: Make env.sh authoritative by resolving passthrough tuples before both
 // env export generation and make invocation, so both receive the same final
 // values.
-// Source: DI-001-20260313-224000 (TODO/001)
+// Source: DI-vojik (TODO-jirin)
 func resolveTuplePassThroughs(tuples []string, incomingEnv map[string]string) ([]string, error) {
 	out := make([]string, 0, len(tuples))
 	effective := make(map[string]string, len(tuples))
@@ -1831,7 +1831,7 @@ func resolveTuplePassThroughs(tuples []string, incomingEnv map[string]string) ([
 // Intent: Carry devcontainer-provided DECOMK_* configuration into env.sh and the
 // make process tree by default, without requiring explicit tuple duplication in
 // decomk.conf.
-// Source: DI-001-20260313-224000 (TODO/001)
+// Source: DI-vojik (TODO-jirin)
 func autoPassThroughTuples(incomingEnv map[string]string) []string {
 	var names []string
 	for name := range incomingEnv {
@@ -1979,7 +1979,7 @@ func makeInvocation(baseEnv, cookedTuples []string) (tuples []string, env []stri
 	// Intent: Keep one PATH model by deriving the launcher process env from the
 	// same cooked tuple contract that drives env.sh and make argv, even when that
 	// means tuple-provided PATH values can affect launcher behavior.
-	// Source: DI-001-20260313-174538 (TODO/001)
+	// Source: DI-vukaz (TODO-jirin)
 	env = withEnv(baseEnv, effectiveTupleValues(cookedTuples))
 	return tuples, env
 }
@@ -2001,11 +2001,11 @@ func writeEnvFile(path string, plan *resolvedPlan, cookedTuples []string) error 
 	}
 	// Intent: Keep DECOMK_HOME artifacts world-readable by enforcing env.sh mode
 	// after create, independent of process umask.
-	// Source: DI-005-20260426-013218 (TODO/005)
+	// Source: DI-kidaj (TODO-mirut)
 	if err := f.Chmod(0o644); err != nil {
 		// Intent: Preserve close failures alongside chmod failures so env export
 		// file-permission errors are never silently dropped.
-		// Source: DI-008-20260412-122157 (TODO/008)
+		// Source: DI-golak (TODO-gamuz)
 		if closeErr := f.Close(); closeErr != nil {
 			return errors.Join(err, fmt.Errorf("close env export temp file after chmod failure: %w", closeErr))
 		}
@@ -2015,7 +2015,7 @@ func writeEnvFile(path string, plan *resolvedPlan, cookedTuples []string) error 
 	if err := writeEnvExport(f, plan, cookedTuples); err != nil {
 		// Intent: Preserve temp-file close failures alongside export failures so
 		// env export write errors are never silently dropped.
-		// Source: DI-008-20260412-122157 (TODO/008)
+		// Source: DI-golak (TODO-gamuz)
 		if closeErr := f.Close(); closeErr != nil {
 			return errors.Join(err, fmt.Errorf("close env export temp file after write failure: %w", closeErr))
 		}
@@ -2063,7 +2063,7 @@ func writeEnvExport(w io.Writer, plan *resolvedPlan, cookedTuples []string) erro
 
 	// Intent: Export the same tuple sequence used for make invocation so env.sh is
 	// the exact contract for what make and child processes receive.
-	// Source: DI-001-20260313-224000 (TODO/001)
+	// Source: DI-vojik (TODO-jirin)
 	for _, t := range cookedTuples {
 		k, v, ok := resolve.SplitTuple(t)
 		if !ok {

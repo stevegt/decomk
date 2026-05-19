@@ -65,7 +65,7 @@ func writeInitConfScaffold(repoRoot string, data stage0.DevcontainerTemplateData
 	if !force {
 		// Intent: Keep conf-repo initialization conservative by default and force
 		// explicit operator acknowledgement before overwriting managed starter files.
-		// Source: DI-013-20260424-190504 (TODO/013)
+		// Source: DI-migil (TODO-rufiz)
 		existing, err := existingInitTargets(paths...)
 		if err != nil {
 			return nil, err

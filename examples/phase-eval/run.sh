@@ -9,7 +9,7 @@ source "$script_dir/lib.sh"
 # Intent: Evaluate lifecycle assumptions empirically across devcontainer CLI,
 # DevPod, and Codespaces so decomk stage-0 design decisions can rely on
 # observed behavior instead of platform-documentation inference.
-# Source: DI-009-20260418-130656 (TODO/009)
+# Source: DI-fobum (TODO-dahuk)
 
 usage() {
   cat <<'USAGE'
@@ -155,7 +155,7 @@ collect_events_from_logs() {
   # Intent: Extract hook events even when runtime loggers prefix each line
   # (for example Codespaces prebuild logs), by capturing the event token and
   # the remainder of the line instead of requiring a start-of-line match.
-  # Source: DI-009-20260418-140800 (TODO/009)
+  # Source: DI-nikon (TODO-dahuk)
   if rg -o 'PHASE_EVAL_EVENT\|.*' "$aggregate_path" >"$events_path"; then
     :
   else
@@ -363,7 +363,7 @@ ensure_docker_provider_selected() {
   # Intent: Prefer read-only provider detection first so phase-eval can run in
   # environments where DevPod is already configured but config files are not
   # writable by the current process (for example restricted sandboxes).
-  # Source: DI-009-20260415-081704 (TODO/009)
+  # Source: DI-kumil (TODO-dahuk)
   if devpod provider list 2>/dev/null | rg -q 'docker'; then
     return 0
   fi
@@ -389,7 +389,7 @@ extract_container_id_from_devcontainer_stdout() {
   # Intent: Resolve the container id from any JSON event line that includes
   # `containerId` so parsing stays stable even when devcontainer emits extra
   # non-result lines before or after the final status line.
-  # Source: DI-009-20260418-130656 (TODO/009)
+  # Source: DI-fobum (TODO-dahuk)
   local container_id=""
   while IFS= read -r parsed_id; do
     if [[ -n "$parsed_id" ]]; then
@@ -480,7 +480,7 @@ if [[ "$platform" == "devcontainer" || "$platform" == "all" ]]; then
   # Intent: Evaluate devcontainer CLI lifecycle behavior directly by running one
   # prebuild-only `up --prebuild` scenario and one normal `up` scenario against
   # isolated workspace copies.
-  # Source: DI-009-20260418-130656 (TODO/009)
+  # Source: DI-fobum (TODO-dahuk)
   devcontainer_prebuild_workspace="$out_dir/workspace-devcontainer-prebuild"
   mkdir -p "$devcontainer_prebuild_workspace"
   cp -a "$repo_root/." "$devcontainer_prebuild_workspace"
@@ -514,7 +514,7 @@ if [[ "$platform" == "devcontainer" || "$platform" == "all" ]]; then
     # Intent: Capture `onCreate` evidence for every evaluated platform/scenario
     # in phase-eval summary output while keeping this signal informational (no
     # new pass/fail gate) until lifecycle behavior is proven stable.
-    # Source: DI-009-20260418-135200 (TODO/009)
+    # Source: DI-jazut (TODO-dahuk)
     if event_has_hook "$out_dir/devcontainer-prebuild.events.log" "onCreate"; then
       devcontainer_prebuild_on_create="true"
     fi
@@ -662,7 +662,7 @@ if [[ "$platform" == "devpod" || "$platform" == "all" ]]; then
   # Intent: Ensure generated DevPod workspace IDs always satisfy the provider
   # naming contract (lowercase letters, digits, dashes), even though run IDs
   # intentionally include uppercase UTC markers for artifact readability.
-  # Source: DI-009-20260415-081608 (TODO/009)
+  # Source: DI-pavab (TODO-dahuk)
   devpod_workspace_id="$(sanitize_devpod_workspace_id "phase-eval-${run_id}-up")"
 
   if run_capture "$out_dir" "devpod_up" \
@@ -744,7 +744,7 @@ if [[ "$platform" == "codespaces" || "$platform" == "all" ]]; then
       # Intent: Require local branch state to be pushed before prebuild/create
       # evaluation so all remote lifecycle checks run against the intended
       # commit and devcontainer path.
-      # Source: DI-009-20260417-030759 (TODO/009)
+      # Source: DI-dopap (TODO-dahuk)
       if run_capture "$out_dir" "codespaces_local_head" git -C "$repo_root" rev-parse HEAD; then
         codespaces_local_head_sha="$(cat "$out_dir/raw/codespaces_local_head.stdout.log")"
         codespaces_local_head_sha="${codespaces_local_head_sha//$'\n'/}"
@@ -794,11 +794,11 @@ if [[ "$platform" == "codespaces" || "$platform" == "all" ]]; then
       # Intent: Explicitly trigger and wait on a Codespaces prebuild workflow so
       # phase-eval can confirm hook execution during the prebuild lifecycle
       # instead of inferring behavior from docs or workspace startup side effects.
-      # Source: DI-009-20260415-182322 (TODO/009)
+      # Source: DI-dapom (TODO-dahuk)
       prebuild_workflows=""
       # Intent: Capture workflow discovery output in raw artifacts so missing
       # prebuild configuration is diagnosable without rerunning under debug.
-      # Source: DI-009-20260415-182210 (TODO/009)
+      # Source: DI-hizip (TODO-dahuk)
       if run_capture "$out_dir" "codespaces_prebuild_workflows" resolve_prebuild_workflows "$repo_slug"; then
         prebuild_workflows="$(cat "$out_dir/raw/codespaces_prebuild_workflows.stdout.log")"
         if [[ -n "$prebuild_workflows" ]]; then
@@ -821,7 +821,7 @@ if [[ "$platform" == "codespaces" || "$platform" == "all" ]]; then
             # Intent: Use the push-triggered Codespaces prebuild run for the
             # current remote HEAD instead of attempting workflow_dispatch, since
             # the built-in prebuild workflow is not dispatchable.
-            # Source: DI-009-20260417-031847 (TODO/009)
+            # Source: DI-vufif (TODO-dahuk)
             if run_capture "$out_dir" "codespaces_prebuild_find_run" resolve_workflow_run_for_head "$repo_slug" "$codespaces_prebuild_workflow_id" "$branch" "$codespaces_remote_head_sha" 1200; then
               prebuild_run_row="$(cat "$out_dir/raw/codespaces_prebuild_find_run.stdout.log")"
               prebuild_run_row="${prebuild_run_row//$'\n'/}"
@@ -908,7 +908,7 @@ if [[ "$platform" == "codespaces" || "$platform" == "all" ]]; then
       # Intent: Fail early when the requested devcontainer path is not present
       # on the remote branch, because `gh codespace create` resolves paths from
       # GitHub repository contents, not local uncommitted files.
-      # Source: DI-009-20260415-182210 (TODO/009)
+      # Source: DI-hizip (TODO-dahuk)
       if [[ "$codespaces_create_rc" -eq -1 ]]; then
         if remote_repo_file_exists "$repo_slug" "$branch" "$codespaces_devcontainer_path"; then
           append_scenario_note "$out_dir" "codespaces_create" "remote devcontainer path confirmed: $codespaces_devcontainer_path"
@@ -986,7 +986,7 @@ if [[ "$platform" == "codespaces" || "$platform" == "all" ]]; then
           # Intent: Verify durable in-container artifacts written by hook probes
           # so we can differentiate prebuild execution from runtime execution
           # even after the prebuild log stream has finished.
-          # Source: DI-009-20260417-030759 (TODO/009)
+          # Source: DI-dopap (TODO-dahuk)
           if run_capture "$out_dir" "codespaces_fetch_persistent_events" gh codespace ssh -c "$codespace_name" -- "bash -lc 'cat \"\$HOME/.decomk-phase-eval-hooks/history/events.log\"'"; then
             :
           else
@@ -1162,12 +1162,12 @@ log "summary written: $summary_path"
 # Intent: Treat requested-platform gaps as failures so phase-eval cannot report
 # success when lifecycle evidence is missing (for example auth/API skips or
 # missing durable phase markers proving prebuild-vs-runtime hook execution).
-# Source: DI-009-20260417-030759 (TODO/009)
+# Source: DI-dopap (TODO-dahuk)
 overall_rc=0
 if [[ "$platform" == "devcontainer" || "$platform" == "all" ]]; then
   # Intent: Keep devcontainer platform checks evidence-driven: prebuild must
   # show updateContent without postCreate, and runtime must show postCreate.
-  # Source: DI-009-20260418-130656 (TODO/009)
+  # Source: DI-fobum (TODO-dahuk)
   if [[ "$devcontainer_prebuild_rc" -ne 0 || "$devcontainer_up_rc" -ne 0 || "$devcontainer_prebuild_update_content" != "true" || "$devcontainer_prebuild_post_create" != "false" || "$devcontainer_up_post_create" != "true" ]]; then
     overall_rc=1
   fi

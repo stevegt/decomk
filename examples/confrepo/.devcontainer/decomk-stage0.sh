@@ -12,7 +12,7 @@ die() {
 
 # Intent: Expose explicit lifecycle phases through one stage-0 script so
 # devcontainer hooks can call the same bootstrap logic with clear phase inputs.
-# Source: DI-001-20260416-223600 (TODO/001)
+# Source: DI-hihob (TODO-jirin)
 stage0_phase="postCreate"
 if [[ $# -gt 0 ]]; then
   stage0_phase="$1"
@@ -29,12 +29,12 @@ esac
 # Intent: Implement generic stage-0 bootstrap with URI-based source expressions
 # so tool/config acquisition is explicit, deterministic, and shared between
 # generated examples and `decomk init` scaffolds.
-# Source: DI-001-20260412-170500 (TODO/001)
+# Source: DI-rokuk (TODO-jirin)
 DECOMK_HOME="${DECOMK_HOME:-/var/decomk}"
 DECOMK_LOG_DIR="${DECOMK_LOG_DIR:-/var/log/decomk}"
 # Intent: Default stage-0 tool bootstrap to the stable channel branch so
 # generated consumers follow explicit repo-controlled channels instead of Go's
-# `@latest` selection semantics. Source: DI-001-20260502-233406 (TODO/001)
+# `@latest` selection semantics. Source: DI-vikid (TODO-jirin)
 DECOMK_TOOL_URI="${DECOMK_TOOL_URI:-go:github.com/stevegt/decomk/cmd/decomk@stable}"
 DECOMK_CONF_URI="${DECOMK_CONF_URI:-}"
 DECOMK_REMOTE_USER="${DECOMK_REMOTE_USER:-}"
@@ -93,7 +93,7 @@ emit_stage0_identity_marker() {
   export DECOMK_STAGE0_USER="$stage0_user"
   # Intent: Emit explicit stage-0 identity markers for selftest evidence so
   # operators can prove which user executes stage-0 vs which user executes make.
-  # Source: DI-007-20260423-180202 (TODO/007)
+  # Source: DI-sakuz (TODO-fuviv)
   echo "SELFTEST PASS stage0-id phase=$stage0_phase uid=$stage0_uid user=$stage0_user"
 }
 
@@ -231,7 +231,7 @@ require_root_stage0() {
 
   # Intent: Centralize privilege escalation at stage-0 startup so decomk itself
   # does not need to carry sudo fallback logic for make execution.
-  # Source: DI-001-20260424-200248 (TODO/001)
+  # Source: DI-kataj (TODO-jirin)
   export DECOMK_STAGE0_ESCALATED=1
   exec sudo -n -E -- bash "$0" "$stage0_phase" "$@"
 }
@@ -240,7 +240,7 @@ validate_remote_identity_before_escalation() {
   # Intent: Enforce that stage-0 begins as the configured remote user/UID before
   # self-escalating to root, so identity drift fails immediately instead of
   # causing confusing downstream ownership/permission behavior.
-  # Source: DI-001-20260424-215415 (TODO/001)
+  # Source: DI-lafib (TODO-jirin)
   if [[ "${DECOMK_STAGE0_ESCALATED:-}" == "1" ]]; then
     return 0
   fi
@@ -279,13 +279,13 @@ stage0_error_handler() {
   # Intent: Keep stage-0 failure handling explicit and operator-visible by always
   # writing deterministic marker/log artifacts, then honoring DECOMK_FAIL_NOBOOT
   # to choose non-blocking continuation vs hard startup failure.
-  # Source: DI-012-20260423-045339 (TODO/012)
+  # Source: DI-gokom (TODO-dobup)
   write_stage0_failure_artifacts "$rc" "$line"
 
   # Intent: Identity mismatches must fail startup even when DECOMK_FAIL_NOBOOT is
   # false, because continuing after a remote-user/UID contract violation would let
   # stage-0 proceed under the wrong ownership assumptions.
-  # Source: DI-001-20260424-215415 (TODO/001)
+  # Source: DI-lafib (TODO-jirin)
   if [[ "$stage0_error_step" == "validate-remote-identity" ]]; then
     echo "decomk bootstrap: remote identity validation failed; exiting non-zero (rc=$rc)" >&2
     exit "$rc"
@@ -393,7 +393,7 @@ sync_git_repo() {
 
     # Intent: Handle detached-head lookups explicitly instead of suppressing
     # symbolic-ref errors, so branch-resolution fallbacks are observable.
-    # Source: DI-008-20260412-122157 (TODO/008)
+    # Source: DI-golak (TODO-gamuz)
     local current_branch=""
     if current_branch="$(git -C "$repo_dir" symbolic-ref --quiet --short HEAD 2>/dev/null)"; then
       if [[ -n "$current_branch" ]]; then
@@ -454,7 +454,7 @@ resolve_go_command() {
   # Intent: Keep stage-0 bootstrap deterministic under sudo policies that
   # rewrite PATH (for example secure_path) by probing common absolute Go paths
   # before failing with an actionable message.
-  # Source: DI-001-20260424-211213 (TODO/001)
+  # Source: DI-pihaz (TODO-jirin)
   local candidate
   for candidate in /usr/bin/go /usr/local/go/bin/go; do
     if [[ -x "$candidate" ]]; then
@@ -565,7 +565,7 @@ fi
 
 # Intent: Pass lifecycle phase as the explicit decomk action selector while
 # exporting DECOMK_STAGE0_PHASE for Makefile logic that needs phase-aware guards.
-# Source: DI-004-20260422-193652 (TODO/004)
+# Source: DI-gusab (TODO-takoh)
 stage0_error_step="run-decomk"
 "$decomk_bin" run "${action_args[@]}"
 

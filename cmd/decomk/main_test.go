@@ -764,7 +764,7 @@ func TestCmdRun_StampDirAndIdempotentTarget(t *testing.T) {
 	// Intent: Ensure decomk runs make in the stamp directory and preserves
 	// idempotent file-target behavior (non-phony targets should not re-run when
 	// their stamp file already exists).
-	// Source: DI-001-20260309-172358 (TODO/001)
+	// Source: DI-kutod (TODO-jirin)
 	code, err := cmdRun(args, &stdout, &stderr)
 	if err != nil {
 		t.Fatalf("first cmdRun() error: %v (stderr=%q)", err, stderr.String())

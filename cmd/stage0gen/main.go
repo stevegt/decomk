@@ -55,7 +55,7 @@ func run(args []string) error {
 
 	// Intent: Keep production and selftest stage-0 files generated from one canonical
 	// template contract so drift is prevented by construction.
-	// Source: DI-001-20260312-141200 (TODO/001)
+	// Source: DI-tikub (TODO-jirin)
 	targets := []outputSpec{
 		{
 			Path: filepath.Join(absRoot, "examples", "devcontainer", "devcontainer.json"),

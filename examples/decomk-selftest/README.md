@@ -18,7 +18,7 @@ Selector policy note:
 - Production selector policy remains one canonical
   `.devcontainer/devcontainer.json` per repo with `image:` tag selection
   (channel-following or immutable pinning), as documented in
-  `TODO/010-codespaces-block-prebuild-profiles.md`.
+  `TODO/TODO-topan-codespaces-block-prebuild-profiles.md`.
 
 ## Harness model
 

@@ -1,6 +1,6 @@
 # Intent: Build a deterministic local DevPod test image with a non-root dev user
 # and passwordless sudo so decomk bootstrap behavior is reproducible.
-# Source: DI-007-20260311-101409 (TODO/007)
+# Source: DI-rujam (TODO-fuviv)
 FROM golang:1.24-bookworm
 
 RUN apt-get update \

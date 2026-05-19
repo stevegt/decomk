@@ -34,7 +34,7 @@ func Run(dir, makefile string, tuples, targets []string, env []string, stdout, s
 // Intent: Allow decomk to run make under a privilege wrapper (for example
 // passwordless sudo -n) without introducing a shell, so argv boundaries remain
 // deterministic and testable.
-// Source: DI-001-20260309-172358 (TODO/001)
+// Source: DI-kutod (TODO-jirin)
 func RunWithFlagsCommand(dir, makefile string, command []string, flags, tuples, targets []string, env []string, stdout, stderr io.Writer) (exitCode int, err error) {
 	if len(command) == 0 {
 		return 1, fmt.Errorf("make command is empty")

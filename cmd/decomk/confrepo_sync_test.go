@@ -17,7 +17,7 @@ func TestGeneratedConfrepoFilesMatchTemplates(t *testing.T) {
 
 	// Intent: Enforce template/example parity for init `-conf` scaffolding so
 	// checked-in confrepo examples cannot drift from embedded command templates.
-	// Source: DI-013-20260424-190504 (TODO/013)
+	// Source: DI-migil (TODO-rufiz)
 	tests := []struct {
 		name   string
 		path   string

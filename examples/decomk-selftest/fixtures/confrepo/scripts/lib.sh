@@ -4,7 +4,7 @@ set -euo pipefail
 
 # Intent: Keep reusable fixture assertions in one place so self-test targets stay
 # small and emit consistent PASS/FAIL markers for harness log parsing.
-# Source: DI-007-20260412-171000 (TODO/007)
+# Source: DI-zulir (TODO-fuviv)
 
 selftest_fail() {
   local message="$1"

@@ -4,6 +4,8 @@
 - The Go CLI entry point is `cmd/decomk`.
 - Keep packages at module root or under purpose-named top-level directories (`contexts/`, `state/`, etc.); avoid `internal/` and `pkg/`.
 - Keep planning artifacts in `TODO/` and maintain `TODO/TODO.md` sorted by priority.
+- Name new coordination artifacts with proquint handles: `TODO/TODO-<handle>-<slug>.md`, `docs/thought-experiments/TE-<handle>-<slug>.md`, `DI-<handle>`, and `<handle>.N` subtasks.
+- Mint new handles with `tools/mint-handle` and use `numeric-proquint-xref.md` only for historical lookup of migrated numeric/timestamp IDs.
 - Do not commit local state files (for example `.grok`, `.grok.lock`) or generated binaries.
 
 ## Build, Test, and Development Commands
@@ -26,8 +28,8 @@
 - Before locking any non-trivial decision that will require DF questions and answers, the agent must run a thought experiment (TE) if multiple plausible designs remain.
 - A TE happens before final DF questions. Its purpose is to narrow the design space so DF questions and answers are informed by explicit scenario analysis.
 - The agent must not collapse a TE into a short opinion or recommendation. The agent must explicitly model concrete scenarios and consequences.
-- Each TE must have a unique ID in the format `TE-YYYYMMDD-HHMMSS`.
-- The TE doc filename must start with the TE ID and live under `docs/thought-experiments/`, for example: `docs/thought-experiments/TE-20260425-183100-handler-abi.md`.
+- Each TE must have a unique proquint ID in the format `TE-<handle>`.
+- The TE doc filename must start with the TE ID and live under `docs/thought-experiments/`, for example: `docs/thought-experiments/TE-vapoj-handler-abi.md`.
 
 ### TE Intake Requirements
 - Before locking decisions or asking final DF questions, the agent must identify:
@@ -35,7 +37,7 @@
   - the candidate alternatives,
   - the assumptions and threat/trust model,
   - the scope and systems affected.
-- If the TE relates to an existing TODO, the agent must reference the TODO number and subtask number (for example, `002.10`).
+- If the TE relates to an existing TODO, the agent must reference the TODO handle and subtask ID (for example, `TODO-fitus` or `fitus.10`).
 
 ### TE Execution Requirements
 - Each TE must evaluate the same decision across multiple concrete scenarios.
@@ -151,8 +153,8 @@
 - Do not treat shorter comments as better unless they preserve all important intent.
 - For any non-trivial behavior change, include a behavior-level comment with:
   - `Intent:` a short, clear rationale (a sentence or a few; no hard cap if more is needed for clarity).
-  - `Source:` a DI ID in the format `DI-NNN-YYYYMMDD-HHMMSS`.
-  - `NNN` is the TODO number of the TODO file where that DI entry resides.
+  - `Source:` a DI ID in the format `DI-<handle>`.
+  - The DI handle must be owned by a Decision Intent Log entry in the relevant TODO file.
   - Optional: TODO file/section reference for faster lookup.
 - If a comment must be dropped with no replacement, stop and ask the user before proceeding.
 - Before editing a file, review existing comments in that file.
@@ -160,7 +162,7 @@
 - Treat DI logs as append-only history. Do not rewrite or delete prior entries.
 - When intent evolves, add a new DI entry and set `Supersedes: <old-di-id>`.
 - DI entries must include:
-  - `ID: DI-NNN-YYYYMMDD-HHMMSS`
+  - `ID: DI-<handle>`
   - `Date: YYYY-MM-DD HH:MM:SS`
   - `Status: active|superseded`
   - `Decision:`
@@ -178,9 +180,9 @@
 
 ### Comment + DI Examples
 - Comment format example:
-  - `// Intent: Keep context resolution stable across workspace scans to avoid target drift between plan and run. Source: DI-002-20260309-093000`
+  - `// Intent: Keep context resolution stable across workspace scans to avoid target drift between plan and run. Source: DI-fitus`
 - Decision Intent Log entry template (for TODO files):
-  - `ID: DI-NNN-YYYYMMDD-HHMMSS`
+  - `ID: DI-<handle>`
   - `Date: YYYY-MM-DD HH:MM:SS`
   - `Status: active`
   - `Decision: <what was decided>`

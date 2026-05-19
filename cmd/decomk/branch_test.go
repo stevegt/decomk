@@ -146,7 +146,7 @@ func TestCmdBranchRender_CommentsOverrideCommand(t *testing.T) {
 		t.Fatalf("ReadFile(rendered devcontainer with comments): %v", err)
 	}
 	renderedText := string(content)
-	commentBlock := "  // Intent: Preserve decomk's producer/consumer split while moving the GUI stack into explicit, standard system locations and avoiding legacy popup/autostart reminder behavior.\n  // Source: DI-004-20260430-182956\n  \"overrideCommand\": false,"
+	commentBlock := "  // Intent: Preserve decomk's producer/consumer split while moving the GUI stack into explicit, standard system locations and avoiding legacy popup/autostart reminder behavior.\n  // Source: DI-fiduv\n  \"overrideCommand\": false,"
 	if !strings.Contains(renderedText, commentBlock) {
 		t.Fatalf("rendered devcontainer comments: missing block %q in\n%s", commentBlock, renderedText)
 	}
@@ -255,7 +255,7 @@ func branchRegistryFixtureWithOverrideComment() string {
 			`    "comments": {`+"\n"+
 			`      "overrideCommand": [`+"\n"+
 			`        "Intent: Preserve decomk's producer/consumer split while moving the GUI stack into explicit, standard system locations and avoiding legacy popup/autostart reminder behavior.",`+"\n"+
-			`        "Source: DI-004-20260430-182956"`+"\n"+
+			`        "Source: DI-fiduv"`+"\n"+
 			`      ]`+"\n"+
 			`    },`+"\n",
 		1,
@@ -270,7 +270,7 @@ func branchRegistryFixtureWithImageComment() string {
 			`    "comments": {`+"\n"+
 			`      "image": [`+"\n"+
 			`        "Intent: Image comments should fail on build channels.",`+"\n"+
-			`        "Source: DI-018-test"`+"\n"+
+			`        "Source: DI-lutuj"`+"\n"+
 			`      ]`+"\n"+
 			`    },`+"\n",
 		1,

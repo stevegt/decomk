@@ -7,7 +7,7 @@ source "$script_dir/lib.sh"
 
 # Intent: Prove stage-0 bootstrap pulled decomk from the harness git server by
 # asserting DECOMK_HOME/src/decomk exists as a git repo with the expected origin.
-# Source: DI-007-20260412-171000 (TODO/007)
+# Source: DI-zulir (TODO-fuviv)
 selftest_require_env DECOMK_HOME
 selftest_require_env DECOMK_TOOL_URI
 
@@ -20,7 +20,7 @@ fi
 
 # Intent: Treat origin lookup failures as explicit selftest failures so
 # repository-origin validation never silently passes.
-# Source: DI-008-20260412-122157 (TODO/008)
+# Source: DI-golak (TODO-gamuz)
 if ! origin_url="$(git -C "$tool_repo_dir" config --get remote.origin.url 2>/dev/null)"; then
   selftest_fail "tool-repo-missing-origin"
 fi

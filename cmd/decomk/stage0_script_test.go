@@ -173,7 +173,7 @@ exit 1
 	// Intent: Keep stage-0 template tests hermetic in non-root CI sandboxes by
 	// stubbing `id` and setting deterministic DECOMK_REMOTE_* defaults that match
 	// the stubbed process identity for the pre-escalation identity gate.
-	// Source: DI-001-20260424-215415 (TODO/001)
+	// Source: DI-lafib (TODO-jirin)
 	fakeIDPath := filepath.Join(binDir, "id")
 	if err := os.WriteFile(fakeIDPath, []byte(`#!/usr/bin/env bash
 set -euo pipefail

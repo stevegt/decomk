@@ -223,11 +223,11 @@ func LockFile(lockPath string) (*Lock, error) {
 	}
 	// Intent: Keep DECOMK_HOME lock files world-readable by enforcing mode after
 	// open, independent of process umask or prior restrictive file modes.
-	// Source: DI-005-20260426-013218 (TODO/005)
+	// Source: DI-kidaj (TODO-mirut)
 	if err := f.Chmod(0o644); err != nil {
 		// Intent: Never drop lock-open cleanup failures; preserve both chmod and
 		// close errors so permission issues are diagnosable instead of silent.
-		// Source: DI-008-20260412-122157 (TODO/008)
+		// Source: DI-golak (TODO-gamuz)
 		if closeErr := f.Close(); closeErr != nil {
 			return nil, errors.Join(err, fmt.Errorf("close lock file after chmod failure: %w", closeErr))
 		}
@@ -236,7 +236,7 @@ func LockFile(lockPath string) (*Lock, error) {
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
 		// Intent: Never drop lock-acquire cleanup failures; preserve both lock and
 		// close errors so lockfile issues are diagnosable instead of silent.
-		// Source: DI-008-20260412-122157 (TODO/008)
+		// Source: DI-golak (TODO-gamuz)
 		if closeErr := f.Close(); closeErr != nil {
 			return nil, errors.Join(err, fmt.Errorf("close lock file after flock failure: %w", closeErr))
 		}
@@ -252,7 +252,7 @@ func (l *Lock) Close() error {
 	}
 	// Intent: Return both unlock and close failures so lock lifecycle errors are
 	// explicit and never dropped.
-	// Source: DI-008-20260412-122157 (TODO/008)
+	// Source: DI-golak (TODO-gamuz)
 	unlockErr := syscall.Flock(int(l.f.Fd()), syscall.LOCK_UN)
 	closeErr := l.f.Close()
 	l.f = nil

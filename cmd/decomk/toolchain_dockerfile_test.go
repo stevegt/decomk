@@ -14,7 +14,7 @@ func TestImageOwnedGoToolchainPolicy(t *testing.T) {
 
 	// Intent: Lock the Go toolchain contract to Dockerfile/image configuration,
 	// not stage0, so decomk bootstrap cannot silently download compilers during
-	// container startup. Source: DI-019-20260510-111726 (TODO/019)
+	// container startup. Source: DI-fisof (TODO-vimoj)
 	expectedSnippets := []string{
 		"golang-1.23-go",
 		"ENV PATH=/usr/lib/go-1.23/bin:$PATH",
@@ -54,7 +54,7 @@ func TestStage0DoesNotOwnGOTOOLCHAINPolicy(t *testing.T) {
 
 	// Intent: Keep stage0 production-generic; images own compiler-download policy
 	// via GOTOOLCHAIN=local so different image families can choose their own Go
-	// package source without editing stage0. Source: DI-019-20260510-111726 (TODO/019)
+	// package source without editing stage0. Source: DI-fisof (TODO-vimoj)
 	if strings.Contains(initStage0ScriptTemplate, "GOTOOLCHAIN=local") {
 		t.Fatalf("stage0 template must not set GOTOOLCHAIN=local")
 	}

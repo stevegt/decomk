@@ -9,7 +9,7 @@ source "$script_dir/../devpod-local/lib.sh"
 # fresh codespace from the pushed branch under test, running production stage-0
 # bootstrap with explicit URI inputs, and asserting the same fixture markers
 # used by the local DevPod harness.
-# Source: DI-007-20260412-230000 (TODO/007)
+# Source: DI-tihaj (TODO-fuviv)
 
 usage() {
   cat <<'USAGE'
@@ -102,7 +102,7 @@ resolve_machine_name() {
   # from repository-allowed machine lists before create calls, and fail fast
   # when discovery endpoints are unavailable instead of passing malformed values
   # into `gh codespace create`.
-  # Source: DI-007-20260413-040500 (TODO/007)
+  # Source: DI-fanih (TODO-fuviv)
   if machine_lines="$(gh api "repos/$repo/codespaces/machines" --jq '.machines[].name' 2>/dev/null)"; then
     :
   elif machine_lines="$(gh api /user/codespaces/machines --jq '.machines[].name' 2>/dev/null)"; then
@@ -207,7 +207,7 @@ emit_wait_progress() {
 
   # Intent: Show visible progress while waiting on slow Codespaces startup
   # phases so operators can distinguish normal startup latency from a hung run.
-  # Source: DI-007-20260413-043500 (TODO/007)
+  # Source: DI-pizih (TODO-fuviv)
   if (( wait_ticks == 1 )); then
     printf '[decomk-selftest] waiting for %s' "$wait_label" >&2
   fi
@@ -257,7 +257,7 @@ resolve_remote_log_root() {
     root_q="$(printf '%q' "$root")"
     # Intent: Keep diagnostics deterministic by reading decomk logs as root,
     # because stage-0 runs as root and can leave root-owned log trees.
-    # Source: DI-007-20260424-200248 (TODO/007)
+    # Source: DI-movab (TODO-fuviv)
     if codespace_bash_root "set -euo pipefail; [[ -d $root_q ]]" >/dev/null; then
       printf '%s' "$root"
       return 0
@@ -274,7 +274,7 @@ latest_make_log_path() {
     root_q="$(printf '%q' "$root")"
     # Intent: Read make logs explicitly as root so diagnostics do not depend on
     # workspace-user readability of root-owned log trees.
-    # Source: DI-007-20260424-200248 (TODO/007)
+    # Source: DI-movab (TODO-fuviv)
     if ! latest_path="$(codespace_bash_root "set -euo pipefail; test -d $root_q; find $root_q -type f -name make.log | sort | tail -n1")"; then
       continue
     fi
@@ -296,7 +296,7 @@ list_make_log_paths() {
     root_q="$(printf '%q' "$root")"
     # Intent: Keep diagnostic log listing consistent with runtime log discovery
     # by reading both from root-owned log trees.
-    # Source: DI-007-20260424-200248 (TODO/007)
+    # Source: DI-movab (TODO-fuviv)
     if ! found_paths="$(codespace_bash_root "set -euo pipefail; test -d $root_q; find $root_q -type f -name make.log | sort")"; then
       continue
     fi
@@ -356,7 +356,7 @@ EOF
 )"
   # Intent: Capture remote logs into a copy path that gh codespace cp can read
   # even when original logs are root-owned.
-  # Source: DI-007-20260424-200248 (TODO/007)
+  # Source: DI-movab (TODO-fuviv)
   codespace_bash_root "$script"
 }
 
@@ -418,7 +418,7 @@ load_stage0_log_or_fail() {
 
   # Intent: Validate stage-0 identity markers from stage-0 runtime logs, not
   # just make logs, so user identity evidence is explicit per process boundary.
-  # Source: DI-007-20260423-180202 (TODO/007)
+  # Source: DI-sakuz (TODO-fuviv)
   if ! log_content="$(codespace_bash_root "cat $(printf '%q' "$stage0_log_path")")"; then
     fail "$exit_code" "failed to read stage-0 runtime log at $stage0_log_path"
   fi
@@ -501,12 +501,12 @@ decomk_home="/tmp/decomk-selftest/home"
 decomk_log_dir="/tmp/decomk-selftest/log"
 # Intent: Keep remote diagnostics copy path outside root-owned DECOMK_HOME trees
 # so `gh codespace cp` can fetch artifacts as the workspace user.
-# Source: DI-007-20260424-200248 (TODO/007)
+# Source: DI-movab (TODO-fuviv)
 remote_log_copy_dir="/tmp/decomk-selftest-log-copy"
 effective_decomk_log_dir=""
 # Intent: Make harness bootstrap failures fail fast instead of silently
 # continuing to "no make.log" states; dedicated probes still override this.
-# Source: DI-007-20260424-200248 (TODO/007)
+# Source: DI-movab (TODO-fuviv)
 stage0_fail_noboot_default="true"
 
 while [[ $# -gt 0 ]]; do
@@ -627,7 +627,7 @@ fi
 # Intent: Fail fast on non-Codespaces-compatible devcontainer paths so create
 # requests don't make network calls that are known to fail. Codespaces create
 # accepts paths rooted under `.devcontainer/`.
-# Source: DI-007-20260413-011500 (TODO/007)
+# Source: DI-hizim (TODO-fuviv)
 if [[ "$devcontainer_path" != .devcontainer/* ]]; then
   fail 2 "--devcontainer-path must live under .devcontainer/ for Codespaces create API compatibility"
 fi
@@ -749,7 +749,7 @@ cleanup() {
 
   # Intent: Record teardown command status in explicit diagnostics files so
   # selftest runs never hide cleanup or artifact-capture failures.
-  # Source: DI-008-20260412-122157 (TODO/008)
+  # Source: DI-golak (TODO-gamuz)
   if [[ "$diagnostics_failed" == "true" ]]; then
     log "diagnostics capture had failures; see $diag_summary_path"
   fi
@@ -758,7 +758,7 @@ cleanup() {
   # Intent: Preserve local harness artifacts by default so successful runs are
   # inspectable after completion; only delete them when operators explicitly
   # opt into cleanup.
-  # Source: DI-007-20260412-042700 (TODO/007)
+  # Source: DI-vasip (TODO-fuviv)
   if [[ "$exit_code" -ne 0 ]]; then
     log "failure artifacts preserved at: $temp_root"
   elif [[ "$cleanup_on_success" == "true" ]]; then
@@ -772,7 +772,7 @@ cleanup() {
 
   # Intent: Emit an explicit terminal result marker so operators can parse the
   # final harness line as PASS/FAIL without inspecting intermediate diagnostics.
-  # Source: DI-008-20260412-122157 (TODO/008)
+  # Source: DI-golak (TODO-gamuz)
   if [[ "$exit_code" -eq 0 ]]; then
     log "RESULT: PASS"
   else
@@ -812,7 +812,7 @@ log "codespace name: $codespace_name"
 # Intent: The harness executes all remote checks via `gh codespace ssh`, so the
 # selftest devcontainer must include an SSH server feature. Keep the failure
 # message explicit so stale codespaces or feature drift are actionable.
-# Source: DI-007-20260413-051500 (TODO/007)
+# Source: DI-tivik (TODO-fuviv)
 if ! wait_for_codespace_ssh "$ssh_timeout"; then
   fail 22 "timed out waiting for SSH readiness on codespace: $codespace_name (verify selftest devcontainer includes ghcr.io/devcontainers/features/sshd:1 and recreate the codespace)"
 fi
@@ -822,7 +822,7 @@ codespace_ready="true"
 # fixture repo inside the Codespace when no `--conf-uri` override is supplied.
 # This removes external fixture hosting requirements while still forcing stage-0
 # bootstrap to exercise git clone/pull from a URI source.
-# Source: DI-007-20260413-000500 (TODO/007)
+# Source: DI-sovif (TODO-fuviv)
 repo_basename="${repo_slug##*/}"
 repo_basename_q="$(printf '%q' "$repo_basename")"
 run_id_q="$(printf '%q' "$run_id")"
@@ -875,7 +875,7 @@ export DECOMK_CONF_URI="\$resolved_conf_uri"
 # Intent: Keep selftest identity wiring aligned with production-like stage-0
 # behavior by sourcing DECOMK_REMOTE_* from the devcontainer image/profile,
 # never from harness runtime exports.
-# Source: DI-007-20260425-110755 (TODO/007)
+# Source: DI-husoz (TODO-fuviv)
 export DECOMK_FAIL_NOBOOT=$stage0_fail_noboot_default_q
 bash examples/devcontainer/decomk-stage0.sh postCreate$decomk_run_args_shell
 EOF
@@ -902,7 +902,7 @@ run_decomk_with_stage0_env() {
 
   # Intent: Re-enter through stage-0 for post-bootstrap actions so root
   # escalation and env setup match lifecycle-hook execution exactly.
-  # Source: DI-007-20260424-200248 (TODO/007)
+  # Source: DI-movab (TODO-fuviv)
   local run_script
   run_script="$(cat <<EOF
 set -euo pipefail
@@ -1013,7 +1013,7 @@ require_absent_marker_or_fail 32 "SELFTEST PASS stamp-probe-ran"
 # Intent: Validate explicit stage-0 phase routing and GITHUB_USER handling by
 # forcing one updateContent run (empty user) and one postCreate run
 # (non-empty user), then asserting dedicated fixture markers.
-# Source: DI-001-20260416-223600 (TODO/001)
+# Source: DI-hihob (TODO-jirin)
 if ! run_logged run_stage0_phase_with_stage0_env "updateContent" "TUPLE_PHASE_UPDATE" ""; then
   fail 33 "stage-0 updateContent phase run failed"
 fi
@@ -1060,7 +1060,7 @@ require_stage0_marker_or_fail 34 "SELFTEST PASS stage0-id phase=postCreate uid=0
 
 # Intent: Assert DECOMK_FAIL_NOBOOT policy in both modes so stage-0 failures are
 # visible and deterministic while preserving optional continue-boot behavior.
-# Source: DI-012-20260423-045339 (TODO/012)
+# Source: DI-gokom (TODO-dobup)
 failure_root="$decomk_home/stage0/failure"
 failure_marker="$failure_root/latest-postCreate.marker"
 failure_log="$failure_root/latest-postCreate.log"
@@ -1071,7 +1071,7 @@ failure_motd_fallback="$failure_root/motd.txt"
   fi
   # Intent: Validate stage-0 failure artifacts as root because stage-0 writes
   # them under root-owned paths after self-escalation.
-  # Source: DI-007-20260424-200248 (TODO/007)
+  # Source: DI-movab (TODO-fuviv)
   if ! run_logged codespace_bash_root "test -f $(printf '%q' "$failure_marker")"; then
     fail 35 "continue-mode probe did not write failure marker: $failure_marker"
   fi

@@ -255,7 +255,7 @@ When stage-0 fails, generated script behavior is:
 
 Legacy variable-name migration mapping is documented in:
 
-- `TODO/001-decomk-devcontainer-tool-bootstrap.md` (`Legacy stage-0 variable migration mapping`)
+- `TODO/TODO-jirin-decomk-devcontainer-tool-bootstrap.md` (`Legacy stage-0 variable migration mapping`)
 
 ## Run/plan quick examples
 
@@ -297,10 +297,10 @@ to suppress lifecycle log output.
 
 For operator/CI checkpoint rollout handoff details:
 
-- `TODO/011-single-path-checkpoints.md` (`011.7 Operator/CI handoff contract`) — canonical step-by-step contract and artifact requirements.
+- `TODO/TODO-luvov-single-path-checkpoints.md` (`luvov.7 Operator/CI handoff contract`) — canonical step-by-step contract and artifact requirements.
 - `doc/image-management.md` — design rationale and lifecycle context.
 
-## Consumer selector policy (TODO 010)
+## Consumer selector policy (TODO-topan)
 
 Consumer repos should use one canonical `.devcontainer/devcontainer.json`
 and select checkpoint images via `image:` tags:
@@ -312,7 +312,7 @@ and select checkpoint images via `image:` tags:
 
 No `.devcontainer/BlockXX/...` profile-path switching is required in the
 current model. Maintainers update selector policy via normal repo commits.
-See `TODO/010-codespaces-block-prebuild-profiles.md` for policy details.
+See `TODO/TODO-topan-codespaces-block-prebuild-profiles.md` for policy details.
 
 ## Logging and state defaults
 

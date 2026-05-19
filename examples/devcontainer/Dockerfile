@@ -1,7 +1,7 @@
 # Intent: Provide a standalone base image for the generated production example
 # devcontainer so users can run stage-0 bootstrap without first supplying their
 # own Dockerfile.
-# Source: DI-001-20260313-183500 (TODO/001)
+# Source: DI-zugaf (TODO-jirin)
 FROM golang:1.24-bookworm
 
 RUN apt-get update \

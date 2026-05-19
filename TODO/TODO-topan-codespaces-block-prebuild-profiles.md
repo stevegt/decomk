@@ -1,0 +1,240 @@
+# TODO-topan: codespaces: block-specific devcontainer prebuild profiles
+
+## Decision Intent Log
+
+ID: DI-pikah
+Date: 2026-04-17 10:41:09
+Status: active
+Decision: Model build profiles as separate devcontainer trees (`.devcontainer/BlockXX/`) where each tree contains its own `devcontainer.json` and `Dockerfile`, then select the desired profile by choosing that `devcontainer.json` in Codespaces prebuild configuration.
+Intent: Make profile selection explicit and operationally simple (path selection) without editing a shared `devcontainer.json` on each switch.
+Constraints: Keep each profile runnable directly, keep profile naming stable (`BlockNN`), and document exact prebuild path mapping so CI/Codespaces behavior is deterministic.
+Affects: `.devcontainer/Block*/devcontainer.json`, `.devcontainer/Block*/Dockerfile`, Codespaces prebuild configuration settings, selftest/docs that reference devcontainer paths.
+
+ID: DI-zumav
+Date: 2026-04-17 13:54:00
+Status: active
+Decision: Track block profile/path selection in TODO-topan, while moving freeze/parity implementation and acceptance-gate details to TODO-luvov and `doc/image-management.md`.
+Intent: Keep TODO-topan focused on profile structure and Codespaces path selection, and avoid mixing it with parity pipeline implementation details.
+Constraints: Preserve existing BlockNN path model; keep prebuild profile decisions compatible with TODO-luvov parity requirements.
+Affects: `TODO/TODO-topan-codespaces-block-prebuild-profiles.md`, `TODO/TODO-luvov-single-path-checkpoints.md`, `doc/image-management.md`, `TODO/TODO.md`.
+
+ID: DI-fuzis
+Date: 2026-04-19 12:48:30
+Status: active
+Decision: Drive TODO-topan execution with plain-English user stories for both DevOps engineer and Dev team member personas; defer Gherkin conversion.
+Intent: Make block profile outcomes explicit for both operators and consumers before implementation details change.
+Constraints: Keep the BlockNN path-selection model unchanged, preserve compatibility with TODO-luvov freeze/parity work, and avoid introducing behavior changes in this documentation update.
+Affects: `TODO/TODO-topan-codespaces-block-prebuild-profiles.md`, `TODO/TODO-luvov-single-path-checkpoints.md`.
+
+ID: DI-ritos
+Date: 2026-04-19 13:01:12
+Status: active
+Decision: Replace short user-story bullets with day-in-the-life narratives for both DevOps engineer and dev team member personas in TODO-topan.
+Intent: Capture operational flow and pain points with realistic narrative context so implementation priorities are easier to validate.
+Constraints: Keep block-path selection model unchanged, keep traceability to 010 subtasks explicit, and keep the update documentation-only.
+Affects: `TODO/TODO-topan-codespaces-block-prebuild-profiles.md`.
+Supersedes: DI-fuzis
+
+ID: DI-tidal
+Date: 2026-04-19 14:18:22
+Status: active
+Decision: Align TODO-topan with speed-first single-path checkpoint design by referencing TODO-luvov as `single-path checkpoints` and focusing profile selection on reducing prebuild/first-boot time through block progression.
+Intent: Keep profile selection work tied to the real operational objective (startup speed) without adding separate parity-comparator responsibilities to TODO-topan.
+Constraints: Preserve existing BlockNN path model, keep story/subtask traceability intact, and keep this update documentation-only.
+Affects: `TODO/TODO-topan-codespaces-block-prebuild-profiles.md`, `TODO/TODO-luvov-single-path-checkpoints.md`, `doc/image-management.md`.
+Supersedes: DI-ritos
+
+ID: DI-kojan
+Date: 2026-04-20 16:06:34
+Status: active
+Decision: Treat `.devcontainer/BlockXX/` subdirectories as a considered alternative that is rejected for now; use one canonical `.devcontainer/devcontainer.json` per repo and commit explicit edits when selector policy changes.
+Intent: Avoid profile-tree duplication and drift while keeping repo configuration simple and explicit for current checkpoint-channel rollout work.
+Constraints: Keep TODO-topan focused on profile selection behavior (not checkpoint internals), preserve compatibility with TODO-luvov `build/push/tag` flow, and keep this change documentation-only.
+Affects: `TODO/TODO-topan-codespaces-block-prebuild-profiles.md`, `TODO/TODO-luvov-single-path-checkpoints.md`, `doc/image-management.md`.
+Supersedes: DI-tidal
+
+ID: DI-midir
+Date: 2026-04-20 21:59:54
+Status: active
+Decision: Close TODO-topan via documentation by standardizing producer/consumer selector policy, maintainer workflow, and channel-follow validation evidence around the finalized TODO-luvov progression (`candidate -> immutable/testing -> external test -> stable`).
+Intent: Make selector behavior and rollout ownership decision-complete so teams can adopt tested checkpoint updates without per-user settings churn or profile-path switching.
+Constraints: Keep `.devcontainer/BlockXX/` rejected; keep checkpoint command internals in TODO-luvov; keep this pass documentation-only.
+Affects: `TODO/TODO-topan-codespaces-block-prebuild-profiles.md`, `README.md`, `examples/decomk-selftest/README.md`, `TODO/TODO.md`.
+Supersedes: DI-kojan
+
+## Goal
+
+Define how repos select checkpoint channels/pins in devcontainer config
+without requiring per-user config edits whenever a new checkpoint image
+is published.
+
+## Canonical repo configuration model
+
+- Each repo keeps one canonical devcontainer config:
+  - `.devcontainer/devcontainer.json`
+- Repo maintainers edit that file explicitly as needed and commit changes.
+- Consumer repos should use `image:` references (channel or pinned tag)
+  so routine checkpoint rollout does not require changing repo config on
+  each checkpoint publish.
+
+## Considered alternatives (rejected for now)
+
+### `.devcontainer/BlockXX/` profile trees
+
+This TODO considered one profile directory per block, for example:
+
+```text
+.devcontainer/Block00/devcontainer.json
+.devcontainer/Block10/devcontainer.json
+```
+
+Rejected for now because it increases duplication/drift risk and adds
+maintenance overhead across many profile trees. Current direction is to
+keep one canonical `devcontainer.json` per repo and rely on checkpoint
+channel/pin selection rather than path switching.
+
+## Notes and constraints
+
+- Keep selector behavior explicit and git-tracked in repo config.
+- Avoid requiring users to edit local Codespaces settings to adopt each
+  new checkpoint publish.
+- Keep checkpoint internals (`build/push/tag`, external test gate, tag
+  movement semantics) in TODO-luvov.
+- Single-path checkpoint workflow for startup-speed improvement is
+  tracked in `TODO/TODO-luvov-single-path-checkpoints.md` and
+  `doc/image-management.md`.
+
+## topan.1 Producer vs consumer expectations
+
+- **Producer repos** are release-owner repos that run checkpoint lifecycle
+  commands (`build`, `push`, `tag`) and publish tags for consumers.
+- **Consumer repos** do not run checkpoint release operations in normal
+  startup flow; they declare selector policy in one canonical
+  `.devcontainer/devcontainer.json` using `image:` references.
+- Producer and consumer may be the same repo in small teams, but roles
+  are still conceptually separate: release ownership vs environment
+  consumption.
+
+## topan.2 Selector modes (consumer policy)
+
+Consumers use one of two selector modes:
+
+1. **Channel-following** (`image: ...:stable` or team-approved channel)
+   - best for teams wanting tested updates with no per-release repo edits.
+2. **Immutable pinning** (`image: ...:<immutable-tag>`)
+   - best for controlled freeze windows and explicit update timing.
+
+Policy:
+
+- Channel selectors move only through the TODO-luvov contract
+  (`build -> push -> external test -> tag -m stable`).
+- Immutable selectors never move in place; maintainers change the pinned
+  tag via explicit PR/commit.
+
+## topan.3 Harness/docs assumptions (canonical config)
+
+- Canonical repo config assumption is one
+  `.devcontainer/devcontainer.json` per consumer repo.
+- No `.devcontainer/BlockXX/...` path switching is required or expected.
+- Existing harness-specific devcontainer paths
+  (for example `.devcontainer/codespaces-selftest/devcontainer.json`) are
+  test fixtures only and do not represent the production selector model.
+
+## topan.4 Maintainer workflow (explicit selector edits)
+
+When selector policy must change for a repo:
+
+1. Update `.devcontainer/devcontainer.json` `image:` selector.
+2. Commit the change in the repo (no local-only setting overrides).
+3. Document intent in the PR/commit message (channel-follow vs pin).
+4. For pinned mode, include source checkpoint tag provenance
+   (`immutable tag` + upstream release/test evidence reference).
+
+## topan.5 Validation procedure and evidence format
+
+Validation objective: prove channel-following consumer repos pick up
+new tested checkpoint tags without per-repo config edits.
+
+Procedure:
+
+1. Choose a consumer repo that uses channel-following selector
+   (`image: ...:stable` or approved channel tag).
+2. Capture baseline evidence:
+   - selector value in `.devcontainer/devcontainer.json`,
+   - resolved runtime image digest before promotion.
+3. Run producer promotion flow from TODO-luvov:
+   - `checkpoint build`,
+   - `checkpoint push` (immutable + testing/unstable),
+   - external test gate pass,
+   - `checkpoint tag -m <source> stable`.
+4. Recreate/rebuild consumer devcontainer without editing consumer repo
+   selector config.
+5. Capture post-promotion evidence:
+   - same selector value unchanged,
+   - resolved runtime image digest now matches promoted source digest.
+
+Evidence format (minimum):
+
+- `consumer-selector-before.txt` (selector line),
+- `consumer-digest-before.txt`,
+- `producer-push.json`,
+- `producer-tag.json`,
+- `consumer-selector-after.txt`,
+- `consumer-digest-after.txt`,
+- `validation-summary.md` with pass/fail and digest comparison.
+
+Pass condition:
+
+- consumer selector file unchanged,
+- consumer resolved digest changes to promoted tested source digest.
+
+## topan.6 Maintenance rules (minimize config churn)
+
+- Default teams to channel-following unless there is a concrete freeze
+  requirement.
+- Use immutable pinning only with explicit owner and planned unpin date.
+- Avoid selector flips for routine releases; move channel tags instead.
+- Keep selector decisions repo-visible (git-tracked), never per-user.
+- Keep rollout semantics synchronized with TODO-luvov handoff contract.
+
+## Subtasks
+
+- [x] topan.1 Document producer vs consumer repo config expectations (producer may build checkpoints; consumer should use `image:` selector refs).
+- [x] topan.2 Document selector modes for consumers (channel-following vs pinned checkpoint tag) and when each is appropriate.
+- [x] topan.3 Update harness/docs assumptions to canonical `.devcontainer/devcontainer.json` usage (no BlockXX path requirement).
+- [x] topan.4 Document repo-maintainer workflow for explicit `devcontainer.json` edits + commit when selector policy changes are needed.
+- [x] topan.5 Validate that channel-following consumer repos pick up new tested checkpoint tags without per-repo config edits.
+- [x] topan.6 Document maintenance rules for keeping selector policy clear and minimizing config churn.
+
+## Day-in-the-life stories
+
+### DITL-010-DEVOPS-01 - DevOps engineer curating block prebuild profiles
+
+At the start of the week, the DevOps engineer needs to reduce prebuild and first
+boot time as shared setup grows. They open the repo and expect one
+canonical `.devcontainer/devcontainer.json` that clearly states whether
+the repo follows a channel tag or a pinned checkpoint tag. They publish
+new checkpoints through TODO-luvov flow (`build -> push -> external test ->
+tag`) and expect channel-following repos to benefit without per-repo
+config edits for each release. Their definition of success is that only
+intentional policy changes require editing `devcontainer.json`.
+
+### DITL-010-DEVTEAM-01 - Dev team member consuming block profiles
+
+A dev team member joins a repo, uses the documented channel or pin
+selector for that team, and expects workspace startup to just work.
+They should not need to
+reverse engineer profile trees or switch devcontainer paths manually.
+If the repo follows a channel, they should receive tested checkpoint
+updates automatically; if pinned, they should stay pinned until
+maintainers intentionally update config. Their definition of success is
+predictable startup behavior with minimal config churn.
+
+## Story-to-subtask traceability
+
+- `topan.1` -> `DITL-010-DEVOPS-01`, `DITL-010-DEVTEAM-01`
+- `topan.2` -> `DITL-010-DEVOPS-01`, `DITL-010-DEVTEAM-01`
+- `topan.3` -> `DITL-010-DEVOPS-01`, `DITL-010-DEVTEAM-01`
+- `topan.4` -> `DITL-010-DEVOPS-01`
+- `topan.5` -> `DITL-010-DEVOPS-01`, `DITL-010-DEVTEAM-01`
+- `topan.6` -> `DITL-010-DEVOPS-01`, `DITL-010-DEVTEAM-01`

@@ -62,7 +62,7 @@ type initConsumerDevcontainerTemplateData struct {
 // Intent: Keep stage-0 bootstrap setup reproducible and easy for new repos by
 // generating production-identical lifecycle scaffolding directly from the
 // decomk binary.
-// Source: DI-001-20260311-161825 (TODO/001)
+// Source: DI-votit (TODO-jirin)
 func cmdInit(args []string, stdout, stderr io.Writer) (int, error) {
 	fs := flag.NewFlagSet("decomk init", flag.ContinueOnError)
 	fs.SetOutput(stderr)
@@ -80,7 +80,7 @@ func cmdInit(args []string, stdout, stderr io.Writer) (int, error) {
 		// Intent: Keep init fail-policy defaults local-first then builtin-false,
 		// independent from producer/env imports, so stage-0 boot policy remains an
 		// explicit repo decision.
-		// Source: DI-001-20260425-113454 (TODO/001)
+		// Source: DI-zopat (TODO-jirin)
 		failNoBoot: stage0.DefaultFailNoBoot,
 	}
 	addInitFlags(fs, &f)
@@ -102,7 +102,7 @@ func cmdInit(args []string, stdout, stderr io.Writer) (int, error) {
 		// Intent: Treat producer-only init flags as explicit misuse in image
 		// consumer mode, so callers get a clear mode-specific error while still
 		// seeing standard init usage output.
-		// Source: DI-016-20260427-200729 (TODO/016)
+		// Source: DI-fazub (TODO-danih)
 		if misusedFlag := firstMisusedConsumerProducerOnlyFlag(setFlags); misusedFlag != "" {
 			fs.Usage()
 			return 2, fmt.Errorf("-%s is only valid with -conf", misusedFlag)
@@ -115,7 +115,7 @@ func cmdInit(args []string, stdout, stderr io.Writer) (int, error) {
 		// Intent: Default stage-0 file placement to the current git repo toplevel so
 		// running "decomk init" from a nested directory still writes into the
 		// repository root by default.
-		// Source: DI-001-20260311-164841 (TODO/001)
+		// Source: DI-kobip (TODO-jirin)
 		repoRootInput, err = gitTopLevelFromDir(".")
 		if err != nil {
 			return 1, fmt.Errorf("resolve default repo root from current git repo: %w (or set -repo-root)", err)
@@ -138,7 +138,7 @@ func cmdInit(args []string, stdout, stderr io.Writer) (int, error) {
 		// Intent: Keep producer and consumer initialization under one command
 		// surface (`decomk init`) while preserving producer-specific scaffold
 		// behavior behind an explicit `-conf` mode switch.
-		// Source: DI-001-20260424-190437 (TODO/001)
+		// Source: DI-bonop (TODO-jirin)
 		return runInitConfMode(&f, setFlags, repoRoot, stdout, stderr)
 	}
 
@@ -146,7 +146,7 @@ func cmdInit(args []string, stdout, stderr io.Writer) (int, error) {
 		// Intent: Fail fast on existing stage-0 targets before interactive prompts
 		// so operators do not answer init questions only to hit overwrite refusal at
 		// the end of the command.
-		// Source: DI-001-20260423-051500 (TODO/001)
+		// Source: DI-linop (TODO-jirin)
 		devcontainerDir := filepath.Join(repoRoot, ".devcontainer")
 		jsonPath := filepath.Join(devcontainerDir, "devcontainer.json")
 		stage0ScriptPath := filepath.Join(devcontainerDir, "decomk-stage0.sh")
@@ -162,7 +162,7 @@ func cmdInit(args []string, stdout, stderr io.Writer) (int, error) {
 	// Intent: Reuse existing stage-0 values as interactive/no-prompt defaults when
 	// `decomk init -f` is used, so reruns do not force users to re-enter config by
 	// hand.
-	// Source: DI-001-20260423-140628 (TODO/001)
+	// Source: DI-zofav (TODO-jirin)
 	existingDefaults, hasExistingDefaults, err := loadInitExistingDevcontainerDefaults(repoRoot)
 	if err != nil {
 		if writeErr := writeFormat(stderr, "decomk init: warning: unable to parse existing .devcontainer/devcontainer.json for defaults: %v\n", err); writeErr != nil {
@@ -191,7 +191,7 @@ func cmdInit(args []string, stdout, stderr io.Writer) (int, error) {
 	}
 	// Intent: Keep image-consumer init minimal and image-centric by resolving one
 	// concrete image value from CLI/derived/existing sources before rendering.
-	// Source: DI-016-20260427-200729 (TODO/016)
+	// Source: DI-fazub (TODO-danih)
 	if err := resolveConsumerInitImage(&f, setFlags, canPrompt, os.Stdin, stderr); err != nil {
 		return 1, err
 	}
@@ -221,7 +221,7 @@ func cmdInit(args []string, stdout, stderr io.Writer) (int, error) {
 // Intent: Keep producer `.devcontainer` identity and URI defaults managed by the
 // same interactive/non-interactive flow as consumer init, while writing the full
 // shared-conf starter tree.
-// Source: DI-001-20260424-190437 (TODO/001)
+// Source: DI-bonop (TODO-jirin)
 func runInitConfMode(f *initFlags, setFlags map[string]bool, repoRoot string, stdout, stderr io.Writer) (int, error) {
 	if !setFlags["conf-uri"] && strings.TrimSpace(f.confURI) == "" {
 		f.confURI = confrepo.DefaultConfURI
@@ -242,7 +242,7 @@ func runInitConfMode(f *initFlags, setFlags map[string]bool, repoRoot string, st
 
 	// Intent: Keep `decomk init -conf -f` reruns ergonomic by reusing existing
 	// producer devcontainer values as defaults when present.
-	// Source: DI-001-20260424-190437 (TODO/001)
+	// Source: DI-bonop (TODO-jirin)
 	existingDefaults, hasExistingDefaults, err := loadInitExistingDevcontainerDefaults(repoRoot)
 	if err != nil {
 		if writeErr := writeFormat(stderr, "decomk init -conf: warning: unable to parse existing .devcontainer/devcontainer.json for defaults: %v\n", err); writeErr != nil {
@@ -264,7 +264,7 @@ func runInitConfMode(f *initFlags, setFlags map[string]bool, repoRoot string, st
 		// Intent: Keep producer `init -conf` naming defaults identical to consumer
 		// `init` so users always get repo-basename defaults unless they pass
 		// `-name` or reuse an existing value from a prior scaffold.
-		// Source: DI-001-20260424-193612 (TODO/001)
+		// Source: DI-nozok (TODO-jirin)
 		f.name = filepath.Base(repoRoot)
 	}
 	// Producer mode always emits a build-backed starter profile.
@@ -356,7 +356,7 @@ func configureInitUsage(fs *flag.FlagSet) {
 		// Intent: Keep default flat flag output from Go's flag package while adding
 		// explicit image-producer/image-consumer guidance so mode-scoped flags are
 		// discoverable without custom section rendering.
-		// Source: DI-016-20260427-200729 (TODO/016)
+		// Source: DI-fazub (TODO-danih)
 		if err := printInitUsage(fs); err != nil {
 			// The flag package usage hook has no error return. Usage write failures
 			// are non-actionable at this layer.
@@ -517,7 +517,7 @@ func promptWithDefault(reader *bufio.Reader, out io.Writer, label, defaultValue 
 //
 // Intent: Keep generated stage-0 config values explicit and valid at init time so
 // invalid policy strings fail early instead of surprising users at container boot.
-// Source: DI-012-20260423-045339 (TODO/012)
+// Source: DI-gokom (TODO-dobup)
 func validateFailNoBootValue(value string) error {
 	normalized := strings.ToLower(strings.TrimSpace(value))
 	switch normalized {
@@ -534,7 +534,7 @@ func validateFailNoBootValue(value string) error {
 // Intent: Keep init-time producer identity validation explicit so invalid
 // DECOMK_REMOTE_USER/DECOMK_REMOTE_UID values fail during scaffolding instead
 // of producing stage-0 runtime failures in downstream consumer images.
-// Source: DI-001-20260425-113454 (TODO/001)
+// Source: DI-zopat (TODO-jirin)
 func validateRemoteIdentity(remoteIdentityUser, remoteIdentityUID string) error {
 	if strings.TrimSpace(remoteIdentityUser) == "" {
 		return fmt.Errorf("DECOMK_REMOTE_USER template value cannot be empty")
@@ -561,7 +561,7 @@ func validateRemoteIdentity(remoteIdentityUser, remoteIdentityUID string) error 
 //
 // Intent: Make consumer init image resolution deterministic while keeping the
 // generated consumer template minimal (`name` + `image`).
-// Source: DI-016-20260427-200729 (TODO/016)
+// Source: DI-fazub (TODO-danih)
 func resolveConsumerInitImage(f *initFlags, setFlags map[string]bool, canPrompt bool, in io.Reader, out io.Writer) error {
 	if setFlags["image"] {
 		if strings.TrimSpace(f.image) == "" {
@@ -698,7 +698,7 @@ func loadConsumerImageFromConfURL(confURL string) (string, error) {
 		if removeErr := os.RemoveAll(tmpRoot); removeErr != nil {
 			// Intent: Cleanup of temporary conf clones is best-effort and
 			// non-fatal for init; clone/read errors are still returned explicitly.
-			// Source: DI-001-20260424-190437 (TODO/001)
+			// Source: DI-bonop (TODO-jirin)
 		}
 	}()
 
@@ -729,7 +729,7 @@ func loadConsumerImageFromConfURL(confURL string) (string, error) {
 //
 // Intent: Keep consumer derivation input explicit and non-ambiguous by
 // accepting only HTTP(S) URLs with optional ref query.
-// Source: DI-016-20260427-200729 (TODO/016)
+// Source: DI-fazub (TODO-danih)
 func parseHTTPSourceURL(rawURL string) (repoURL string, gitRef string, err error) {
 	parsed, err := url.Parse(strings.TrimSpace(rawURL))
 	if err != nil {
@@ -883,7 +883,7 @@ func applyInitDefaultsFromExistingDevcontainer(f *initFlags, setFlags map[string
 //
 // Intent: Keep `decomk init -conf -f` reruns ergonomic by reusing existing
 // Dockerfile identity/base-image values as prompt defaults.
-// Source: DI-001-20260425-232447 (TODO/001)
+// Source: DI-roraj (TODO-jirin)
 func applyInitDefaultsFromExistingDockerfile(f *initFlags, setFlags map[string]bool, defaults initExistingDockerfileDefaults) {
 	if !setFlags["image"] && defaults.BaseImage != "" {
 		f.image = defaults.BaseImage
@@ -1134,7 +1134,7 @@ func writeInitStage0(repoRoot string, data initConsumerDevcontainerTemplateData,
 
 	// Intent: Keep image-consumer init output minimal (`name` + `image`) by
 	// rendering through a dedicated consumer template contract.
-	// Source: DI-016-20260427-200729 (TODO/016)
+	// Source: DI-fazub (TODO-danih)
 	devcontainerJSON, err := stage0.RenderTemplate("consumer.devcontainer.json", initConsumerDevcontainerJSONTemplate, data)
 	if err != nil {
 		return nil, err
@@ -1151,7 +1151,7 @@ func writeInitStage0(repoRoot string, data initConsumerDevcontainerTemplateData,
 		// Intent: Keep `decomk init` conservative by default: never overwrite or
 		// partially scaffold when either stage-0 file already exists, and force users
 		// onto an explicit commit/force/difftool reconciliation workflow.
-		// Source: DI-001-20260412-194342 (TODO/001)
+		// Source: DI-gofil (TODO-jirin)
 		existing, err := existingInitTargets(jsonPath, stage0ScriptPath)
 		if err != nil {
 			return nil, err
@@ -1208,7 +1208,7 @@ func writeInitFile(path string, content []byte, mode os.FileMode, force bool) (s
 
 	// Intent: Write stage-0 files atomically (temp file + rename) so
 	// interruptions cannot leave a partially-written devcontainer config/script.
-	// Source: DI-001-20260311-175002 (TODO/001)
+	// Source: DI-hojij (TODO-jirin)
 	if err := stage0.WriteFileAtomic(path, content, mode); err != nil {
 		return "", err
 	}

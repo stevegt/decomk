@@ -8,7 +8,7 @@ source "$script_dir/lib.sh"
 # Intent: Drive the full self-test through decomk itself: publish a temporary
 # config repo over git://, let decomk pull it during postCreate, and validate
 # pass/fail only from container logs.
-# Source: DI-007-20260412-171000 (TODO/007)
+# Source: DI-zulir (TODO-fuviv)
 
 usage() {
   cat <<'USAGE'
@@ -40,7 +40,7 @@ fi
 for arg in "${decomk_args[@]}"; do
   # Intent: Context selection in this harness must be automatic from workspace
   # repo identity; do not allow explicit -context overrides in run.sh.
-  # Source: DI-007-20260311-145221 (TODO/007)
+  # Source: DI-lipat (TODO-fuviv)
   if [[ "$arg" == -* ]]; then
     die "run.sh accepts decomk action args only (flags such as $arg are not allowed)"
   fi
@@ -116,7 +116,7 @@ cleanup() {
   if ! rm -rf "$temp_root"; then
     # Intent: Keep reruns ergonomic by attempting privileged cleanup when prior
     # container operations leave root-owned files in the temporary workspace.
-    # Source: DI-007-20260309-124345 (TODO/007)
+    # Source: DI-misov (TODO-fuviv)
     if ! sudo -n rm -rf "$temp_root" 2>/dev/null; then
       log "cleanup warning: failed to remove temp workspace $temp_root"
       cleanup_failed="true"
@@ -125,14 +125,14 @@ cleanup() {
 
   # Intent: Report non-fatal cleanup failures explicitly so harness runs never
   # hide command errors behind silent best-effort teardown.
-  # Source: DI-008-20260412-122157 (TODO/008)
+  # Source: DI-golak (TODO-gamuz)
   if [[ "$cleanup_failed" == "true" ]]; then
     log "cleanup completed with warnings"
   fi
 
   # Intent: Emit an explicit terminal result marker so operators can parse the
   # final harness line as PASS/FAIL without inspecting intermediate diagnostics.
-  # Source: DI-008-20260412-122157 (TODO/008)
+  # Source: DI-golak (TODO-gamuz)
   if [[ "$exit_code" -eq 0 ]]; then
     log "RESULT: PASS"
   else
@@ -148,7 +148,7 @@ log "temporary workspace root: $temp_root"
 prepare_fixture_repos() {
   # Intent: Keep test policy in fixture files, but publish it as a real git repo
   # so decomk stage-0 bootstrap exercises real tool+config clone/pull paths.
-  # Source: DI-007-20260311-145221 (TODO/007)
+  # Source: DI-lipat (TODO-fuviv)
   run_logged mkdir -p "$runtime_conf_repo"
   run_logged cp -a "$fixture_template/." "$runtime_conf_repo"
   run_logged git -C "$runtime_conf_repo" init -q
@@ -210,7 +210,7 @@ run_devpod_up() {
 
   # Intent: Keep one explicit source-first invocation shape so harness logs and
   # docs match exactly.
-  # Source: DI-007-20260311-145221 (TODO/007)
+  # Source: DI-lipat (TODO-fuviv)
   devpod up "$workspace_source" --id "$workspace_name" --ide none
 }
 
@@ -244,7 +244,7 @@ active_workspaces+=("$workspace_name")
 run_logged run_devpod_up "$workspace_name" "$workspace_copy"
 # Intent: Keep all runtime make executions on the same stage-0 root path used by
 # lifecycle hooks so selftest behavior matches production privilege flow.
-# Source: DI-007-20260424-200248 (TODO/007)
+# Source: DI-movab (TODO-fuviv)
 run_logged devpod ssh "$workspace_name" --command "bash .devcontainer/decomk-stage0.sh postCreate $decomk_run_args"
 
 make_log_path="$(latest_make_log_path)"
@@ -289,7 +289,7 @@ load_stage0_log_lines() {
   local stage0_log_path="$1"
   # Intent: Read stage-0 runtime logs separately from make logs so selftest can
   # prove the stage-0 process identity independently from recipe execution.
-  # Source: DI-007-20260423-180202 (TODO/007)
+  # Source: DI-sakuz (TODO-fuviv)
   if ! mapfile -t stage0_log_lines < <(devpod ssh "$workspace_name" --command "cat '$stage0_log_path'"); then
     die "failed to read stage-0 runtime log: $stage0_log_path"
   fi
@@ -316,7 +316,7 @@ require_marker "SELFTEST PASS default-tuple-available"
 # Intent: Verify stamp semantics end-to-end by running one stamp target twice:
 # first invocation executes and stamps; second invocation must skip that target,
 # and the verifier target must confirm the probe ran exactly once.
-# Source: DI-007-20260313-101500 (TODO/007)
+# Source: DI-juvum (TODO-fuviv)
 run_logged devpod ssh "$workspace_name" --command "bash .devcontainer/decomk-stage0.sh postCreate TUPLE_STAMP_PROBE"
 stamp_probe_log_path="$(latest_make_log_path)"
 if [[ -z "$stamp_probe_log_path" ]]; then
@@ -342,7 +342,7 @@ require_absent_marker "SELFTEST PASS stamp-probe-ran"
 # Intent: Exercise both stage-0 phases explicitly with deterministic GITHUB_USER
 # values so selftest validates phase separation and user-identity handling
 # independent of provider-specific hook scheduling.
-# Source: DI-001-20260416-223600 (TODO/001)
+# Source: DI-hihob (TODO-jirin)
 run_logged devpod ssh "$workspace_name" --command "GITHUB_USER= .devcontainer/decomk-stage0.sh updateContent TUPLE_PHASE_UPDATE"
 phase_update_log_path="$(latest_make_log_path)"
 if [[ -z "$phase_update_log_path" ]]; then
@@ -378,7 +378,7 @@ require_stage0_marker "SELFTEST PASS stage0-id phase=postCreate uid=0 user=root"
 
 # Intent: Assert DECOMK_FAIL_NOBOOT policy in both modes so stage-0 failures are
 # visible and deterministic while preserving optional continue-boot behavior.
-# Source: DI-012-20260423-045339 (TODO/012)
+# Source: DI-gokom (TODO-dobup)
 failure_root="/tmp/decomk-selftest/home/stage0/failure"
 failure_marker="$failure_root/latest-postCreate.marker"
 failure_log="$failure_root/latest-postCreate.log"

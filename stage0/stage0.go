@@ -7,7 +7,7 @@
 //
 // Intent: Keep all stage-0 rendering paths on one data/templating contract so
 // generated examples and init output cannot drift.
-// Source: DI-001-20260312-141200 (TODO/001)
+// Source: DI-tikub (TODO-jirin)
 package stage0
 
 import (
@@ -35,7 +35,7 @@ const (
 	// Intent: Default generated stage-0 bootstrap to the stable moving branch so
 	// consumers follow an explicit release channel, while leaving immutable tags
 	// available for audit/rollback and `testing` available for validation.
-	// Source: DI-001-20260502-233406 (TODO/001)
+	// Source: DI-vikid (TODO-jirin)
 	DefaultToolURI = "go:github.com/stevegt/decomk/cmd/decomk@stable"
 
 	// DefaultDevcontainerImage is the canonical base image used by stage-0
@@ -43,7 +43,7 @@ const (
 	//
 	// Intent: Keep `decomk init` output valid for non-Dockerfile devcontainers by
 	// always emitting either a `build` or `image` stanza.
-	// Source: DI-001-20260423-140628 (TODO/001)
+	// Source: DI-zofav (TODO-jirin)
 	DefaultDevcontainerImage = "mcr.microsoft.com/devcontainers/base:ubuntu-24.04"
 
 	// DefaultDevcontainerUser is the canonical non-root username used by decomk's
@@ -51,7 +51,7 @@ const (
 	//
 	// Intent: Keep identity markers and ownership behavior deterministic across
 	// harness runtimes by standardizing on one explicit non-root user.
-	// Source: DI-001-20260425-005155 (TODO/001)
+	// Source: DI-lobin (TODO-jirin)
 	DefaultDevcontainerUser = "dev"
 
 	// DefaultDevcontainerUID is the canonical non-root UID used by decomk's own
@@ -60,7 +60,7 @@ const (
 	// Intent: Keep user/UID wiring deterministic in generated producer and
 	// consumer devcontainer scaffolds so identity can be propagated from conf
 	// producer repos into consumer repos without ambiguity.
-	// Source: DI-001-20260424-190437 (TODO/001)
+	// Source: DI-bonop (TODO-jirin)
 	DefaultDevcontainerUID = "1000"
 
 	// DefaultFailNoBoot is the canonical stage-0 failure policy used by generated
@@ -69,7 +69,7 @@ const (
 	//
 	// Intent: Keep first-boot behavior predictable by defaulting to continue-boot
 	// semantics while still surfacing stage-0 failures via artifacts and warnings.
-	// Source: DI-012-20260423-045339 (TODO/012)
+	// Source: DI-gokom (TODO-dobup)
 	DefaultFailNoBoot = "false"
 )
 
@@ -103,7 +103,7 @@ type DevcontainerTemplateData struct {
 	// Intent: Let init-generated producer/consumer devcontainer files omit
 	// DECOMK_REMOTE_* transport keys while preserving legacy/example/selftest
 	// rendering paths that still embed those keys.
-	// Source: DI-001-20260425-113454 (TODO/001)
+	// Source: DI-zopat (TODO-jirin)
 	DisableRemoteIdentityEnv bool
 	UpdateRemoteUserUID      *bool
 	Home                     string
@@ -121,7 +121,7 @@ func (data DevcontainerTemplateData) EnsureDefaults() DevcontainerTemplateData {
 	// Intent: Keep the generated lifecycle contract explicit and phase-aware by
 	// default so `updateContent` and `postCreate` always call stage-0 with an
 	// unambiguous phase argument.
-	// Source: DI-001-20260416-223600 (TODO/001)
+	// Source: DI-hihob (TODO-jirin)
 	if data.UpdateContentCommand == "" {
 		data.UpdateContentCommand = DefaultUpdateContentCommand
 	}
@@ -140,7 +140,7 @@ func (data DevcontainerTemplateData) EnsureDefaults() DevcontainerTemplateData {
 	// Intent: Stage-0 generated devcontainer.json must always include a concrete
 	// devcontainer source stanza (`build` or `image`) so non-Dockerfile workflows
 	// have a valid image contract by default.
-	// Source: DI-001-20260423-140628 (TODO/001)
+	// Source: DI-zofav (TODO-jirin)
 	if data.BuildDockerfile == "" && data.Image == "" {
 		data.Image = DefaultDevcontainerImage
 	}
@@ -152,7 +152,7 @@ func (data DevcontainerTemplateData) EnsureDefaults() DevcontainerTemplateData {
 	}
 	// Intent: Keep container/runtime identity explicit when a caller sets only
 	// one user field by mirroring `remoteUser` into `containerUser`.
-	// Source: DI-001-20260425-005155 (TODO/001)
+	// Source: DI-lobin (TODO-jirin)
 	if data.RemoteUser != "" && data.ContainerUser == "" {
 		data.ContainerUser = data.RemoteUser
 	}
@@ -165,7 +165,7 @@ func ProductionExampleDevcontainerData() DevcontainerTemplateData {
 	// Intent: Keep the checked-in production example standalone and runnable by
 	// providing a local Dockerfile build and a non-root runtime user out of the
 	// box.
-	// Source: DI-001-20260313-183500 (TODO/001)
+	// Source: DI-zugaf (TODO-jirin)
 	return DevcontainerTemplateData{
 		Name:                 "decomk (example; set DECOMK_CONF_URI)",
 		BuildDockerfile:      "Dockerfile",
@@ -263,7 +263,7 @@ func WriteFileAtomic(path string, content []byte, mode os.FileMode) (err error) 
 		if err != nil {
 			// Intent: Never hide temp-file cleanup failures during atomic writes;
 			// preserve all error causes for debuggable write failures.
-			// Source: DI-008-20260412-122157 (TODO/008)
+			// Source: DI-golak (TODO-gamuz)
 			if removeErr := os.Remove(tmpPath); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
 				err = errors.Join(err, fmt.Errorf("remove temp file %s: %w", tmpPath, removeErr))
 			}

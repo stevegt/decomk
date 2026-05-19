@@ -65,7 +65,7 @@ promote_branch_channel() {
   # Intent: Keep moving branch channels (`testing`, `stable`) explicit and
   # fast-forward-only so stage-0/go-install consumers can follow predictable
   # repo-controlled release channels.
-  # Source: DI-001-20260502-233406 (TODO/001)
+  # Source: DI-vikid (TODO-jirin)
   require_clean_repo
   git fetch origin
   require_current_branch "$source_branch"
@@ -101,7 +101,7 @@ case "$release_kind" in
     # Intent: Keep immutable release operations deterministic by refusing to run
     # when the repository is dirty, then updating VERSION + generated version
     # source as one atomic release commit before tagging and pushing.
-    # Source: DI-001-20260423-204251 (TODO/001)
+    # Source: DI-gavaj (TODO-jirin)
     require_clean_repo
     require_current_branch "main"
 

@@ -20,7 +20,7 @@ scenario="${PHASE_EVAL_SCENARIO:-unknown}"
 # Intent: Persist hook observations to both volatile (`/tmp`) and durable
 # (`$HOME`) locations so phase-eval can prove whether hooks executed during
 # prebuild (baked into snapshot) or during first boot/runtime.
-# Source: DI-009-20260417-030759 (TODO/009)
+# Source: DI-dopap (TODO-dahuk)
 volatile_root="/tmp/decomk-phase-eval-hooks"
 persistent_root="${HOME:-/home/dev}/.decomk-phase-eval-hooks"
 persistent_history_path="$persistent_root/history/events.log"
@@ -28,7 +28,7 @@ prebuild_update_marker_path="$persistent_root/markers/prebuild/updateContent.mar
 
 # Intent: Infer prebuild-vs-runtime phase for Codespaces without relying on
 # undocumented environment variables by using durable marker/history state.
-# Source: DI-009-20260417-030759 (TODO/009)
+# Source: DI-dopap (TODO-dahuk)
 resolve_phase_bucket() {
   local hook="$1"
   local history_exists="$2"
@@ -41,7 +41,7 @@ resolve_phase_bucket() {
     # Intent: Keep Codespaces prebuild classification stable now that
     # `onCreateCommand` can run before `updateContentCommand`; treat onCreate
     # and updateContent as prebuild until the prebuild update marker exists.
-    # Source: DI-009-20260418-140800 (TODO/009)
+    # Source: DI-nikon (TODO-dahuk)
     if [[ "$prebuild_marker_seen" == "true" ]]; then
       printf 'runtime'
       return

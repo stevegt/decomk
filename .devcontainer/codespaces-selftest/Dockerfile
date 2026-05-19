@@ -1,6 +1,6 @@
 # Intent: Keep the codespaces selftest image minimal while making the stage-0
 # remote-identity contract explicit via DECOMK_REMOTE_* image defaults.
-# Source: DI-007-20260425-110755 (TODO/007)
+# Source: DI-husoz (TODO-fuviv)
 FROM mcr.microsoft.com/devcontainers/base:ubuntu-24.04
 
 RUN apt-get update \
@@ -14,7 +14,7 @@ RUN apt-get update \
 
 # Intent: Keep Go toolchain ownership in the image so stage0 consumes a
 # deterministic compiler and never asks the Go command to auto-download one.
-# Source: DI-019-20260510-111726 (TODO/019)
+# Source: DI-fisof (TODO-vimoj)
 ENV PATH=/usr/lib/go-1.23/bin:$PATH
 ENV GOTOOLCHAIN=local
 RUN ln -sf /usr/lib/go-1.23/bin/go /usr/local/bin/go \
@@ -22,7 +22,7 @@ RUN ln -sf /usr/lib/go-1.23/bin/go /usr/local/bin/go \
 
 # Intent: Before changing these values, inspect the base image identities first.
 # Example: docker run --rm -it mcr.microsoft.com/devcontainers/base:ubuntu-24.04 cat /etc/passwd
-# Source: DI-007-20260425-110755 (TODO/007)
+# Source: DI-husoz (TODO-fuviv)
 ENV DECOMK_REMOTE_USER=vscode
 ENV DECOMK_REMOTE_UID=1000
 

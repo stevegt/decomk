@@ -106,7 +106,7 @@ func LoadFile(path string) (defs Defs, err error) {
 	}
 	// Intent: Preserve file close failures while parsing decomk.conf so I/O errors
 	// are never dropped during context resolution.
-	// Source: DI-008-20260412-122157 (TODO/008)
+	// Source: DI-golak (TODO-gamuz)
 	defer func() {
 		if closeErr := f.Close(); closeErr != nil {
 			wrapped := fmt.Errorf("close %q: %w", path, closeErr)
@@ -200,7 +200,7 @@ func Merge(base, overlay Defs) Defs {
 //
 // Intent: Fail fast on ambiguous bare RHS literals so decomk context config stays
 // tuple/macro-only and action selection remains explicit in command args.
-// Source: DI-004-20260422-193652 (TODO/004)
+// Source: DI-gusab (TODO-takoh)
 func ValidateRefs(defs Defs) error {
 	keys := make([]string, 0, len(defs))
 	for key := range defs {

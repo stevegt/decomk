@@ -4,7 +4,7 @@ set -euo pipefail
 
 # Intent: Keep phase-eval scenario scripts focused on platform-specific evaluation
 # logic by centralizing logging, command checks, and rc/stdout/stderr capture.
-# Source: DI-009-20260413-232813 (TODO/009)
+# Source: DI-kabut (TODO-dahuk)
 
 log() {
   printf '[phase-eval] %s\n' "$*"

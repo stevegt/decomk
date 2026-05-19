@@ -3,7 +3,7 @@
 //
 // Intent: Keep conf-repo initialization defaults in one package so command
 // handlers, generators, and sync tests cannot drift on path/value assumptions.
-// Source: DI-013-20260422-110500 (TODO/013)
+// Source: DI-hikil (TODO-rufiz)
 package confrepo
 
 import (
@@ -40,7 +40,7 @@ func ProducerDevcontainerData(name string) stage0.DevcontainerTemplateData {
 	remoteIdentityUID := stage0.DefaultDevcontainerUID
 	// Intent: Keep producer prebuild/runtime identity deterministic by pinning one
 	// configured non-root user/UID and disabling runtime UID remap.
-	// Source: DI-001-20260424-190437 (TODO/001)
+	// Source: DI-bonop (TODO-jirin)
 	disableUIDRemap := false
 	return stage0.DevcontainerTemplateData{
 		Name:               name,
@@ -51,7 +51,7 @@ func ProducerDevcontainerData(name string) stage0.DevcontainerTemplateData {
 		RemoteIdentityUID:  remoteIdentityUID,
 		// Intent: Keep producer devcontainer JSON focused on URI/path policy while
 		// making image identity authoritative from producer Dockerfile ENV.
-		// Source: DI-001-20260425-113454 (TODO/001)
+		// Source: DI-zopat (TODO-jirin)
 		DisableRemoteIdentityEnv: true,
 		UpdateRemoteUserUID:      &disableUIDRemap,
 		Home:                     DefaultHome,
@@ -69,7 +69,7 @@ func ProducerDevcontainerData(name string) stage0.DevcontainerTemplateData {
 func ProducerDevcontainerDataWithIdentity(name, remoteIdentityUser, remoteIdentityUID string) stage0.DevcontainerTemplateData {
 	// Intent: Keep producer identity overrides centralized so both interactive
 	// init paths and generators apply one consistent user/UID mapping contract.
-	// Source: DI-001-20260424-190437 (TODO/001)
+	// Source: DI-bonop (TODO-jirin)
 	data := ProducerDevcontainerData(name)
 	if remoteIdentityUser != "" {
 		data.RemoteIdentityUser = remoteIdentityUser

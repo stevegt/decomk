@@ -75,7 +75,7 @@ func run(args []string) error {
 	// Intent: Keep checked-in confrepo examples generated from the same template
 	// contract used by `decomk init -conf` so docs/examples cannot drift from
 	// command output.
-	// Source: DI-013-20260424-190504 (TODO/013)
+	// Source: DI-migil (TODO-rufiz)
 	targets := []outputSpec{
 		{Path: filepath.Join(absRoot, "examples", "confrepo", "decomk.conf"), Mode: 0o644, Kind: "decomk.conf"},
 		{Path: filepath.Join(absRoot, "examples", "confrepo", "Makefile"), Mode: 0o644, Kind: "Makefile"},

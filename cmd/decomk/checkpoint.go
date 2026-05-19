@@ -213,7 +213,7 @@ func cmdCheckpointBuild(args []string, stdout, stderr io.Writer, deps checkpoint
 		// Intent: Make checkpoint build cleanup explicit and fail-fast so a "success"
 		// result never hides leaked prebuild containers unless the operator asked to
 		// retain them for diagnostics.
-		// Source: DI-011-20260420-162554 (TODO/011)
+		// Source: DI-kalab (TODO-luvov)
 		if _, err := runCheckpointCommand(deps.runner, "docker", "rm", "-f", containerID); err != nil {
 			wrapped := fmt.Errorf("remove checkpoint container %s: %w", containerID, err)
 			if retErr == nil {
@@ -244,7 +244,7 @@ func cmdCheckpointBuild(args []string, stdout, stderr io.Writer, deps checkpoint
 	if !flags.quiet {
 		// Intent: Make checkpoint-build lifecycle troubleshooting visible by
 		// default while keeping machine-readable checkpoint JSON on stdout.
-		// Source: DI-011-20260424-160516 (TODO/011)
+		// Source: DI-tonal (TODO-luvov)
 		if err := writeCheckpointBuildLogs(stderr, devcontainerOut); err != nil {
 			return 1, err
 		}
@@ -302,7 +302,7 @@ func checkpointBuildLogLevel(quiet bool) string {
 //
 // Intent: Keep checkpoint artifacts deterministic on stdout while making verbose
 // lifecycle logs directly visible to operators on stderr.
-// Source: DI-011-20260424-160516 (TODO/011)
+// Source: DI-tonal (TODO-luvov)
 func writeCheckpointBuildLogs(stderr io.Writer, out checkpointCommandOutput) error {
 	if err := writeCheckpointLogStream(stderr, out.Stdout); err != nil {
 		return err
@@ -490,7 +490,7 @@ func resolveSourceReference(r checkpointRunner, source string) (resolved string,
 	// Intent: Accept digest/ref/image-id source inputs uniformly by trying local
 	// inspection first, then a pull fallback, so checkpoint push/tag can consume
 	// either local candidates or remote-tested references.
-	// Source: DI-011-20260420-162554 (TODO/011)
+	// Source: DI-kalab (TODO-luvov)
 	if _, pullErr := runCheckpointCommand(r, "docker", "pull", source); pullErr != nil {
 		return "", false, fmt.Errorf("resolve source %q: inspect failed (%v), pull failed: %w", source, err, pullErr)
 	}
@@ -512,7 +512,7 @@ func publishSourceToTags(r checkpointRunner, source string, destinations []strin
 
 		// Intent: Require explicit `-m` before moving existing channel tags so
 		// checkpoint rollout stays deliberate and does not overwrite tags silently.
-		// Source: DI-011-20260420-162554 (TODO/011)
+		// Source: DI-kalab (TODO-luvov)
 		if exists && !move {
 			return nil, fmt.Errorf("destination tag %q already exists; rerun with -m to move it", destination)
 		}

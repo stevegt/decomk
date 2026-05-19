@@ -19,7 +19,7 @@ func TestGeneratedStage0FilesMatchTemplates(t *testing.T) {
 
 	// Intent: Enforce template/example parity in tests so production and selftest
 	// stage-0 files cannot drift from the canonical init templates.
-	// Source: DI-001-20260312-141200 (TODO/001)
+	// Source: DI-tikub (TODO-jirin)
 	tests := []struct {
 		name   string
 		path   string

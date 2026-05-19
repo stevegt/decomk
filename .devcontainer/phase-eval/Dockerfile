@@ -1,7 +1,7 @@
 # Intent: Provide a deterministic minimal base image for phase lifecycle
 # evaluation with a non-root dev user and passwordless sudo so hook behavior is
 # measured consistently across local DevPod and Codespaces runs.
-# Source: DI-009-20260413-232813 (TODO/009)
+# Source: DI-kabut (TODO-dahuk)
 FROM golang:1.24-bookworm
 
 RUN apt-get update \

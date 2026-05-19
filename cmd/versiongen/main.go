@@ -2,7 +2,7 @@
 //
 // Intent: Keep CLI runtime version output tied to the checked-in VERSION file,
 // so source builds and release tags share the same canonical identifier.
-// Source: DI-001-20260423-204251 (TODO/001)
+// Source: DI-gavaj (TODO-jirin)
 package main
 
 import (
